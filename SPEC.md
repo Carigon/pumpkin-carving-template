@@ -1,6 +1,6 @@
 # Spec: Pumpkin Carving Template Generator
 
-Status: ready-for-agent (no issue tracker configured yet; this file stands in for the issue)
+Status: published as https://github.com/Carigon/sphereprojection/issues/1 (ready-for-agent). The issue is canonical.
 
 ## Problem Statement
 
@@ -159,4 +159,4 @@ Outputs:
 
 - The core physical limit: paper can't lie flat on a doubly curved surface without stretching. ARAP spreads the unavoidable stretch evenly, and slits relieve most of it. Small designs (under about 90° across) fit well. Very large wraparound designs will still show some stretch; the tint and warnings make this visible.
 - Ribs matter less than you'd expect for v1: taped paper sits across the tops of the ribs rather than following each groove, so a smooth ellipsoid is a reasonable model.
-- An issue tracker isn't configured yet. Once `/setup-matt-pocock-skills` has been run, publish this spec there with the `ready-for-agent` label.
+- Published to GitHub Issues as Carigon/sphereprojection#1.
