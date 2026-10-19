@@ -10,9 +10,10 @@ import type { TriangleMesh } from "./mesh";
  * singular values σ1 ≥ σ2. The scalar stretch is `max(σ1, 1/σ2) − 1`: 0 means the paper triangle is
  * an exact copy, 0.05 means some direction is 5 % longer or shorter on paper than on the surface.
  * A flipped or collapsed paper triangle gets a huge (but finite) value.
+ *
+ * The 3D side carries the mesh's blended vertex normals, for shading the tint.
  */
-/** `normals[i]` is the outward surface normal at `mesh.vertices[i]`. */
-export function stretchMap(mesh: TriangleMesh, flat: Point2[], normals: Vec3[]): StretchMap {
+export function stretchMap(mesh: TriangleMesh, flat: Point2[]): StretchMap {
   const values: number[] = [];
   const areas: number[] = [];
   for (const [i0, i1, i2] of mesh.triangles) {
@@ -25,7 +26,7 @@ export function stretchMap(mesh: TriangleMesh, flat: Point2[], normals: Vec3[]):
   return {
     triangles: mesh.triangles.map((t) => [...t] as [number, number, number]),
     surface: mesh.vertices.map((v) => [...v] as Vec3),
-    normals: normals.map((n) => [...n] as Vec3),
+    normals: mesh.normals.map((n) => [...n] as Vec3),
     flat: flat.map((p) => ({ ...p })),
     values,
     max: values.reduce((m, v) => Math.max(m, v), 0),

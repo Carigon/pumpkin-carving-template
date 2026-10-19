@@ -67,7 +67,7 @@ export function buildTemplate(input: TemplateInput): TemplateResult {
       designPaths: flat.paths,
       cutOutline: flat.outline,
       slits: flat.slits,
-      stretch: stretchMap(flat.mesh, flat.flat, flat.normals),
+      stretch: stretchMap(flat.mesh, flat.flat),
     };
   }
 

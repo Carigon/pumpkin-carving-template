@@ -24,8 +24,8 @@ export interface SurfaceHit extends SurfaceSample {
 }
 
 /**
- * The narrow interface projection and flattening work against, so new shapes
- * (revolved side profiles, ribs) can be added without touching them.
+ * A smooth surface by coordinates, as meshes are built from (e.g. the revolved profile). Projection and
+ * flattening work against the mesh (`MeshSurface`) instead, so new shapes only change the mesh.
  */
 export interface Surface {
   /**

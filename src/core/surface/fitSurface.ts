@@ -1,15 +1,14 @@
 import type { MeasurementWarning, ProfilePoint, PumpkinMeasurements, SurfaceParameters } from "../types";
 import { angleAt, fitProfile, profileAt } from "./profile";
-import { meshSurface } from "../mesh/meshSurface";
+import { meshSurface, type MeshSurface } from "../mesh/meshSurface";
 import { convertLength } from "../units";
 import { revolvedSurface } from "./revolved";
 import { revolvedMesh } from "./revolvedMesh";
-import type { Surface } from "./surface";
 
 export type SurfaceFit =
   | {
       ok: true;
-      surface: Surface;
+      surface: MeshSurface;
       parameters: SurfaceParameters;
       /** The fitted radius at a position (0 = bottom, 1 = top). */
       radiusAt(position: number): number;
@@ -24,7 +23,7 @@ const MESH_TOLERANCE_CM = 0.025;
 /**
  * Fit the pumpkin surface to the tape measurements: the smoothest side profile through every ring at its
  * height, widest at the largest ring (see `fitProfile`), spun around the vertical axis, then triangulated. The mesh
- * is the surface projection works against.
+ * is the surface projection and flattening work against.
  */
 export function fitSurface(m: PumpkinMeasurements): SurfaceFit {
   const warnings = checkMeasurements(m);
@@ -50,7 +49,7 @@ export function fitSurface(m: PumpkinMeasurements): SurfaceFit {
   const widest = Math.max(...m.rings.map((r) => r.circumference / (2 * Math.PI)), ...profile.map((p) => p.radius));
   return {
     ok: true,
-    surface: meshSurface(mesh, smooth),
+    surface: meshSurface(mesh),
     parameters: {
       kind: fit.ellipsoid ? "ellipsoid" : "revolved",
       semiAxes: { sideToSide: widest, frontToBack: widest, vertical: m.height / 2 },

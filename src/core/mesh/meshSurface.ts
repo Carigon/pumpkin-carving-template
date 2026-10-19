@@ -1,37 +1,52 @@
-import type { Surface, SurfaceHit, Vec3 } from "../surface/surface";
+import type { SurfaceSample, Vec3 } from "../surface/surface";
+import type { SurfaceMesh } from "../types";
 import { buildBvh } from "./bvh";
-import type { ProjectionMesh } from "./projectionMesh";
+
+/** Where a point sits on a mesh: its triangle and the weights of the triangle's corners (they sum to 1). */
+export interface MeshLocation {
+  triangle: number;
+  weights: [number, number, number];
+}
+
+/** Where a ray meets the mesh: the point, the blended normal, and the triangle and its corners' weights there. */
+export interface MeshHit extends SurfaceSample, MeshLocation {}
+
+/** The mesh as the surface projection and flattening work against. */
+export interface MeshSurface {
+  mesh: SurfaceMesh;
+  /**
+   * First hit of a ray travelling along the viewing axis (-z) through (x, y), i.e. the front-most surface point
+   * seen at that spot. Null if the ray misses the silhouette.
+   */
+  hitAlongView(x: number, y: number): MeshHit | null;
+}
 
 /**
- * The mesh as the surface projection works against: rays along the view hit its triangles (through a BVH), with
- * the vertex normals and coordinates blended across the triangle that is hit.
- *
- * Points by coordinates still come from `source`, the smooth surface the mesh was built from, until flattening
- * moves onto the mesh.
+ * Rays along the view hit the mesh's triangles (through a BVH), with the vertex normals blended across the
+ * triangle that is hit.
  */
-export function meshSurface(mesh: ProjectionMesh, source: Surface): Surface {
+export function meshSurface(mesh: SurfaceMesh): MeshSurface {
   const bvh = buildBvh(mesh);
-  const { positions, normals, coords, triangles } = mesh;
+  const { positions, normals, triangles } = mesh;
   let front = -Infinity;
   for (let i = 2; i < positions.length; i += 3) front = Math.max(front, positions[i]);
   // Start the rays just in front of the mesh, so they don't run long distances in floating point.
   const startZ = front + 1;
 
   return {
-    coordRange: source.coordRange,
-    sample: (c) => source.sample(c),
-    hitAlongView(x: number, y: number): SurfaceHit | null {
+    mesh,
+    hitAlongView(x: number, y: number): MeshHit | null {
       const hit = bvh.raycast([x, y, startZ], [0, 0, -1]);
       if (!hit) return null;
       const corners = [0, 1, 2].map((c) => triangles[3 * hit.triangle + c]);
-      const blend = (data: Float64Array, stride: number, k: number) =>
-        corners.reduce((sum, v, c) => sum + hit.weights[c] * data[stride * v + k], 0);
-      const n: Vec3 = [blend(normals, 3, 0), blend(normals, 3, 1), blend(normals, 3, 2)];
+      const blend = (k: number) => corners.reduce((sum, v, c) => sum + hit.weights[c] * normals[3 * v + k], 0);
+      const n: Vec3 = [blend(0), blend(1), blend(2)];
       const length = Math.hypot(...n) || 1;
       return {
         point: [x, y, startZ - hit.t],
         normal: [n[0] / length, n[1] / length, n[2] / length],
-        coords: { u: blend(coords, 2, 0), v: blend(coords, 2, 1) },
+        triangle: hit.triangle,
+        weights: hit.weights,
       };
     },
   };

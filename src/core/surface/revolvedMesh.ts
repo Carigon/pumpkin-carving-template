@@ -1,6 +1,6 @@
-import type { ProjectionMesh } from "../mesh/projectionMesh";
 import { profileAt, type Profile } from "./profile";
 import type { Surface } from "./surface";
+import type { SurfaceMesh } from "../types";
 
 /** Intervals the meridian starts with before it is split where it bends. */
 const START_ROWS = 16;
@@ -22,10 +22,9 @@ const CHECKS = 8;
  * around the circle: the faces between two rows are flat trapezoids that sag by about the sum of the two.
  *
  * Rows are circles at angles φ down the meridian; columns run from u = −π to π (the seam is at the back, its
- * vertices doubled). Each pole is one vertex per column, at the column's middle u, so coordinates blend sensibly
- * there. Coordinates are the revolved surface's (u, v = π/2 − φ).
+ * vertices doubled). Each pole is one vertex per column, at the column's middle u.
  */
-export function revolvedMesh(profile: Profile, surface: Surface, tolerance: number): ProjectionMesh {
+export function revolvedMesh(profile: Profile, surface: Surface, tolerance: number): SurfaceMesh {
   const widest = Math.max(
     ...Array.from({ length: WIDEST_SAMPLES + 1 }, (_, i) => profileAt(profile, (Math.PI * i) / WIDEST_SAMPLES).radius),
   );
@@ -37,7 +36,6 @@ export function revolvedMesh(profile: Profile, surface: Surface, tolerance: numb
 
   const positions: number[] = [];
   const normals: number[] = [];
-  const coords: number[] = [];
   const uAt = (j: number) => -Math.PI + (2 * Math.PI * j) / segments;
 
   const last = phis.length - 1;
@@ -51,7 +49,6 @@ export function revolvedMesh(profile: Profile, surface: Surface, tolerance: numb
       const sin = Math.sin(u), cos = Math.cos(u);
       positions.push(radius * sin, y, radius * cos);
       normals.push(nr * sin, ny, nr * cos);
-      coords.push(u, v);
       return positions.length / 3 - 1;
     });
   });
@@ -70,7 +67,6 @@ export function revolvedMesh(profile: Profile, surface: Surface, tolerance: numb
   return {
     positions: Float64Array.from(positions),
     normals: Float64Array.from(normals),
-    coords: Float64Array.from(coords),
     triangles: Uint32Array.from(triangles),
   };
 }

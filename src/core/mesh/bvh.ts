@@ -1,5 +1,5 @@
 import type { Vec3 } from "../surface/surface";
-import type { ProjectionMesh } from "./projectionMesh";
+import type { SurfaceMesh } from "../types";
 
 /** Where a ray first meets the mesh: distance along it, the triangle, and the barycentric weights there. */
 export interface RayHit {
@@ -20,7 +20,7 @@ const LEAF_SIZE = 4;
 const EDGE_SLACK = 1e-9;
 
 /** A bounding volume hierarchy over the mesh's triangles: axis-aligned boxes, split at the median along the longest side. */
-export function buildBvh({ positions, triangles }: ProjectionMesh): Bvh {
+export function buildBvh({ positions, triangles }: SurfaceMesh): Bvh {
   const count = triangles.length / 3;
   const order = Uint32Array.from({ length: count }, (_, i) => i);
   const centroids = new Float64Array(3 * count);
