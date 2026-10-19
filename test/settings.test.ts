@@ -29,7 +29,13 @@ const full: Settings = {
   cut: { margin: 2.5, line: false },
   paper: "a4",
   filled: true,
+  step: "template",
 };
+
+/** Storage holding `stored` as the saved settings. */
+function saved(stored: unknown): SettingsStorage {
+  return memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) });
+}
 
 describe("settings", () => {
   it("restores what was saved", () => {
@@ -68,6 +74,7 @@ describe("settings", () => {
       measurements: { rings: [{ position: 0.6, circumference: 20 }] },
       placement: { width: 15 },
       slits: { depth: 4 },
+      step: "measure",
     });
   });
 
@@ -118,6 +125,42 @@ describe("settings", () => {
       cut: { line: false },
       paper: "a4",
       filled: true,
+      step: "template",
+    });
+  });
+
+  describe("last step", () => {
+    it.each(["measure", "design", "template"] as const)("reopens on the %s step", (step) => {
+      const storage = memoryStorage();
+      saveSettings(storage, { ...full, step });
+      expect(loadSettings(storage).step).toBe(step);
+    });
+
+    it("reopens on the grid step in test-grid mode", () => {
+      const storage = memoryStorage();
+      saveSettings(storage, { ...full, mode: "test-grid", step: "grid" });
+      expect(loadSettings(storage).step).toBe("grid");
+    });
+
+    it.each([["teapot"], [3], [null], [{ id: "design" }], [undefined]])(
+      "an unknown or corrupt step %j restores to Measure, keeping the rest",
+      (step) => {
+        const restored = loadSettings(saved({ ...full, step }));
+        expect(restored.step).toBe("measure");
+        expect(restored.paper).toBe("a4");
+      },
+    );
+
+    it("a saved Design step opens as Grid in test-grid mode", () => {
+      expect(loadSettings(saved({ ...full, mode: "test-grid", step: "design" })).step).toBe("grid");
+    });
+
+    it("a saved Grid step opens as Design in pumpkin mode", () => {
+      expect(loadSettings(saved({ ...full, mode: "pumpkin", step: "grid" })).step).toBe("design");
+    });
+
+    it("a saved Grid step opens as Design when the mode can't be read (the app starts in pumpkin mode)", () => {
+      expect(loadSettings(saved({ ...full, mode: "teapot", step: "grid" })).step).toBe("design");
     });
   });
 });

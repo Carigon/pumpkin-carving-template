@@ -1,9 +1,10 @@
 import type { Units } from "./core";
 import type { Paper } from "./paper";
+import { STEP_IDS, stepInMode, type Mode, type StepId } from "./steps";
 
 /** The inputs a returning carver gets back on reload. Never images or designs. */
 export interface Settings {
-  mode: "pumpkin" | "test-grid";
+  mode: Mode;
   /** Test-grid squares across. */
   cells: number;
   /** Test-grid width seen from the front, in `units`; null when empty. */
@@ -23,6 +24,8 @@ export interface Settings {
   cut: { margin: number; line: boolean };
   paper: Paper;
   filled: boolean;
+  /** The step the carver was last on. */
+  step: StepId;
 }
 
 /** Whatever survived validation of the stored settings. A missing value means "keep the default". */
@@ -37,6 +40,8 @@ export interface RestoredSettings {
   cut?: Partial<Settings["cut"]>;
   paper?: Paper;
   filled?: boolean;
+  /** Always there when settings were saved: an unknown step restores to Measure. */
+  step?: StepId;
 }
 
 /** The part of `Storage` (e.g. `localStorage`) the settings need. */
@@ -78,6 +83,7 @@ export function saveSettings(storage: SettingsStorage | undefined, s: Settings):
     cut: { margin: s.cut.margin, line: s.cut.line },
     paper: s.paper,
     filled: s.filled,
+    step: s.step,
   };
   try {
     storage?.setItem(KEY, JSON.stringify(picked));
@@ -107,8 +113,10 @@ function validate(s: Record<string, unknown>): RestoredSettings {
   // Lengths only mean something in known units.
   const length = <T>(value: T) => (units ? value : undefined);
 
+  const mode = oneOf(s.mode, ["pumpkin", "test-grid"] as const);
+
   return compact({
-    mode: oneOf(s.mode, ["pumpkin", "test-grid"] as const),
+    mode,
     cells: integerIn(s.cells, 1, MAX_CELLS),
     gridWidth: length(emptyOr(s.gridWidth, positive)),
     units,
@@ -126,6 +134,8 @@ function validate(s: Record<string, unknown>): RestoredSettings {
     cut: group({ margin: length(positive(c.margin)), line: typeof c.line === "boolean" ? c.line : undefined }),
     paper: oneOf(s.paper, ["letter", "a4"] as const),
     filled: typeof s.filled === "boolean" ? s.filled : undefined,
+    // The app starts in pumpkin mode when the saved mode is unusable.
+    step: stepInMode(oneOf(s.step, STEP_IDS) ?? "measure", mode ?? "pumpkin"),
   });
 }
 
