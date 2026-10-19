@@ -132,6 +132,7 @@ Outputs:
 ## Testing Decisions
 
 - **One test seam: the template builder.** Every automated test calls it with design paths and parameters, and checks only its output geometry, stretch values and warnings. Tests don't reach into the mesh, the ARAP solver, the ellipsoid code or slit placement directly, so those can be rewritten freely.
+  - Thin pure helpers in the layers around the core (PDF layout, settings, raster preparation, small UI helpers) may also have direct unit tests; see `docs/adr/0001-test-seams.md`.
 - A good test checks behavior you can see from outside, against known formulas or physical properties. It doesn't check intermediate data structures.
 - The template builder is built test-first (red-green-refactor).
 - Planned tests:
