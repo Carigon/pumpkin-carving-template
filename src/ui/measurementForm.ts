@@ -15,6 +15,8 @@ export interface MeasurementForm {
   read(): PumpkinMeasurements;
   /** Show impossible-measurement warnings next to the matching inputs; clears the others. */
   showWarnings(warnings: TemplateWarning[]): void;
+  /** Put back saved units and values (null = empty). Missing values keep the current ones. Doesn't call `onChange`. */
+  restore(saved: { units?: Units; values?: Partial<Record<MeasurementField, number | null>> }): void;
 }
 
 /**
@@ -82,6 +84,16 @@ export function mountMeasurementForm(
 
   return {
     read,
+    restore({ units: savedUnits, values = {} }) {
+      if (savedUnits) {
+        form.querySelector<HTMLInputElement>(`input[name="units"][value="${savedUnits}"]`)!.checked = true;
+        form.querySelectorAll(".unit-label").forEach((el) => (el.textContent = savedUnits));
+      }
+      for (const { field } of FIELDS) {
+        const v = values[field];
+        if (v !== undefined) input(field).value = v === null ? "" : String(v);
+      }
+    },
     showWarnings(warnings) {
       for (const { field } of FIELDS) {
         const warningEl = form.querySelector<HTMLElement>(`#m-${field}-warning`)!;

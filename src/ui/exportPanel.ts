@@ -3,10 +3,16 @@ import type { Paper, TemplatePdfInput } from "../pdf/layout";
 export interface ExportPanel {
   /** What to export, or null when there is no template yet. */
   setSource(source: Omit<TemplatePdfInput, "filled" | "paper"> | null): void;
+  options(): { paper: Paper; filled: boolean };
+  /** Put back saved options. Doesn't call `onChange`. */
+  restore(saved: { paper?: Paper; filled?: boolean }): void;
 }
 
-/** "Download PDF" button with the paper size and carve-area style options. pdf-lib is loaded on first export. */
-export function mountExportPanel(root: HTMLElement): ExportPanel {
+/**
+ * "Download PDF" button with the paper size and carve-area style options. pdf-lib is loaded on first export.
+ * Calls `onChange` when an option changes.
+ */
+export function mountExportPanel(root: HTMLElement, onChange: () => void = () => {}): ExportPanel {
   root.innerHTML = `
     <h2>Template</h2>
     <form class="export" novalidate>
@@ -49,7 +55,14 @@ export function mountExportPanel(root: HTMLElement): ExportPanel {
     }
   });
 
+  form.addEventListener("change", () => onChange());
+
   return {
+    options: () => ({ paper: paper.value as Paper, filled: filled.checked }),
+    restore(saved) {
+      if (saved.paper) paper.value = saved.paper;
+      if (saved.filled !== undefined) filled.checked = saved.filled;
+    },
     setSource(next) {
       source = next;
       button.disabled = next === null;

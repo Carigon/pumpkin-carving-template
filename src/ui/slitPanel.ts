@@ -8,6 +8,8 @@ export interface SlitPanel {
   setUnits(units: Units): void;
   /** Show slit warnings (slits shortened to stay clear of the design). */
   showWarnings(warnings: TemplateWarning[]): void;
+  /** Put back saved slit options, in the current units. Doesn't call `onChange`. */
+  restore(saved: Partial<SlitOptions>): void;
 }
 
 /** Slit count and depth. Calls `onChange` whenever either changes. */
@@ -50,6 +52,10 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
         count: count.value.trim() !== "" && Number.isFinite(n) ? Math.max(0, Math.round(n)) : fallback.count,
         depth: depth.value.trim() !== "" && Number.isFinite(d) ? Math.max(0, d) : fallback.depth,
       };
+    },
+    restore(saved) {
+      if (saved.count !== undefined) count.value = String(saved.count);
+      if (saved.depth !== undefined) depth.value = String(saved.depth);
     },
     setUnits(next) {
       if (next === units) return;

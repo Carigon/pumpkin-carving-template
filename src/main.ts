@@ -8,6 +8,7 @@ import { mountMeasurementForm } from "./ui/measurementForm";
 import { mountModePanel } from "./ui/modePanel";
 import { mountSlitPanel } from "./ui/slitPanel";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
+import { browserStorage, loadSettings, saveSettings } from "./settings";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 app.innerHTML = `
@@ -32,8 +33,39 @@ const modePanel = mountModePanel(app.querySelector<HTMLElement>("#mode")!, app, 
 const form = mountMeasurementForm(app.querySelector<HTMLElement>("#measurements")!, update);
 const designPanel = mountDesignPanel(app.querySelector<HTMLElement>("#design")!, update);
 const slitPanel = mountSlitPanel(app.querySelector<HTMLElement>("#slits")!, update);
-const exportPanel = mountExportPanel(app.querySelector<HTMLElement>("#export")!);
+const exportPanel = mountExportPanel(app.querySelector<HTMLElement>("#export")!, persist);
+restore();
 update();
+
+/** Put back the last-used settings. Units go first so the length fields are read in the saved units. */
+function restore(): void {
+  const saved = loadSettings(browserStorage());
+  modePanel.restore(saved);
+  form.restore({ units: saved.units, values: saved.measurements });
+  if (saved.units) {
+    designPanel.setUnits(saved.units);
+    slitPanel.setUnits(saved.units);
+  }
+  designPanel.restorePlacement(saved.placement ?? {});
+  slitPanel.restore(saved.slits ?? {});
+  exportPanel.restore(saved);
+}
+
+/** Remember the current settings (never the design). */
+function persist(): void {
+  const m = form.read();
+  const p = designPanel.placement();
+  const orNull = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x : null);
+  saveSettings(browserStorage(), {
+    mode: modePanel.mode(),
+    cells: modePanel.cells(),
+    units: m.units,
+    measurements: { circumference: orNull(m.circumference), frontArc: orNull(m.frontArc), depth: orNull(m.depth) },
+    placement: { width: orNull(p.width), verticalOffset: p.verticalOffset, rotation: p.rotation },
+    slits: slitPanel.options(),
+    ...exportPanel.options(),
+  });
+}
 
 function update(): void {
   const ball = modePanel.mode() === "test-grid";
@@ -60,4 +92,6 @@ function update(): void {
         }
       : null,
   );
+  // Last, so the design and slit lengths have already been converted to the current units.
+  persist();
 }

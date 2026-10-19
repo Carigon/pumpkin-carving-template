@@ -6,6 +6,8 @@ export interface ModePanel {
   mode(): Mode;
   /** Grid squares across (and down) in test-grid mode. */
   cells(): number;
+  /** Put back a saved mode and grid size. Doesn't call `onChange`. */
+  restore(saved: { mode?: Mode; cells?: number }): void;
 }
 
 /**
@@ -45,6 +47,11 @@ export function mountModePanel(root: HTMLElement, scope: HTMLElement, onChange: 
 
   return {
     mode,
+    restore(saved) {
+      if (saved.mode) form.querySelector<HTMLInputElement>(`input[name="mode"][value="${saved.mode}"]`)!.checked = true;
+      if (saved.cells !== undefined) cellsInput.value = String(saved.cells);
+      sync();
+    },
     cells: () => {
       const n = Math.round(Number(cellsInput.value));
       return n >= 1 ? Math.min(n, 20) : DEFAULT_CELLS;

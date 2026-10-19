@@ -13,6 +13,8 @@ export interface DesignPanel {
   setUnits(units: Units): void;
   /** Show design-related warnings (outside the silhouette, past the front limit). */
   showWarnings(warnings: TemplateWarning[]): void;
+  /** Put back saved placement values (width null = empty), in the current units. Doesn't call `onChange`. */
+  restorePlacement(saved: Partial<{ width: number | null; verticalOffset: number; rotation: number }>): void;
 }
 
 /**
@@ -117,6 +119,11 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
       verticalOffset: num(offset.value) || 0,
       rotation: num(rotation.value) || 0,
     }),
+    restorePlacement(saved) {
+      if (saved.width !== undefined) width.value = saved.width === null ? "" : String(saved.width);
+      if (saved.verticalOffset !== undefined) offset.value = String(saved.verticalOffset);
+      if (saved.rotation !== undefined) rotation.value = rotationRange.value = String(saved.rotation);
+    },
     setUnits(next) {
       if (next === units) return;
       const factor = next === "cm" ? CM_PER_IN : 1 / CM_PER_IN;
