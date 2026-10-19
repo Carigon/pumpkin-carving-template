@@ -27,25 +27,161 @@ body {
   color: var(--fg);
 }
 
-main {
-  max-width: 40rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem;
+/*
+ * App shell. Below the breakpoint the pieces stack in DOM order: header, viewport (4:3), step tabs, step
+ * content. Above it, a two-column editor: the controls pane, whose width is only ever `--controls-width`
+ * (so a draggable divider can set that one variable), and the viewport filling the rest at full height.
+ */
+#app {
+  --controls-width: 26rem;
 }
 
-h1 {
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
   color: var(--accent);
+}
+
+.app-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice legend {
+  float: left;
+  color: var(--muted);
+}
+
+.viewport {
+  position: relative;
+  min-height: 0;
+}
+
+.view[hidden],
+.step-panel[hidden] {
+  display: none;
+}
+
+.view-3d {
+  display: flex;
+  flex-direction: column;
+}
+
+.view-notes {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.25rem 0.75rem 0.5rem;
+}
+
+.controls {
+  padding: 0 1rem 1.5rem;
+}
+
+.step-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.75rem 0 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.step-tab {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.step-tab[aria-selected="true"] {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.step-panel {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.step-panel:focus {
+  outline: none;
+}
+
+.step-nav {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.step-nav button {
+  font-size: 1rem;
+  padding: 0.4rem 1rem;
+}
+
+.step-nav .step-next {
+  margin-left: auto;
+}
+
+@media (min-width: 60rem) {
+  #app {
+    display: grid;
+    grid-template-columns: var(--controls-width) 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "header header"
+      "controls viewport";
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .app-header {
+    grid-area: header;
+  }
+
+  .controls {
+    grid-area: controls;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+  }
+
+  .viewport {
+    grid-area: viewport;
+  }
+
+  /* Each view fills the pane. */
+  .view {
+    position: absolute;
+    inset: 0;
+  }
+
+  .viewport .preview-canvas {
+    flex: 1;
+    aspect-ratio: auto;
+  }
 }
 
 .measurements {
   display: grid;
-  gap: 1rem;
-}
-
-.units {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  display: flex;
   gap: 1rem;
 }
 
@@ -154,11 +290,11 @@ h1 {
   color: var(--warn-fg);
 }
 
-#preview-canvas {
+.preview-canvas {
   display: block;
   width: 100%;
+  min-height: 0;
   aspect-ratio: 4 / 3;
-  border-radius: 6px;
   touch-action: none;
 }
 
@@ -224,7 +360,7 @@ h1 {
 }
 
 /* Test-grid (ball) mode: one circumference, a generated grid instead of an uploaded design. */
-.mode {
+.grid-size {
   display: grid;
   gap: 1rem;
 }

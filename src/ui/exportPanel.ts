@@ -22,7 +22,7 @@ export interface ExportPanel {
  */
 export function mountExportPanel(root: HTMLElement, onChange: () => void = () => {}): ExportPanel {
   root.innerHTML = `
-    <h2>Template</h2>
+    <h2>Paper and PDF</h2>
     <form class="export" novalidate>
       <label>Paper
         <select id="x-paper">

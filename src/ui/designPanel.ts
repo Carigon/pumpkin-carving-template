@@ -10,6 +10,8 @@ const MAX_ROTATION = 30;
 export interface DesignPanel {
   design(): Design | null;
   placement(): Placement;
+  /** An image design is loaded and its tracing settings are showing. */
+  tracing(): boolean;
   /** Convert the length fields when the measurement units change. */
   setUnits(units: Units): void;
   /** Show design-related warnings (outside the silhouette, past the front limit). */
@@ -24,7 +26,6 @@ export interface DesignPanel {
  */
 export function mountDesignPanel(root: HTMLElement, onChange: () => void): DesignPanel {
   root.innerHTML = `
-    <h2>Design</h2>
     <form class="design" novalidate>
       <div class="field">
         <label for="d-file">SVG file or scanned stencil</label>
@@ -115,6 +116,7 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
 
   return {
     design: () => design,
+    tracing: () => !traceEl.hidden,
     placement: () => ({
       width: lengths.value(width),
       verticalOffset: lengths.value(offset) || 0,

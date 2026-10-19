@@ -18,6 +18,8 @@ export interface MeasurementForm {
   read(): PumpkinMeasurements;
   /** Show impossible-measurement warnings next to the height and the matching rings; clears the others. */
   showWarnings(warnings: TemplateWarning[]): void;
+  /** Convert every length (height and rings) to `units`. Doesn't call `onChange`. */
+  setUnits(units: Units): void;
   /** Put back saved units and values. Missing values keep the current ones. Doesn't call `onChange`. */
   restore(saved: SavedMeasurements): void;
 }
@@ -36,18 +38,14 @@ interface RingRow {
 }
 
 /**
- * Measurement form: the height, and tape rings each at a height above the table, with an inch/cm switch.
+ * Measurement form: the height, and tape rings each at a height above the table. The units are chosen in the
+ * header and set with `setUnits`.
  * Ring heights are kept as fractions of the height, so changing the height keeps the rings in proportion.
  * Calls `onChange` with the current measurements on every edit.
  */
 export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMeasurements) => void): MeasurementForm {
   root.innerHTML = `
     <form class="measurements" novalidate>
-      <fieldset class="units">
-        <legend>Units</legend>
-        <label><input type="radio" name="units" value="in" checked /> inches</label>
-        <label><input type="radio" name="units" value="cm" /> centimeters</label>
-      </fieldset>
       <div class="field" data-field="height">
         <label for="m-height">Height</label>
         <div class="input-row">
@@ -74,7 +72,6 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
 
   const form = root.querySelector("form")!;
   const heightInput = form.querySelector<HTMLInputElement>("#m-height")!;
-  const units = (): Units => form.querySelector<HTMLInputElement>('input[name="units"]:checked')!.value as Units;
   const list = form.querySelector<HTMLOListElement>(".ring-list")!;
   const ringsWarning = form.querySelector<HTMLElement>(".rings-warning")!;
 
@@ -185,11 +182,6 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
     refresh();
     onChange(read());
   });
-  form.addEventListener("change", (e) => {
-    if ((e.target as HTMLInputElement).name !== "units") return;
-    lengths.setUnits(units());
-    onChange(read());
-  });
   form.addEventListener("input", (e) => {
     const target = e.target as HTMLInputElement;
     if (target === heightInput) followHeight();
@@ -202,11 +194,9 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
 
   return {
     read,
+    setUnits: (next) => lengths.setUnits(next),
     restore({ units: savedUnits, height: savedHeight, rings }) {
-      if (savedUnits) {
-        form.querySelector<HTMLInputElement>(`input[name="units"][value="${savedUnits}"]`)!.checked = true;
-        lengths.setUnits(savedUnits);
-      }
+      if (savedUnits) lengths.setUnits(savedUnits);
       if (savedHeight !== undefined) {
         lengths.set(heightInput, savedHeight);
         followHeight();
