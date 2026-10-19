@@ -76,8 +76,11 @@ export interface MeshLocation {
   weights: [number, number, number];
 }
 
+/** Finds the triangle a point lies in, or null outside the mesh. */
+export type MeshLocator = (p: Point2) => MeshLocation | null;
+
 /** Point location in the meshing domain, via a bucket grid over triangle bounding boxes. */
-export function meshLocator(mesh: TriangleMesh): (p: Point2) => MeshLocation | null {
+export function meshLocator(mesh: TriangleMesh): MeshLocator {
   const { domain, triangles } = mesh;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const p of domain) {

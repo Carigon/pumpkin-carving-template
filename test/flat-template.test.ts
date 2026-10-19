@@ -11,6 +11,31 @@ function designOf(...paths: [number, number][][]): Design {
   };
 }
 
+/** Even-odd point-in-polygon test. */
+function insidePolygon(p: Point2, polygon: Point2[]): boolean {
+  let inside = false;
+  polygon.forEach((a, i) => {
+    const b = polygon[(i + 1) % polygon.length];
+    if (a.y > p.y !== b.y > p.y && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
+  });
+  return inside;
+}
+
+/** Distance from p to the nearest segment of any closed path. */
+function distanceToPaths(p: Point2, paths: Point2[][]): number {
+  let best = Infinity;
+  for (const path of paths) {
+    path.forEach((a, i) => {
+      const b = path[(i + 1) % path.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
+      best = Math.min(best, Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy));
+    });
+  }
+  return best;
+}
+
 function bboxOf(points: Point2[]) {
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);
@@ -35,11 +60,11 @@ describe("flattening on a sphere", () => {
     at(outer - 0.5 * deg, heading + 2 * deg),
   ];
 
-  // Paper can't lie flat on a sphere: without slits, ARAP spreads a few percent of shrink over the patch,
-  // growing with its size (about θ²/12 for a patch reaching θ from its center).
+  // The paper follows the thin spokes (the cut-out edge hugs them), and narrow strips along great circles
+  // lie almost flat, so distances along them come out nearly true (measured: about 0.2 %).
   it.each([
-    ["a design spanning 40°", 20, 0.02],
-    ["a design spanning 80°", 40, 0.05],
+    ["a design spanning 40°", 20, 0.01],
+    ["a design spanning 80°", 40, 0.01],
   ])("%s: distances out from the design center match true surface distances", (_, reach, tolerance) => {
     const headings = [0, 45, 90, 135, 180, 225, 270, 315].map((h) => h * deg);
     const inner = 5 * deg;
@@ -110,6 +135,39 @@ describe("scale of the flat template", () => {
     expect(box.maxX).toBeCloseTo(2 + margin, 2);
     expect(box.minY).toBeCloseTo(-1 - margin, 2);
     expect(box.maxY).toBeCloseTo(1 + margin, 2);
+  });
+
+  it("the cut-out edge follows the design's outline into concave parts instead of cutting across them", () => {
+    // An L, 4 in tall and wide and 2 in thick, with its inner corner at the design center (the origin).
+    // Its notch is 2 in across, wider than two margins.
+    const { template } = buildTemplate({
+      measurements: huge,
+      design: designOf([[0, 0], [4, 0], [4, 2], [2, 2], [2, 4], [0, 4]]),
+      placement: { width: 4, verticalOffset: 0, rotation: 0 },
+    });
+
+    const outline = template!.cutOutline;
+    const design = template!.designPaths;
+    // Every point of the edge is 3/4 in from the design: the edge hugs the L all the way round.
+    for (const p of outline) expect(distanceToPaths(p, design)).toBeCloseTo(0.75, 1);
+    // The design sits inside the edge; the notch doesn't.
+    for (const p of design.flat()) expect(insidePolygon(p, outline)).toBe(true);
+    expect(insidePolygon({ x: 1.5, y: 1.5 }, outline)).toBe(false);
+  });
+
+  it("a design in separate pieces still gets one cut-out edge around all of them", () => {
+    // Two 1 in squares 3 in apart.
+    const { template } = buildTemplate({
+      measurements: huge,
+      design: designOf([[0, 0], [1, 0], [1, 1], [0, 1]], [[4, 0], [5, 0], [5, 1], [4, 1]]),
+      placement: { width: 5, verticalOffset: 0, rotation: 0 },
+    });
+
+    const outline = template!.cutOutline;
+    for (const p of template!.designPaths.flat()) expect(insidePolygon(p, outline)).toBe(true);
+    const box = bboxOf(outline);
+    expect(box.minX).toBeCloseTo(-2.5 - 0.75, 2);
+    expect(box.maxX).toBeCloseTo(2.5 + 0.75, 2);
   });
 
   it("a design that misses the pumpkin entirely gives no template", () => {

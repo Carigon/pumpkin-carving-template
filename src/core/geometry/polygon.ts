@@ -1,4 +1,5 @@
 import type { Point2 } from "../types";
+import { distance } from "./vector";
 
 const cross = (o: Point2, a: Point2, b: Point2) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
 
@@ -18,22 +19,6 @@ export function convexHull(points: Point2[]): Point2[] {
   return [...half(sorted), ...half([...sorted].reverse())];
 }
 
-/** Distance from `p` to a counterclockwise convex polygon: 0 inside, else distance to its boundary. */
-export function distanceToConvex(p: Point2, polygon: Point2[]): number {
-  if (polygon.length === 0) return Infinity;
-  let inside = polygon.length >= 3;
-  let best = Infinity;
-  for (let i = 0; i < polygon.length; i++) {
-    const a = polygon[i], b = polygon[(i + 1) % polygon.length];
-    if (cross(a, b, p) < 0) inside = false;
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const len2 = dx * dx + dy * dy;
-    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
-    best = Math.min(best, Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy));
-  }
-  return inside ? 0 : best;
-}
-
 /** Distance from `p` to the segment a–b. */
 export function distanceToSegment(p: Point2, a: Point2, b: Point2): number {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -42,73 +27,89 @@ export function distanceToSegment(p: Point2, a: Point2, b: Point2): number {
   return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
 }
 
-/** Is `p` inside (or on) a counterclockwise convex polygon? */
-export function insideConvex(p: Point2, polygon: Point2[]): boolean {
-  return polygon.every((a, i) => cross(a, polygon[(i + 1) % polygon.length], p) >= 0);
+/** The point of a closed polygon's boundary nearest to `p`, and its distance. */
+export function nearestOnPolygon(p: Point2, polygon: Point2[]): { point: Point2; distance: number } {
+  let best = { point: p, distance: Infinity };
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i], b = polygon[(i + 1) % polygon.length];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
+    const q = { x: a.x + t * dx, y: a.y + t * dy };
+    const d = distance(p, q);
+    if (d < best.distance) best = { point: q, distance: d };
+  }
+  return best;
+}
+
+/** Is `p` inside the closed polygon (even-odd rule)? */
+export function insidePolygon(p: Point2, polygon: Point2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i], b = polygon[j];
+    if (a.y > p.y !== b.y > p.y && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
+  }
+  return inside;
 }
 
 /**
- * How far a ray from `origin` (inside the polygon) along the unit vector `dir` travels before it
- * leaves a counterclockwise convex polygon.
+ * The piece of an open polyline around its vertex `at` (which must be inside the polygon) that stays
+ * inside the closed polygon, cut exactly where it first leaves on either side. Null if `at` is outside.
  */
-export function rayExit(origin: Point2, dir: Point2, polygon: Point2[]): number {
-  let best = Infinity;
-  for (let i = 0; i < polygon.length; i++) {
-    const a = polygon[i], b = polygon[(i + 1) % polygon.length];
-    const ex = b.x - a.x, ey = b.y - a.y;
-    const denom = dir.x * ey - dir.y * ex;
-    if (Math.abs(denom) < 1e-12) continue;
-    const t = ((a.x - origin.x) * ey - (a.y - origin.y) * ex) / denom;
-    const s = ((a.x - origin.x) * dir.y - (a.y - origin.y) * dir.x) / denom;
-    if (t >= 0 && s >= -1e-9 && s <= 1 + 1e-9) best = Math.min(best, t);
-  }
-  return Number.isFinite(best) ? best : 0;
-}
-
-/** The parts of an open polyline inside a counterclockwise convex polygon, cut exactly at its edge. */
-export function clipToConvex(line: Point2[], polygon: Point2[]): Point2[][] {
-  const pieces: Point2[][] = [];
-  let current: Point2[] = [];
-  const flush = () => {
-    if (current.length >= 2) pieces.push(current);
-    current = [];
+export function pieceInside(line: Point2[], at: number, polygon: Point2[]): Point2[] | null {
+  if (!insidePolygon(line[at], polygon)) return null;
+  const walk = (step: 1 | -1): Point2[] => {
+    const out: Point2[] = [];
+    for (let i = at + step; i >= 0 && i < line.length; i += step) {
+      const prev = line[i - step], p = line[i];
+      if (insidePolygon(p, polygon)) {
+        out.push(p);
+        continue;
+      }
+      const hit = firstCrossing(prev, p, polygon);
+      if (hit) out.push(hit);
+      break;
+    }
+    return out;
   };
-  for (let i = 0; i + 1 < line.length; i++) {
-    const clipped = clipSegment(line[i], line[i + 1], polygon);
-    if (!clipped) {
-      flush();
-      continue;
-    }
-    const [p, q] = clipped;
-    const last = current[current.length - 1];
-    if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-9) {
-      flush();
-      current.push(p);
-    }
-    current.push(q);
-  }
-  flush();
-  return pieces;
+  return [...walk(-1).reverse(), line[at], ...walk(1)];
 }
 
-/** Cyrus–Beck: the part of segment p–q inside a counterclockwise convex polygon, or null. */
-function clipSegment(p: Point2, q: Point2, polygon: Point2[]): [Point2, Point2] | null {
-  let t0 = 0, t1 = 1;
+/** Where segment p–q first crosses the polygon's edge, measured from p; null if it doesn't. */
+function firstCrossing(p: Point2, q: Point2, polygon: Point2[]): Point2 | null {
+  let best = Infinity;
   const dx = q.x - p.x, dy = q.y - p.y;
   for (let i = 0; i < polygon.length; i++) {
     const a = polygon[i], b = polygon[(i + 1) % polygon.length];
-    // Inside means cross(a, b, x) >= 0: f(t) = f0 + t * df.
-    const f0 = cross(a, b, p);
-    const df = (b.x - a.x) * dy - (b.y - a.y) * dx;
-    if (Math.abs(df) < 1e-15) {
-      if (f0 < 0) return null;
-      continue;
-    }
-    const t = -f0 / df;
-    if (df > 0) t0 = Math.max(t0, t);
-    else t1 = Math.min(t1, t);
-    if (t0 > t1) return null;
+    const ex = b.x - a.x, ey = b.y - a.y;
+    const denom = dx * ey - dy * ex;
+    if (Math.abs(denom) < 1e-15) continue;
+    const t = ((a.x - p.x) * ey - (a.y - p.y) * ex) / denom;
+    const s = ((a.x - p.x) * dy - (a.y - p.y) * dx) / denom;
+    if (t >= 0 && t <= 1 && s >= 0 && s <= 1) best = Math.min(best, t);
   }
-  const at = (t: number) => ({ x: p.x + t * dx, y: p.y + t * dy });
-  return [at(t0), at(t1)];
+  return Number.isFinite(best) ? { x: p.x + best * dx, y: p.y + best * dy } : null;
+}
+
+/** Douglas–Peucker on a closed loop: drop points while the loop moves by less than `tolerance`. */
+export function simplifyLoop(loop: Point2[], tolerance: number): Point2[] {
+  if (loop.length < 4) return loop;
+  // Split the loop at its first point and the point farthest from it, and simplify both halves.
+  const far = loop.reduce((best, p, i) => (distance(p, loop[0]) > distance(loop[best], loop[0]) ? i : best), 0);
+  const keep = new Uint8Array(loop.length);
+  keep[0] = keep[far] = 1;
+  const stack: [number, number][] = [[0, far], [far, loop.length]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const pa = loop[a], pb = loop[b % loop.length];
+    let worst = -1, worstDistance = tolerance;
+    for (let i = a + 1; i < b; i++) {
+      const d = distanceToSegment(loop[i], pa, pb);
+      if (d > worstDistance) [worst, worstDistance] = [i, d];
+    }
+    if (worst < 0) continue;
+    keep[worst] = 1;
+    stack.push([a, worst], [worst, b]);
+  }
+  return loop.filter((_, i) => keep[i]);
 }

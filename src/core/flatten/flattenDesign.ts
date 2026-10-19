@@ -1,110 +1,154 @@
+import { signedArea } from "../geometry/distanceField";
+import { barycentric, centroid, distance, dot3, length3, normalize3, polylineLength, scale3, sub3 } from "../geometry/vector";
 import type { Projection } from "../projection/projection";
-import type { Surface, SurfaceCoords, SurfaceSample, Vec3 } from "../surface/surface";
+import type { Surface, SurfaceCoords, SurfaceSample } from "../surface/surface";
+import { cutRegion } from "../template/cutOutline";
+import { finishSlits, planSlits, type SlitPlanOptions } from "../template/slits";
 import type { Point2 } from "../types";
 import { arapFlatten } from "./arap";
-import { cutSlits, gridMesh, meshLocator, trimMesh, type TriangleMesh } from "./mesh";
-import { convexHull, distanceToConvex } from "../geometry/polygon";
+import { cutSlits, gridMesh, meshLocator, trimMesh, type MeshLocator, type TriangleMesh } from "./mesh";
 
-/** Cells across the longer side of the meshed patch: a few thousand triangles. */
-const GRID_CELLS = 48;
+/** Mesh cells (two triangles each) over the paper: a few thousand triangles. */
+const MESH_CELLS = 1500;
+/** Design segments are split into at least this many pieces across the design. */
+const DESIGN_STEPS = 100;
 /** Keep the mesh this far (radians of latitude) from the poles, where the surface coordinates pinch. */
 const POLE_GAP = 0.05;
+/** The mesh reaches this many margins past the cut-out edge, so the edge and the slit ends sit inside it. */
+const MESH_OVERHANG = 0.5;
+
+export interface FlattenOptions {
+  surface: Surface;
+  projection: Projection;
+  /** The design center in the front view. */
+  center: Point2;
+  /** Placed front-view design paths (closed). */
+  paths: Point2[][];
+  /** Paper margin between the design and the cut-out edge. */
+  margin: number;
+  slits: SlitPlanOptions;
+}
 
 export interface FlatDesign {
   /** Design paths on paper: origin at the design center, +y toward the stem, physical units. */
   paths: Point2[][];
-  /** The flattened mesh, for stretch and slits. `flat[i]` is the paper position of `mesh.vertices[i]`. */
+  /** The flattened mesh, for stretch. `flat[i]` is the paper position of `mesh.vertices[i]`. */
   mesh: TriangleMesh;
   flat: Point2[];
+  /** The cut-out edge on paper: the design's outline grown by the margin (see `cutRegion`). */
+  outline: Point2[];
   /**
-   * Each slit on paper as an open polyline: in along one side of the cut to the tip and back out along
-   * the other side (the sides part where the paper opens up). Runs out to the edge of the mesh.
+   * Each slit on paper as an open polyline from the cut-out edge in along one side of the cut to the tip
+   * and back out along the other side (the sides part where the paper opens up).
    */
   slits: Point2[][];
+  /** How many slits a design line kept well short of their depth (see `PaperSlits.blocked`). */
+  blockedSlits: number;
 }
 
 /**
- * Chooses where to cut slits, given the uncut mesh and the design paths in the meshing domain.
- * Returns chains of edge-adjacent vertices from the mesh boundary to each slit's tip (see `cutSlits`).
- */
-export type SlitPlanner = (mesh: TriangleMesh, design: Point2[][]) => number[][];
-
-/**
- * Flatten the part of the surface the design covers. Meshes the surface around the design
- * (plus `padding` on every side) in a locally metric chart, flattens the mesh with ARAP, and carries
- * the design paths over through their barycentric position in each triangle.
+ * Flatten the paper that covers the design. Meshes the surface under the cut-out region (the design
+ * plus its margin, worked out in a layout close to the paper) in a locally metric chart, cuts the
+ * slits into the mesh, flattens it with ARAP, and carries the design paths over through their
+ * barycentric position in each triangle.
  *
- * `center` is the design center in the front view; `paths` are placed front-view paths.
  * Returns null when the design center misses the surface or no design point lands on it.
  */
-export function flattenDesign(
-  surface: Surface,
-  projection: Projection,
-  center: Point2,
-  paths: Point2[][],
-  padding: number,
-  planSlits?: SlitPlanner,
-): FlatDesign | null {
+export function flattenDesign({ surface, projection, center, paths, margin, slits: slitOptions }: FlattenOptions): FlatDesign | null {
   const centerHit = projection.project(center);
   if (!centerHit) return null;
   const chart = metricChart(surface, centerHit.coords);
+  const overhang = MESH_OVERHANG * margin;
+  const reach = margin + overhang;
 
-  // First pass at a coarse step to size the patch, then densify design segments to the mesh spacing,
-  // so straight front-view segments follow the surface instead of cutting across triangles.
+  // Densify the design so straight front-view segments follow the surface, then work out the paper in a
+  // layout close to the final one (the azimuthal layout about the center): the cut-out edge, the slits
+  // and the meshed area are all measured in true distances there.
   const coarse = toDomain(paths, projection, chart).flat();
   if (coarse.length === 0) return null;
-  const xs = coarse.map((p) => p.x), ys = coarse.map((p) => p.y);
-  const limits = chart.limits();
-  const region = {
-    minX: Math.max(limits.minX, Math.min(0, ...xs) - padding),
-    maxX: Math.min(limits.maxX, Math.max(0, ...xs) + padding),
-    minY: Math.max(limits.minY, Math.min(0, ...ys) - padding),
-    maxY: Math.min(limits.maxY, Math.max(0, ...ys) + padding),
-    spacing: 0,
-  };
-  region.spacing = Math.max(region.maxX - region.minX, region.maxY - region.minY) / GRID_CELLS;
+  const xs = [0, ...coarse.map((p) => p.x)], ys = [0, ...coarse.map((p) => p.y)];
+  const extent = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) + 2 * reach;
+  const domainPaths = toDomain(densify(paths, Math.min(extent / DESIGN_STEPS, margin / 4)), projection, chart);
+  const toLayout = azimuthalLayout(surface, centerHit.coords);
+  const layoutAt = (p: Point2) => toLayout(surface.sample(chart.toCoords(p)));
+  const layoutPaths = domainPaths.map((path) => path.map(layoutAt)).filter((path) => path.length >= 2);
+  if (layoutPaths.length === 0) return null;
+  const region = cutRegion(withCenter(layoutPaths), margin, { reach: overhang });
 
-  // Mesh only the covered part: the design's outline (with the center) grown by the padding.
-  const covered = convexHull([{ x: 0, y: 0 }, ...coarse]);
-  const grid = gridMesh(region, (p) => surface.sample(chart.toCoords(p)).point);
-  const uncut = trimMesh(grid, (tri) => {
-    const [a, b, c] = tri.map((i) => grid.domain[i]);
-    return distanceToConvex({ x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3 }, covered) <= padding;
-  });
-  const domainPaths = toDomain(densify(paths, region.spacing / 2), projection, chart);
-  const chains = planSlits ? planSlits(uncut, domainPaths) : [];
-  const { mesh, otherSide } = cutSlits(uncut, chains);
-  const samples = mesh.domain.map((p) => surface.sample(chart.toCoords(p)));
-  const raw = arapFlatten(mesh, { initial: azimuthalLayout(samples, surface, centerHit.coords) });
-  const locate = meshLocator(mesh);
-  const mapRaw = (p: Point2): Point2 | null => {
-    const at = locate(p);
-    if (!at) return null;
-    const [a, b, c] = mesh.triangles[at.triangle].map((i) => raw[i]);
-    const [w0, w1, w2] = at.weights;
-    return { x: w0 * a.x + w1 * b.x + w2 * c.x, y: w0 * a.y + w1 * b.y + w2 * c.y };
-  };
+  // Mesh cells sized for about MESH_CELLS of them over the paper, and at least a few across the margin.
+  const paperArea = Math.abs(signedArea(region.outline)) + polylineLength([...region.outline, region.outline[0]]) * overhang;
+  const spacing = Math.min(Math.sqrt(paperArea / MESH_CELLS), margin / 2);
+  // The mesh is trimmed by true distances, which the chart only roughly follows: cover generously, and
+  // sideways more where the chart overstates sideways distances.
+  const limits = chart.limits();
+  const minY = Math.max(limits.minY, Math.min(...ys) - 2 * reach);
+  const maxY = Math.min(limits.maxY, Math.max(...ys) + 2 * reach);
+  const reachX = 2 * reach * Math.max(chart.sidewaysOverstate(minY), chart.sidewaysOverstate(maxY));
+  const grid = gridMesh(
+    {
+      minX: Math.max(limits.minX, Math.min(...xs) - reachX),
+      maxX: Math.min(limits.maxX, Math.max(...xs) + reachX),
+      minY,
+      maxY,
+      spacing,
+    },
+    (p) => surface.sample(chart.toCoords(p)).point,
+  );
+  const layoutOf = (mesh: TriangleMesh) => mesh.domain.map(layoutAt);
+  const gridLayout = layoutOf(grid);
+  const uncut = trimMesh(grid, (tri) => region.edgeDistance(centroid(tri.map((i) => gridLayout[i]))) <= overhang);
+
+  const slitPlan = planSlits(uncut, layoutOf(uncut), region, slitOptions);
+  const { mesh, otherSide } = cutSlits(uncut, slitPlan.chains);
+  const raw = arapFlatten(mesh, { initial: layoutOf(mesh) });
 
   // Align: design center to the origin, the direction toward the stem (+v on the surface) to +y.
-  const origin = mapRaw({ x: 0, y: 0 });
-  const up = mapRaw({ x: 0, y: region.spacing / 4 });
+  const inDomain = meshLocator(mesh);
+  const origin = carryPoint({ x: 0, y: 0 }, inDomain, mesh, raw);
+  const up = carryPoint({ x: 0, y: spacing / 4 }, inDomain, mesh, raw);
   if (!origin || !up) return null;
   const angle = Math.PI / 2 - Math.atan2(up.y - origin.y, up.x - origin.x);
   const cos = Math.cos(angle), sin = Math.sin(angle);
-  const align = (p: Point2): Point2 => {
+  const flat = raw.map((p) => {
     const dx = p.x - origin.x, dy = p.y - origin.y;
     return { x: cos * dx - sin * dy, y: sin * dx + cos * dy };
-  };
-  const flat = raw.map(align);
+  });
 
-  const flatPaths = domainPaths
-    .map((path) => path.map(mapRaw).filter((p): p is Point2 => p !== null).map(align))
+  const designPaths = carry(domainPaths, inDomain, mesh, flat);
+  if (designPaths.length === 0) return null;
+  // The cut-out edge again, now measured on the paper itself.
+  const outline = cutRegion(withCenter(designPaths), margin, { bridging: region.bridging }).outline;
+  const { slits, blocked } = finishSlits(
+    slitPlan.chains.map((chain, s) => [...chain.map((v) => flat[v]), ...otherSide[s].slice(0, -1).reverse().map((v) => flat[v])]),
+    slitPlan.chains.map((chain) => chain.length - 1),
+    slitPlan,
+    outline,
+    designPaths,
+    slitOptions,
+  );
+  return { paths: designPaths, outline, slits, blockedSlits: blocked, mesh, flat };
+}
+
+/** The design paths plus the design center, which the paper must cover for the center cross. */
+export function withCenter(paths: Point2[][]): Point2[][] {
+  return [...paths, [{ x: 0, y: 0 }]];
+}
+
+/** Carry located paths over to a layout of the mesh through each point's triangle; misses are dropped. */
+function carry(paths: Point2[][], locate: MeshLocator, mesh: TriangleMesh, layout: Point2[]): Point2[][] {
+  return paths
+    .map((path) =>
+      path.flatMap((p) => {
+        const at = locate(p);
+        return at ? [barycentric(mesh.triangles[at.triangle].map((i) => layout[i]), at.weights)] : [];
+      }),
+    )
     .filter((path) => path.length >= 2);
-  const slits = chains.map((chain, s) => [
-    ...chain.map((v) => flat[v]),
-    ...otherSide[s].slice(0, -1).reverse().map((v) => flat[v]),
-  ]);
-  return { paths: flatPaths, mesh, flat, slits };
+}
+
+function carryPoint(p: Point2, locate: MeshLocator, mesh: TriangleMesh, layout: Point2[]): Point2 | null {
+  const at = locate(p);
+  return at ? barycentric(mesh.triangles[at.triangle].map((i) => layout[i]), at.weights) : null;
 }
 
 /**
@@ -115,11 +159,17 @@ function metricChart(surface: Surface, center: SurfaceCoords) {
   const h = 1e-5;
   const at = (du: number, dv: number) => surface.sample({ u: center.u + du, v: center.v + dv }).point;
   const p = at(0, 0);
-  const su = Math.hypot(...at(h, 0).map((x, i) => x - p[i])) / h;
-  const sv = Math.hypot(...at(0, h).map((x, i) => x - p[i])) / h;
+  const su = length3(sub3(at(h, 0), p)) / h;
+  const sv = length3(sub3(at(0, h), p)) / h;
   return {
     toDomain: ({ u, v }: SurfaceCoords): Point2 => ({ x: (u - center.u) * su, y: (v - center.v) * sv }),
     toCoords: ({ x, y }: Point2): SurfaceCoords => ({ u: center.u + x / su, v: center.v + y / sv }),
+    /** How much the chart overstates true sideways distances at domain height `y` (1 at the center row). */
+    sidewaysOverstate: (y: number): number => {
+      const v = center.v + y / sv;
+      const q = surface.sample({ u: center.u, v }).point;
+      return su / Math.max(1e-9, length3(sub3(surface.sample({ u: center.u + h, v }).point, q)) / h);
+    },
     /** Domain range that stays clear of the poles and of the longitude seam behind the pumpkin. */
     limits: () => ({
       minX: (-Math.PI + POLE_GAP - center.u) * su,
@@ -131,38 +181,30 @@ function metricChart(surface: Surface, center: SurfaceCoords) {
 }
 
 /**
- * A fold-free starting layout close to the ARAP result: each vertex goes in its direction from the
+ * A fold-free layout close to the ARAP result: each surface point goes in its direction from the
  * center (in the tangent plane there, +u right, +v up) at roughly its distance along the surface.
  * The distance is the chord corrected by the turn of the normal, which is exact on a sphere.
  */
-function azimuthalLayout(samples: SurfaceSample[], surface: Surface, center: SurfaceCoords): Point2[] {
+function azimuthalLayout(surface: Surface, center: SurfaceCoords): (sample: SurfaceSample) => Point2 {
   const h = 1e-5;
   const c = surface.sample(center);
   const n = c.normal;
-  const tangent = (d: Vec3): Vec3 => {
-    const k = dot(d, n);
-    return normalize([d[0] - k * n[0], d[1] - k * n[1], d[2] - k * n[2]]);
-  };
-  const right = tangent(subtract(surface.sample({ u: center.u + h, v: center.v }).point, c.point));
-  const along = tangent(subtract(surface.sample({ u: center.u, v: center.v + h }).point, c.point));
-  const up = tangent(subtract(along, scale(right, dot(along, right))));
+  const tangent = (d: readonly [number, number, number]) => normalize3(sub3(d, scale3(n, dot3(d, n))));
+  const right = tangent(sub3(surface.sample({ u: center.u + h, v: center.v }).point, c.point));
+  const along = tangent(sub3(surface.sample({ u: center.u, v: center.v + h }).point, c.point));
+  const up = tangent(sub3(along, scale3(right, dot3(along, right))));
 
-  return samples.map(({ point, normal }) => {
-    const d = subtract(point, c.point);
+  return ({ point, normal }) => {
+    const d = sub3(point, c.point);
     const chord = Math.hypot(...d);
     if (chord === 0) return { x: 0, y: 0 };
-    const half = Math.acos(Math.max(-1, Math.min(1, dot(normal, n)))) / 2;
-    const distance = half > 1e-9 ? (chord * half) / Math.sin(half) : chord;
-    const x = dot(d, right), y = dot(d, up);
+    const half = Math.acos(Math.max(-1, Math.min(1, dot3(normal, n)))) / 2;
+    const along = half > 1e-9 ? (chord * half) / Math.sin(half) : chord;
+    const x = dot3(d, right), y = dot3(d, up);
     const len = Math.hypot(x, y) || 1;
-    return { x: (distance * x) / len, y: (distance * y) / len };
-  });
+    return { x: (along * x) / len, y: (along * y) / len };
+  };
 }
-
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const subtract = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const scale = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k];
-const normalize = (a: Vec3): Vec3 => scale(a, 1 / (Math.hypot(...a) || 1));
 
 /** Project front-view paths and express them in the chart; points that miss the surface are dropped. */
 function toDomain(paths: Point2[][], projection: Projection, chart: ReturnType<typeof metricChart>): Point2[][] {
@@ -179,7 +221,7 @@ function densify(paths: Point2[][], step: number): Point2[][] {
   return paths.map((path) =>
     path.flatMap((a, i) => {
       const b = path[(i + 1) % path.length];
-      const pieces = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step));
+      const pieces = Math.max(1, Math.ceil(distance(a, b) / step));
       return Array.from({ length: pieces }, (_, k) => ({
         x: a.x + ((b.x - a.x) * k) / pieces,
         y: a.y + ((b.y - a.y) * k) / pieces,

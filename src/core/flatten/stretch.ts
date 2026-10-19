@@ -1,4 +1,5 @@
 import type { Vec3 } from "../surface/surface";
+import { cross3, dot3, length3, sub3 } from "../geometry/vector";
 import type { Point2, StretchMap } from "../types";
 import type { TriangleMesh } from "./mesh";
 
@@ -33,13 +34,11 @@ export function stretchMap(mesh: TriangleMesh, flat: Point2[]): StretchMap {
 /** Singular values of the surface → paper map of one triangle, plus the surface triangle's area. */
 function singularValues(p0: Vec3, p1: Vec3, p2: Vec3, u0: Point2, u1: Point2, u2: Point2) {
   // Isometric 2D frame of the 3D triangle: x0 = (0,0), x1 = (|e1|, 0), x2 = (e2·ex, e2·ey).
-  const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
-  const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
-  const l1 = Math.hypot(...e1);
-  const n: Vec3 = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
-  const twiceArea = Math.hypot(...n);
+  const e1 = sub3(p1, p0), e2 = sub3(p2, p0);
+  const l1 = length3(e1);
+  const twiceArea = length3(cross3(e1, e2));
   if (l1 === 0 || twiceArea === 0) return { sigma1: 1, sigma2: 1, area: 0 };
-  const x2x = (e1[0] * e2[0] + e1[1] * e2[1] + e1[2] * e2[2]) / l1;
+  const x2x = dot3(e1, e2) / l1;
   const x2y = twiceArea / l1;
 
   // J = [u1−u0 | u2−u0] · inv([[l1, x2x], [0, x2y]])

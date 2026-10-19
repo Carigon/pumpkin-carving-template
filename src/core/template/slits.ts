@@ -1,6 +1,9 @@
-import { distanceToSegment, rayExit } from "../geometry/polygon";
 import { meshTopology, type TriangleMesh } from "../flatten/mesh";
+import { insidePolygon, nearestOnPolygon, pieceInside } from "../geometry/polygon";
+import { segmentDistance } from "../geometry/segmentIndex";
+import { distance } from "../geometry/vector";
 import type { Point2 } from "../types";
+import type { CutRegion } from "./cutOutline";
 
 export interface SlitPlanOptions {
   count: number;
@@ -13,126 +16,263 @@ export interface SlitPlanOptions {
 export interface SlitPlan {
   /** Per slit, a chain of edge-adjacent mesh vertices from the mesh boundary to the slit's tip. */
   chains: number[][];
-  /** How many slits couldn't reach the set depth through blank paper and were shortened (or dropped). */
-  shortened: number;
+  /** Per slit: did a design line stop it from going deeper? */
+  hitDesign: boolean[];
+  /** Slits left out because a design line left no room for them. */
+  dropped: number;
 }
 
-/** Try sideways moves up to this fraction of the angle between neighboring slits. */
+/** Slits may start this fraction of the angle between neighbouring slits to either side of their place. */
 const MAX_SHIFT = 0.4;
+/** Moving a slit's start sideways costs this much per unit length, against 1 for running through the paper. */
+const SHIFT_COST = 0.5;
+/** A slit shorter than this fraction of the set depth counts as blocked. */
+const BLOCKED_BELOW = 0.5;
+/** Give up on bending a slit once its path is this many times longer than the set depth. */
+const MAX_DETOUR = 3;
 
 /**
- * Lay out slits in the meshing domain. Slit k starts where the ray from the outline's center at
- * angle 90° + k·360°/count (the first one toward the stem) leaves the cut-out outline and runs
- * `depth` inward, snapped to mesh edges. Each slit continues outward to the mesh boundary so it
- * really opens the mesh. A slit that comes closer than `clearance` to a design path is turned
- * sideways (about the outline's center); if no turn keeps it clear for its whole depth, the
- * longest clear one is kept, shortened to where it would meet the design.
+ * Lay out slits on a mesh whose vertices sit at `positions` (a layout close to the paper), inside `region`
+ * (design lines and cut-out edge in the same layout). Slit k belongs at angle 90° + k·360°/count around
+ * the design center (the origin; the first one toward the stem). It starts on the cut-out edge near
+ * there (moved sideways by up to `MAX_SHIFT` of the spacing) and runs inward along the shortest path
+ * through blank paper, bending around design lines, until it is `depth` in from the edge. Where blank
+ * paper runs out first, it stops at the deepest point it could reach. Each slit also runs outward to the
+ * mesh boundary so cutting it really opens the mesh.
  */
-export function planSlits(mesh: TriangleMesh, design: Point2[][], outline: Point2[], options: SlitPlanOptions): SlitPlan {
+export function planSlits(mesh: TriangleMesh, positions: Point2[], region: CutRegion, options: SlitPlanOptions): SlitPlan {
   const { count, depth } = options;
-  if (count <= 0 || depth <= 0 || outline.length < 3) return { chains: [], shortened: 0 };
-  const { domain } = mesh;
+  if (count <= 0 || depth <= 0) return { chains: [], hitDesign: [], dropped: 0 };
   const { neighbors, boundary } = meshTopology(mesh);
-  const spacing = medianEdge(mesh);
-  const clearance = Math.max(options.clearance, 0.5 * spacing);
-  const tolerance = 0.5 * spacing;
+  const spacing = medianEdge(mesh, positions);
+  const slack = region.resolution + spacing / 4;
+  // The paper opens up along a slit, moving its sides: keep at least half a mesh edge clear.
+  const clearance = Math.max(options.clearance, spacing / 2);
+  const tolerance = spacing / 2;
 
-  const segments: [Point2, Point2][] = design.flatMap((path) => path.map((a, i) => [a, path[(i + 1) % path.length]] as [Point2, Point2]));
-  const clearAt = memo((p: Point2) => segments.every(([a, b]) => distanceToSegment(p, a, b) >= clearance));
-  const vertexClear = domain.map(() => undefined as boolean | undefined);
-  const isClear = (v: number) => (vertexClear[v] ??= clearAt(domain[v]));
-  const edgeClear = (a: number, b: number) =>
-    clearAt({ x: (domain[a].x + domain[b].x) / 2, y: (domain[a].y + domain[b].y) / 2 });
-
-  const center = centroid(outline);
-  const nearest = (p: Point2) =>
-    domain.reduce((best, q, i) => (dist(q, p) < dist(domain[best], p) ? i : best), 0);
-  const blocked = new Set<number>();
-
-  /** Walk mesh edges from vertex `start` along `dir` until the mesh boundary, staying close to the ray. */
-  const walkOut = (start: number, origin: Point2, dir: Point2): number[] => {
-    const path = [start];
-    let v = start;
-    const along = (p: Point2) => (p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y;
-    const off = (p: Point2) => Math.abs((p.x - origin.x) * dir.y - (p.y - origin.y) * dir.x);
-    while (!boundary[v]) {
-      let best = -1, bestCost = Infinity;
-      for (const w of neighbors[v]) {
-        const progress = along(domain[w]) - along(domain[v]);
-        if (progress < 0.25 * spacing) continue;
-        const cost = off(domain[w]) - 1e-3 * progress;
-        if (cost < bestCost) [best, bestCost] = [w, cost];
+  const n = positions.length;
+  const edge = positions.map((p) => region.edgeDistance(p));
+  const inside = edge.map((e) => e < 0);
+  const toDesign = positions.map((p, v) => (inside[v] ? region.designDistance(p) : Infinity));
+  const clear = toDesign.map((d) => d >= clearance);
+  const edgeChecked = new Map<number, boolean>();
+  const edgeClear = (a: number, b: number) => {
+    const p = positions[a], q = positions[b];
+    const length = distance(p, q);
+    // Every point of the edge is within half its length of an end.
+    if (Math.min(toDesign[a], toDesign[b]) - length / 2 >= clearance) return true;
+    const key = Math.min(a, b) * n + Math.max(a, b);
+    let ok = edgeChecked.get(key);
+    if (ok === undefined) {
+      // Sampled every half clearance, so a design line crossing the edge comes within a quarter clearance of a sample.
+      ok = true;
+      const pieces = Math.max(2, Math.ceil((2 * length) / clearance));
+      for (let i = 1; i < pieces && ok; i++) {
+        const t = i / pieces;
+        ok = region.designDistance({ x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) }) >= clearance;
       }
-      if (best < 0) break;
+      edgeChecked.set(key, ok);
+    }
+    return ok;
+  };
+  const blocked = new Uint8Array(n);
+  const angleOf = positions.map((p) => Math.atan2(p.y, p.x));
+  const radius = positions.map((p) => Math.hypot(p.x, p.y));
+
+  const cost = new Float64Array(n);
+  const from = new Int32Array(n);
+  const done = new Uint8Array(n);
+
+  /** Shortest path inward from the edge near `angle`. Returns its vertices (edge first) and the tip's depth. */
+  const inward = (angle: number, window: number) => {
+    cost.fill(Infinity);
+    from.fill(-1);
+    done.fill(0);
+    const heap = new MinHeap();
+    for (let v = 0; v < n; v++) {
+      if (inside[v] || blocked[v] || edge[v] > slack || !neighbors[v].some((w) => inside[w])) continue;
+      const off = Math.abs(angleDifference(angleOf[v], angle));
+      if (off > window) continue;
+      cost[v] = SHIFT_COST * off * radius[v];
+      heap.push(v, cost[v]);
+    }
+    let deepest = 0, deepestRejected = -Infinity;
+    const reached: number[] = [];
+    while (heap.size) {
+      const v = heap.pop();
+      if (done[v]) continue;
+      done[v] = 1;
+      if (cost[v] > MAX_DETOUR * depth + window * radius[v]) break;
+      if (inside[v]) {
+        reached.push(v);
+        deepest = Math.max(deepest, -edge[v]);
+      }
+      if (-edge[v] >= depth - tolerance) break;
+      for (const w of neighbors[v]) {
+        if (done[w] || !inside[w] || blocked[w]) continue;
+        if (!clear[w] || !edgeClear(v, w)) {
+          deepestRejected = Math.max(deepestRejected, -edge[w]);
+          continue;
+        }
+        const c = cost[v] + distance(positions[v], positions[w]);
+        if (c < cost[w]) {
+          cost[w] = c;
+          from[w] = v;
+          heap.push(w, c);
+        }
+      }
+    }
+    // The tip: the cheapest vertex about as deep as any reached (so a short slit doesn't wander sideways).
+    const goal = Math.min(depth, deepest) - tolerance;
+    const tip = reached.find((v) => -edge[v] >= goal) ?? -1;
+    const path: number[] = [];
+    for (let v = tip; v >= 0; v = from[v]) path.push(v);
+    const tipDepth = tip >= 0 ? -edge[tip] : 0;
+    // The design is in the way if it kept the slit from paper deeper than it got.
+    return { path: path.reverse(), depth: tipDepth, hitDesign: deepestRejected > tipDepth + tolerance };
+  };
+
+  /** From an edge vertex, step outward (away from the paper) to the mesh boundary. */
+  const outward = (start: number): number[] => {
+    const path = [start];
+    const seen = new Set(path);
+    let v = start;
+    while (!boundary[v]) {
+      let best = -1;
+      for (const w of neighbors[v]) {
+        if (seen.has(w) || inside[w] || blocked[w]) continue;
+        if (best < 0 || edge[w] > edge[best]) best = w;
+      }
+      if (best < 0 || edge[best] < edge[v] - spacing / 4) break;
       path.push(best);
+      seen.add(best);
       v = best;
     }
     return path;
   };
 
-  /** The slit along `angle`: its chain (boundary → tip) and how deep it reaches inside the outline. */
-  const candidate = (angle: number) => {
-    const dir = { x: Math.cos(angle), y: Math.sin(angle) };
-    const exit = rayExit(center, dir, outline);
-    const tipPoint = { x: center.x + dir.x * Math.max(0, exit - depth), y: center.y + dir.y * Math.max(0, exit - depth) };
-    const chain = walkOut(nearest(tipPoint), center, dir).reverse();
-    // Keep the part that stays clear of the design and of other slits, from the boundary inward.
-    let n = 0;
-    while (n < chain.length) {
-      const v = chain[n];
-      if (!isClear(v) || blocked.has(v) || (n > 0 && !edgeClear(chain[n - 1], v))) break;
-      n++;
-    }
-    const kept = chain.slice(0, n);
-    const tip = kept[kept.length - 1];
-    const reach = tip === undefined ? 0 : exit - ((domain[tip].x - center.x) * dir.x + (domain[tip].y - center.y) * dir.y);
-    return { chain: kept, reach };
-  };
-
-  const chains: number[][] = [];
-  let shortened = 0;
+  const plan: SlitPlan = { chains: [], hitDesign: [], dropped: 0 };
   const step = (2 * Math.PI) / count;
   for (let k = 0; k < count; k++) {
-    const nominal = Math.PI / 2 + k * step;
-    const exit = rayExit(center, { x: Math.cos(nominal), y: Math.sin(nominal) }, outline);
-    const turn = Math.min(MAX_SHIFT * step, spacing / (2 * Math.max(exit, spacing)));
-    const turns = Math.floor((MAX_SHIFT * step) / turn);
-    let best = { chain: [] as number[], reach: 0 };
-    for (let i = 0; i <= 2 * turns; i++) {
-      const offset = (i % 2 === 1 ? 1 : -1) * Math.ceil(i / 2) * turn;
-      const option = candidate(nominal + offset);
-      if (option.chain.length >= 2 && option.reach > best.reach) best = option;
-      if (best.reach >= depth - tolerance) break;
+    const slit = inward(Math.PI / 2 + k * step, MAX_SHIFT * step);
+    if (slit.path.length < 2 || slit.depth < spacing / 4) {
+      if (slit.hitDesign) plan.dropped++;
+      continue;
     }
-    if (best.reach < depth - tolerance) shortened++;
-    if (best.chain.length < 2 || best.reach < spacing) continue;
-    chains.push(best.chain);
-    for (const v of best.chain) {
-      blocked.add(v);
-      for (const w of neighbors[v]) blocked.add(w);
+    const chain = [...outward(slit.path[0]).reverse(), ...slit.path.slice(1)];
+    plan.chains.push(chain);
+    plan.hitDesign.push(slit.hitDesign);
+    for (const v of chain) {
+      blocked[v] = 1;
+      for (const w of neighbors[v]) blocked[w] = 1;
     }
   }
-  return { chains, shortened };
+  return plan;
 }
 
-function medianEdge({ domain, triangles }: TriangleMesh): number {
-  const lengths = triangles.map(([a, b]) => dist(domain[a], domain[b])).sort((x, y) => x - y);
+/** The slits as printed, and how many a design line kept well short of their depth. */
+export interface PaperSlits {
+  /** Open polylines from the cut-out edge in to the tip and back out (see `FlatTemplate.slits`). */
+  slits: Point2[][];
+  /**
+   * How many slits a design line kept under half the set depth, including ones left out. Slits that
+   * fall a little short, or are limited by the size of the paper, don't count.
+   */
+  blocked: number;
+}
+
+/**
+ * Finish the planned slits on paper. `lines` are the cut slits on paper (in along one side to the tip at
+ * `tips[s]`, out along the other), running past the cut-out edge. Each is trimmed at the edge, and its tip
+ * is carried on straight ahead (the mesh only cuts along its edges) until the slit is `depth` in from the
+ * edge or comes `clearance` from a design line.
+ */
+export function finishSlits(
+  lines: Point2[][],
+  tips: number[],
+  plan: SlitPlan,
+  outline: Point2[],
+  design: Point2[][],
+  { depth, clearance }: SlitPlanOptions,
+): PaperSlits {
+  const toDesign = segmentDistance(design, 2 * clearance);
+  const toEdge = (p: Point2) => nearestOnPolygon(p, outline).distance;
+  let blocked = plan.dropped;
+  const slits: Point2[][] = [];
+  lines.forEach((line, s) => {
+    const tip = line[tips[s]];
+    // Carry on straight away from the nearest point of the edge: the quickest way deeper.
+    const { point: from, distance: d0 } = nearestOnPolygon(tip, outline);
+    let end = tip, reached = d0;
+    if (d0 > 0 && insidePolygon(tip, outline)) {
+      const dir = { x: (tip.x - from.x) / d0, y: (tip.y - from.y) / d0 };
+      const step = clearance / 4;
+      for (let t = step; reached < depth; t += step) {
+        const p = { x: tip.x + t * dir.x, y: tip.y + t * dir.y };
+        const deeper = toEdge(p);
+        // Stop at the design, or where going on wouldn't take the slit deeper into the paper.
+        if (toDesign(p) < clearance || deeper < reached + step / 4 || !insidePolygon(p, outline)) break;
+        [end, reached] = [p, deeper];
+      }
+    }
+    const extended = end === tip ? line : [...line.slice(0, tips[s] + 1), end, ...line.slice(tips[s])];
+    const piece = pieceInside(extended, tips[s], outline);
+    if (piece && piece.length >= 2) slits.push(piece);
+    if (plan.hitDesign[s] && reached < BLOCKED_BELOW * depth) blocked++;
+  });
+  return { slits, blocked };
+}
+
+function medianEdge({ triangles }: TriangleMesh, positions: Point2[]): number {
+  const lengths = triangles.map(([a, b]) => distance(positions[a], positions[b])).sort((x, y) => x - y);
   return lengths[Math.floor(lengths.length / 2)] ?? 1;
 }
 
-function centroid(points: Point2[]): Point2 {
-  const n = points.length;
-  return { x: points.reduce((s, p) => s + p.x, 0) / n, y: points.reduce((s, p) => s + p.y, 0) / n };
+function angleDifference(a: number, b: number): number {
+  const d = (a - b) % (2 * Math.PI);
+  return d > Math.PI ? d - 2 * Math.PI : d < -Math.PI ? d + 2 * Math.PI : d;
 }
 
-const dist = (a: Point2, b: Point2) => Math.hypot(a.x - b.x, a.y - b.y);
-
-function memo(f: (p: Point2) => boolean): (p: Point2) => boolean {
-  const cache = new Map<string, boolean>();
-  return (p) => {
-    const key = `${p.x},${p.y}`;
-    let v = cache.get(key);
-    if (v === undefined) cache.set(key, (v = f(p)));
-    return v;
-  };
+/** Binary min-heap of vertex ids by priority (duplicates allowed; skip stale entries on pop). */
+class MinHeap {
+  private ids: number[] = [];
+  private keys: number[] = [];
+  get size(): number {
+    return this.ids.length;
+  }
+  push(id: number, key: number): void {
+    const { ids, keys } = this;
+    let i = ids.length;
+    ids.push(id);
+    keys.push(key);
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (keys[parent] <= key) break;
+      ids[i] = ids[parent];
+      keys[i] = keys[parent];
+      i = parent;
+    }
+    ids[i] = id;
+    keys[i] = key;
+  }
+  pop(): number {
+    const { ids, keys } = this;
+    const top = ids[0];
+    const id = ids.pop()!, key = keys.pop()!;
+    if (ids.length) {
+      let i = 0;
+      for (;;) {
+        let child = 2 * i + 1;
+        if (child >= ids.length) break;
+        if (child + 1 < ids.length && keys[child + 1] < keys[child]) child++;
+        if (keys[child] >= key) break;
+        ids[i] = ids[child];
+        keys[i] = keys[child];
+        i = child;
+      }
+      ids[i] = id;
+      keys[i] = key;
+    }
+    return top;
+  }
 }

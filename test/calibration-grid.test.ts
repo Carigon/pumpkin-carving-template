@@ -39,13 +39,13 @@ describe("ball measurements", () => {
 describe("calibration grid on a basketball", () => {
   const measurements = ballMeasurements(29.5, "in");
   const placement = { width: 5, verticalOffset: 0, rotation: 0 };
-  const result = buildTemplate({ measurements, design: gridDesign(6), placement });
+  // Test-grid mode prints no slits: a grid is one solid carve area with no blank paper for them.
+  const result = buildTemplate({ measurements, design: gridDesign(6), placement, slits: { count: 0, depth: 0 } });
 
   it("goes through the normal pipeline to a flat template with every cell", () => {
     expect(result.surface?.semiAxes.sideToSide).toBeCloseTo(29.5 / (2 * Math.PI), 6);
     expect(result.surface?.semiAxes.vertical).toBeCloseTo(29.5 / (2 * Math.PI), 6);
-    // The grid is one solid carve area, so slits only fit in the margin and get shortened; that's expected.
-    expect(result.warnings.filter((w) => w.kind !== "slit-shortened")).toEqual([]);
+    expect(result.warnings).toEqual([]);
     expect(result.template?.designPaths).toHaveLength(1 + 36);
   });
 
@@ -53,8 +53,8 @@ describe("calibration grid on a basketball", () => {
     const outer = bboxOf(result.template!.designPaths.flat());
     const width = outer.maxX - outer.minX;
     const height = outer.maxY - outer.minY;
-    // ARAP without slits isn't perfectly isotropic: about 1% today.
-    expect(Math.abs(width / height - 1)).toBeLessThan(0.02);
+    // By symmetry the grid flattens exactly as wide as tall.
+    expect(Math.abs(width / height - 1)).toBeLessThan(0.002);
     expect(width).toBeGreaterThan(5);
   });
 
