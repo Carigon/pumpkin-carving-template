@@ -1,13 +1,12 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { ProjectedDesign, StretchMap, SurfaceParameters } from "../core";
+import { stretchTint } from "../stretchTint";
 
 const FRONT_LIMIT_DEGREES = 60;
 const COLOR_OK = new THREE.Color(0x1b1b1b);
 const COLOR_PAST_LIMIT = new THREE.Color(0xd4a017);
-/** Stretch tint: invisible below STRETCH_FAINT, fully opaque from STRETCH_HEAVY (fractions, 0.05 = 5 %). */
-const STRETCH_FAINT = 0.03;
-const STRETCH_HEAVY = 0.15;
+/** The stretch tint's opacity at full strength (see `stretchTint`). */
 const STRETCH_MAX_ALPHA = 0.75;
 const COLOR_STRETCH = new THREE.Color(0xb0004a);
 
@@ -158,8 +157,7 @@ function setStretch(tint: THREE.Mesh, stretch: StretchMap, lift: number): void {
   const pos: number[] = [];
   const col: number[] = [];
   stretch.triangles.forEach((tri, t) => {
-    const k = Math.min(1, Math.max(0, (stretch.values[t] - STRETCH_FAINT) / (STRETCH_HEAVY - STRETCH_FAINT)));
-    const alpha = STRETCH_MAX_ALPHA * k * k * (3 - 2 * k);
+    const alpha = STRETCH_MAX_ALPHA * stretchTint(stretch.values[t]);
     if (alpha <= 0) return;
     for (const i of tri) {
       pos.push(...lifted[i]);

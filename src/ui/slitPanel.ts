@@ -27,7 +27,7 @@ export interface SlitPanel {
 export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPanel {
   const defaults = defaultSlits("in");
   root.innerHTML = `
-    <h2>Cut-out edge and slits</h2>
+    <h2>Cut-out edge</h2>
     <form class="slits" novalidate>
       <div class="field">
         <label for="s-margin">Margin around the design</label>
@@ -40,6 +40,8 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
         <div id="s-margin-warning" class="warning" role="alert" hidden></div>
       </div>
       <label class="check"><input id="s-line" type="checkbox" checked /> Print the cut line (solid edge)</label>
+      <div class="slit-fields">
+      <h3>Slits</h3>
       <div class="field">
         <label for="s-count">Number of slits</label>
         <div class="input-row">
@@ -55,6 +57,7 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
         <small class="hint">Slits let the paper bend around the pumpkin. They're printed dashed and steer around the design.</small>
       </div>
       <div id="s-warnings" class="warnings" role="alert"></div>
+      </div>
     </form>
   `;
   const form = root.querySelector("form")!;

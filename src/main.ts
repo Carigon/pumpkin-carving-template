@@ -7,10 +7,12 @@ import { mountExportPanel, type ExportSource } from "./ui/exportPanel";
 import { mountGridPanel } from "./ui/gridPanel";
 import { mountHeader } from "./ui/header";
 import { mountMeasurementForm } from "./ui/measurementForm";
+import { mountPaperView } from "./ui/paperViewSvg";
 import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
+import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
 import { stepInMode, steps, warnedSteps, type Step, type StepId } from "./steps";
 import { startBackgroundBuild, type BuildOutcome } from "./worker/backgroundBuild";
@@ -42,11 +44,12 @@ const infoEl = $("surface-info");
 const header = mountHeader($("header"), changeMode, changeUnits);
 const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
+const paper = mountPaperView(viewport.paperView);
 const form = mountMeasurementForm($("measurements"), update);
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
-const exportPanel = mountExportPanel($("export"), persist);
+const exportPanel = mountExportPanel($("export"), changePaper);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs
 // (file, tracing, width) hide; move up/down and rotation apply to the grid too.
 const designStep = $("step-design");
@@ -66,6 +69,8 @@ const builder = createTemplateBuilder();
 const background = startBackgroundBuild(showTemplate);
 /** The export details of the latest edit, to pair with the worker's template when it arrives. */
 let pending: Omit<ExportSource, "template"> | null = null;
+/** The latest template the worker built, with its export details, for the Paper view (null: none). */
+let built: ExportSource | null = null;
 restore();
 syncMode();
 enterStep();
@@ -186,9 +191,13 @@ function update(): void {
   showWarnings(quick.warnings);
   renderSurfaceInfo(infoEl, quick.surface);
   preview.update(quick.surface, quick.design);
-  if (!quick.surface) viewport.setPlaceholder("Fix the measurements in the Measure step to see the pumpkin.");
-  else if (!quick.design) viewport.setPlaceholder("Load a design in the Design step to see it on the pumpkin.", "note");
-  else viewport.setPlaceholder(null);
+  if (!quick.surface) {
+    viewport.setPlaceholder("Fix the measurements in the Measure step to see the pumpkin.");
+    paper.empty("Fix the measurements in the Measure step to see the template.");
+  } else if (!quick.design) {
+    viewport.setPlaceholder("Load a design in the Design step to see it on the pumpkin.", "note");
+    paper.empty("Load a design in the Design step to see the template.");
+  } else viewport.setPlaceholder(null);
   if (quick.surface && quick.design) {
     pending = {
       surface: quick.surface,
@@ -199,10 +208,12 @@ function update(): void {
       ...(ball ? { calibrationBall: ballCircumference } : {}),
     };
     background.request(input);
-    viewport.setStatus("Updating stretch tint…");
+    // The Paper view keeps the last template until the new one arrives.
+    viewport.setStatus("Updating the template…");
     exportPanel.setUpdating();
   } else {
     pending = null;
+    built = null;
     background.cancel();
     viewport.setStatus(null);
     exportPanel.setSource(null);
@@ -227,11 +238,31 @@ function showTemplate(outcome: BuildOutcome): void {
     console.error("Template build failed:", outcome.message);
     preview.setStretch(null);
     exportPanel.setFailed(outcome.message);
+    built = null;
+    paper.empty(`The template couldn't be built: ${outcome.message}`);
     return;
   }
   const { template, warnings } = outcome;
   preview.setStretch(template?.stretch ?? null);
   // The same input as the quick preview, plus what only flattening finds (slits cut short).
   showWarnings(warnings);
-  exportPanel.setSource(template ? { template, ...pending } : null);
+  built = template ? { template, ...pending } : null;
+  exportPanel.setSource(built);
+  drawPaper();
+}
+
+/** The paper size or carve-area style changed: redraw the Paper view and remember the choice. */
+function changePaper(): void {
+  drawPaper();
+  persist();
+}
+
+/** Draw the latest template on its pages, split the way the PDF will split it. */
+function drawPaper(): void {
+  if (!built) {
+    paper.empty("None of the design lands on the pumpkin, so there's no template yet.");
+    return;
+  }
+  const options = exportPanel.options();
+  paper.show(paperView({ ...built, ...options }), options.filled);
 }

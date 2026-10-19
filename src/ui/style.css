@@ -6,6 +6,7 @@
   --warn-bg: #fdecea;
   --warn-fg: #a3261b;
   --border: #e3d6c6;
+  --desk: #e6ddd1;
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
 }
@@ -18,6 +19,7 @@
     --warn-bg: #3d1a16;
     --warn-fg: #ffb4a8;
     --border: #4a3c2f;
+    --desk: #3a3129;
   }
 }
 
@@ -354,9 +356,122 @@ body {
 }
 
 .design,
-.slits {
+.slits,
+.slit-fields {
   display: grid;
   gap: 1rem;
+}
+
+.slit-fields h3 {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+}
+
+/* Paper view: the flat template on its pages, as white sheets on a desk-colored background. */
+.view-paper {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--desk);
+}
+
+.paper-fit {
+  min-height: 0;
+  padding: 2.75rem 1rem 2.25rem;
+}
+
+.paper-fit svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Below the breakpoint the pane has no set height: give the drawing the viewport's 4:3 box. */
+@media not (min-width: 60rem) {
+  .view-paper {
+    position: relative;
+    aspect-ratio: 4 / 3;
+  }
+}
+
+.paper-sheet {
+  fill: #fff;
+  fill-opacity: 0.85;
+  stroke: #9a8a78;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.paper-printable {
+  fill: none;
+  stroke: #c9bba9;
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.paper-page-label {
+  fill: #8a7a68;
+  font-weight: 600;
+}
+
+.paper-stretch polygon {
+  fill: #b0004a;
+}
+
+.paper-design {
+  fill: none;
+  fill-rule: evenodd;
+  stroke: #1b1b1b;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.paper-design.filled {
+  fill: #999;
+}
+
+.paper-outline,
+.paper-slits {
+  fill: none;
+  stroke: #1b1b1b;
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.paper-slits {
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+}
+
+.paper-caption,
+.paper-placeholder {
+  position: absolute;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.paper-caption {
+  left: 0.5rem;
+  bottom: 0.5rem;
+  padding: 0.2rem 0.6rem;
+}
+
+.paper-placeholder {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(22rem, calc(100% - 2rem));
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.paper-caption[hidden],
+.paper-placeholder[hidden] {
+  display: none;
 }
 
 .export {
@@ -588,7 +703,7 @@ body {
 .ball-mode #d-trace,
 .ball-mode .field:has(#d-file),
 .ball-mode .field:has(#d-width),
-.ball-mode #slits {
+.ball-mode .slit-fields {
   display: none;
 }
 

@@ -11,7 +11,7 @@ export type Mode = "pumpkin" | "test-grid";
 export type StepId = "measure" | "design" | "grid" | "template";
 
 /** What the viewport can show. */
-export type View = "3d" | "trace";
+export type View = "3d" | "trace" | "paper";
 
 export interface Step {
   id: StepId;
@@ -46,7 +46,8 @@ export function steps(state: StepState): Step[] {
   return [
     step("measure", "Measure"),
     state.mode === "test-grid" ? step("grid", "Grid") : designStep(state),
-    step("template", "Template"),
+    // The template is judged flat on the paper; 3D still shows the stretch tint on the pumpkin.
+    { id: "template", title: "Template", defaultView: "paper", views: ["3d", "paper"] },
   ];
 }
 

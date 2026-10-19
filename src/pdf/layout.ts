@@ -58,6 +58,23 @@ export interface DocumentLayout {
   templateFits: boolean;
   /** How the template is split across pages; 1 x 1 when it fits on one page. */
   tiles: { rows: number; cols: number };
+  /** Where each page that carries the template lies in the template's frame, for the Paper view. */
+  templatePages: TemplatePage[];
+}
+
+/**
+ * A page that carries (part of) the template, placed in the template's own frame: in the template's units,
+ * origin at the design center, +y toward the stem. Not drawn in the PDF; it says where the PDF puts its pages.
+ */
+export interface TemplatePage {
+  /** Index into `DocumentLayout.pages`. */
+  index: number;
+  /** The tile's name as printed on it ("A1", "B1", ...), or "1" when the template fits on one page. */
+  name: string;
+  /** The whole sheet of paper. */
+  sheet: ClipRect;
+  /** The area inside the page margins, where the template is printed. */
+  printable: ClipRect;
 }
 
 export interface TemplatePdfInput {
@@ -118,6 +135,7 @@ export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
       : [{ size, marks: templateMarks }, { size, marks: furniture.marks }],
     templateFits: true,
     tiles: { rows: 1, cols: 1 },
+    templatePages: [templatePage(0, "1", size, { x: -origin.x, y: -origin.y }, scale)],
   };
 }
 
@@ -148,6 +166,7 @@ function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<ty
   const label = (x: number, y: number, text: string): Mark => ({ kind: "text", role: "join", x, y, text, size: 7 });
 
   const pages: PageLayout[] = [];
+  const templatePages: TemplatePage[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       // This tile's window on the sheet; row 0 is the top row.
@@ -162,6 +181,7 @@ function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<ty
       }
       if (r > 0) marks.push(label(pageW / 2 + 4, top - inset - 5, `^ joins ${name(r - 1, c)}`));
       if (r < rows - 1) marks.push(label(pageW / 2 + 4, PAGE_MARGIN + inset, `v joins ${name(r + 1, c)}`));
+      templatePages.push(templatePage(pages.length, name(r, c), size, { x: -origin.x - dx, y: -origin.y - dy }, scale));
       pages.push({ size, marks });
     }
   }
@@ -173,7 +193,23 @@ function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<ty
     label(PAGE_MARGIN, noteY, "Trim a page along its dotted line, lay it over its neighbour so the dotted lines and crosses match, and tape."),
   ].map((m) => ({ ...m, size: 8.5 }));
   pages.push({ size, marks: [...furniture.marks, ...note] });
-  return { pages, tiles: { rows, cols } };
+  return { pages, tiles: { rows, cols }, templatePages };
+}
+
+/** A page whose lower-left corner is at `corner` (pt, relative to the template origin), in template units. */
+function templatePage(index: number, name: string, [pageW, pageH]: [number, number], corner: Point2, scale: number): TemplatePage {
+  const rect = (x: number, y: number, width: number, height: number): ClipRect => ({
+    x: x / scale,
+    y: y / scale,
+    width: width / scale,
+    height: height / scale,
+  });
+  return {
+    index,
+    name,
+    sheet: rect(corner.x, corner.y, pageW, pageH),
+    printable: rect(corner.x + PAGE_MARGIN, corner.y + PAGE_MARGIN, pageW - 2 * PAGE_MARGIN, pageH - 2 * PAGE_MARGIN),
+  };
 }
 
 /** Dotted seam lines along the middle of every overlap band, with alignment crosses on them. */
