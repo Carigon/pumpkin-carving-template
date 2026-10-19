@@ -1,5 +1,5 @@
 import { meshTopology, type TriangleMesh } from "../flatten/mesh";
-import { insidePolygon, nearestOnPolygon, pieceInside } from "../geometry/polygon";
+import { distanceToSegment, insidePolygon, nearestOnPolygon, pieceInside } from "../geometry/polygon";
 import { segmentDistance } from "../geometry/segmentIndex";
 import { distance } from "../geometry/vector";
 import type { Point2 } from "../types";
@@ -30,6 +30,8 @@ const SHIFT_COST = 0.5;
 const BLOCKED_BELOW = 0.5;
 /** Give up on bending a slit once its path is this many times longer than the set depth. */
 const MAX_DETOUR = 3;
+/** A printed slit may stray this many mesh edges from the cut it straightens (see `pullTaut`). */
+const MAX_STRAIGHTEN = 1.5;
 
 /**
  * Lay out slits on a mesh whose vertices sit at `positions` (a layout close to the paper), inside `region`
@@ -185,7 +187,7 @@ export interface PaperSlits {
  * Finish the planned slits on paper. `lines` are the cut slits on paper (in along one side to the tip at
  * `tips[s]`, out along the other), running past the cut-out edge. Each is trimmed at the edge, and its tip
  * is carried on straight ahead (the mesh only cuts along its edges) until the slit is `depth` in from the
- * edge or comes `clearance` from a design line.
+ * edge or comes `clearance` from a design line. Then each side is pulled taut so it cuts cleanly (see `pullTaut`).
  */
 export function finishSlits(
   lines: Point2[][],
@@ -216,11 +218,45 @@ export function finishSlits(
       }
     }
     const extended = end === tip ? line : [...line.slice(0, tips[s] + 1), end, ...line.slice(tips[s])];
-    const piece = pieceInside(extended, tips[s], outline);
+    const taut = pullTaut(extended, end === tip ? tips[s] : tips[s] + 1, (p) => toDesign(p) >= clearance, clearance / 4);
+    const piece = pieceInside(taut.line, taut.apex, outline);
     if (piece && piece.length >= 2) slits.push(piece);
     if (plan.hitDesign[s] && reached < BLOCKED_BELOW * depth) blocked++;
   });
   return { slits, blocked };
+}
+
+/**
+ * Straighten a slit for cutting. The mesh cuts only along its edges, so each side of a slit staircases from
+ * vertex to vertex. Pull each side taut from the tip at `apex` outward: skip ahead to the furthest vertex whose
+ * straight segment stays `clear` of the design (sampled every `step`) and within `MAX_STRAIGHTEN` mesh edges of
+ * the vertices it skips, so the printed slit stays on the cut the paper was flattened with.
+ */
+function pullTaut(line: Point2[], apex: number, clear: (p: Point2) => boolean, step: number): { line: Point2[]; apex: number } {
+  const steps = line.slice(1).map((p, i) => distance(line[i], p)).sort((a, b) => a - b);
+  const reach = MAX_STRAIGHTEN * (steps[Math.floor(steps.length / 2)] ?? 0);
+  const straight = (side: Point2[], i: number, j: number) => {
+    const a = side[i], b = side[j];
+    for (let k = i + 1; k < j; k++) if (distanceToSegment(side[k], a, b) > reach) return false;
+    const pieces = Math.ceil(distance(a, b) / step);
+    for (let t = 1; t < pieces; t++) {
+      if (!clear({ x: a.x + ((b.x - a.x) * t) / pieces, y: a.y + ((b.y - a.y) * t) / pieces })) return false;
+    }
+    return true;
+  };
+  // `side[0]` is the tip; the next vertex is always kept, so a slit no straighter than the mesh stays as it was.
+  const pull = (side: Point2[]) => {
+    const kept = [side[0]];
+    for (let i = 0; i < side.length - 1; ) {
+      let j = side.length - 1;
+      while (j > i + 1 && !straight(side, i, j)) j--;
+      kept.push(side[j]);
+      i = j;
+    }
+    return kept;
+  };
+  const inward = pull(line.slice(0, apex + 1).reverse()).reverse();
+  return { line: [...inward, ...pull(line.slice(apex)).slice(1)], apex: inward.length - 1 };
 }
 
 function medianEdge({ triangles }: TriangleMesh, positions: Point2[]): number {
