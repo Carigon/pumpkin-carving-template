@@ -17,6 +17,7 @@
     "vitest": "^5.0.5"
   },
   "dependencies": {
+    "esm-potrace-wasm": "^0.5.1",
     "pdf-lib": "^1.17.1",
     "svgpath": "^2.6.0",
     "three": "^0.186.1"
