@@ -46,6 +46,12 @@ function crossesAny(slit: Point2[], paths: Point2[][]): boolean {
   return false;
 }
 
+/** How sharply a polyline turns at b, in degrees. */
+function turn(a: Point2, b: Point2, c: Point2): number {
+  const d = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
+  return ((d > Math.PI ? 2 * Math.PI - d : d) * 180) / Math.PI;
+}
+
 /** How far a slit runs in from the cut-out edge: the distance from its deepest point (the tip) to the edge. */
 const depthIn = (slit: Point2[], outline: Point2[]) => Math.max(...slit.map((p) => distanceToOutline(p, outline)));
 
@@ -101,6 +107,19 @@ describe("slits", () => {
       expect(depthIn(slit, template!.cutOutline), `slit ${i}`).toBeGreaterThan(2 * 0.85);
     }
     expect(warnings).toEqual([]);
+  });
+
+  it("slits with blank paper ahead run straight in and back out, not staircased along the mesh", () => {
+    // Dots where the slits would go push them sideways, off the mesh's grain.
+    const { template } = buildTemplate({ measurements: sphere, ...ring(30, [90, 135, 180, 225, 270, 315, 0, 45]), slits: { count: 8, depth: 2 } });
+
+    for (const [i, slit] of template!.slits.entries()) {
+      const tip = slit.reduce((deepest, p, k) => (distanceToOutline(p, template!.cutOutline) > distanceToOutline(slit[deepest], template!.cutOutline) ? k : deepest), 0);
+      // Away from the tip, where the slit turns back, no bend sharper than 20°.
+      for (let k = 1; k + 1 < slit.length; k++) {
+        if (k !== tip) expect(turn(slit[k - 1], slit[k], slit[k + 1]), `slit ${i} at ${k}`).toBeLessThan(20);
+      }
+    }
   });
 
   it("a slit bends around a design line in its way rather than stopping at it", () => {
