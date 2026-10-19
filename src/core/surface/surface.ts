@@ -1,0 +1,38 @@
+/**
+ * Coordinate frame (shared by all surfaces):
+ * - x: side-to-side (viewer's right is +x)
+ * - y: vertical (stem is +y)
+ * - z: viewing axis; the viewer sits far out on +z looking toward -z, so the front of the pumpkin faces +z.
+ * Origin is the pumpkin's center.
+ */
+export type Vec3 = readonly [number, number, number];
+
+/** 2D coordinates on the surface. Their meaning is up to each surface implementation. */
+export interface SurfaceCoords {
+  u: number;
+  v: number;
+}
+
+export interface SurfaceSample {
+  point: Vec3;
+  /** Outward unit normal: the direction the surface faces at `point`. */
+  normal: Vec3;
+}
+
+export interface SurfaceHit extends SurfaceSample {
+  coords: SurfaceCoords;
+}
+
+/**
+ * The narrow interface projection and flattening work against, so new shapes
+ * (revolved side profiles, ribs) can be added without touching them.
+ */
+export interface Surface {
+  /** 3D point and normal at the given surface coordinates. */
+  sample(coords: SurfaceCoords): SurfaceSample;
+  /**
+   * First hit of a ray travelling along the viewing axis (-z) through (x, y),
+   * i.e. the front-most surface point seen at that spot. Null if the ray misses the silhouette.
+   */
+  hitAlongView(x: number, y: number): SurfaceHit | null;
+}
