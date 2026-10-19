@@ -308,6 +308,10 @@ body {
     flex: 1;
     aspect-ratio: auto;
   }
+
+  .viewport .trace-views {
+    aspect-ratio: auto;
+  }
 }
 
 .measurements {
@@ -451,13 +455,22 @@ body {
   display: none;
 }
 
+/* The Trace view: the crop image and the traced result side by side, each scaled to fit its half of the pane.
+   Below the breakpoint the view is 4:3 like the 3D canvas; above it, it fills the pane. */
 .trace-views {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 0.8rem;
+  padding: 0.8rem;
+  aspect-ratio: 4 / 3;
 }
 
 .trace-views figure {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
 }
 
@@ -466,23 +479,91 @@ body {
   font-size: 0.9rem;
 }
 
-.trace-crop {
+/* Fits its canvas or SVG (with --aspect set from its size) inside the box, as large as it goes. */
+.trace-fit {
+  container-type: size;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+.trace-fit > canvas,
+.trace-fit > svg {
   display: block;
-  width: 100%;
+  width: min(100cqw, 100cqh * var(--aspect, 1));
   height: auto;
+}
+
+.trace-crop {
   cursor: crosshair;
   touch-action: none;
 }
 
-.trace-result {
+.trace-result svg {
   background: #fff;
   border: 1px solid var(--border);
 }
 
-.trace-result svg {
-  display: block;
-  width: 100%;
-  height: auto;
+.trace-settings {
+  display: grid;
+  gap: 1rem;
+}
+
+.trace-settings[hidden] {
+  display: none;
+}
+
+.trace-accept-row {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+}
+
+/* The view switcher: a segmented radio group over the top-left of the viewport (the status badge is top-right). */
+.view-switcher {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 1;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.view-switcher[hidden] {
+  display: none;
+}
+
+.view-switcher label {
+  position: relative;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.view-switcher label + label {
+  border-left: 1px solid var(--border);
+}
+
+.view-switcher input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.view-switcher label:has(input:checked) {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.view-switcher label:has(input:focus-visible) {
+  outline: 2px solid var(--fg);
+  outline-offset: -4px;
 }
 
 .trace .field.checkbox label {

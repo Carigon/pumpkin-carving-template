@@ -11,7 +11,7 @@ export type Mode = "pumpkin" | "test-grid";
 export type StepId = "measure" | "design" | "grid" | "template";
 
 /** What the viewport can show. */
-export type View = "3d";
+export type View = "3d" | "trace";
 
 export interface Step {
   id: StepId;
@@ -27,6 +27,8 @@ export interface StepState {
   mode: Mode;
   /** An image design is loaded and still being traced. */
   tracing: boolean;
+  /** An image design is loaded, traced or with its trace accepted (implied by `tracing`). Absent means none. */
+  image?: boolean;
 }
 
 export const STEP_IDS: readonly StepId[] = ["measure", "design", "grid", "template"];
@@ -43,9 +45,21 @@ export function steps(state: StepState): Step[] {
   const step = (id: StepId, title: string): Step => ({ id, title, defaultView: "3d", views: ["3d"] });
   return [
     step("measure", "Measure"),
-    state.mode === "test-grid" ? step("grid", "Grid") : step("design", "Design"),
+    state.mode === "test-grid" ? step("grid", "Grid") : designStep(state),
     step("template", "Template"),
   ];
+}
+
+/** Design shows the image being traced until the trace is accepted, then the design on the pumpkin. */
+function designStep(state: StepState): Step {
+  const image = state.tracing || state.image === true;
+  return {
+    id: "design",
+    title: "Design",
+    defaultView: state.tracing ? "trace" : "3d",
+    // Trace only while there's an image to show, so the switcher never lands on an empty view.
+    views: image ? ["3d", "trace"] : ["3d"],
+  };
 }
 
 /** Which step each kind of warning belongs to (Design stands for Grid in test-grid mode). */

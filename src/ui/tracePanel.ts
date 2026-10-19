@@ -10,29 +10,39 @@ export interface TracePanel {
   load(file: File): Promise<void>;
   /** Hide the panel and forget the image (another kind of design was chosen). */
   clear(): void;
+  /** An image is loaded (the panel is showing). */
+  loaded(): boolean;
+  /** The carver accepted the trace: done tuning it. Loading a new image resets this. */
+  accepted(): boolean;
 }
 
 /**
- * Crop, threshold, invert and speckle controls for a raster image, with the traced result shown beside
- * the crop. Every finished trace is reported through `onTraced`. The image never leaves the browser.
+ * Crop, threshold, invert and speckle controls for a raster image. The crop image and the traced result go
+ * in `view` (the viewport's Trace view), at viewport size. Every finished trace is reported through
+ * `onTraced`; accepting the trace, or going back to adjust it, through `onAccepted`. The image never leaves
+ * the browser.
  */
 export function mountTracePanel(
   root: HTMLElement,
   onTraced: (design: Design | null, status: string, failed: boolean) => void,
+  view: HTMLElement,
+  onAccepted: () => void,
 ): TracePanel {
   root.hidden = true;
   root.classList.add("trace");
+  view.classList.add("trace-views");
+  view.innerHTML = `
+    <figure>
+      <div class="trace-fit"><canvas class="trace-crop" aria-label="Scanned image. Drag to crop."></canvas></div>
+      <figcaption>Drag on the image to crop. <button type="button" class="trace-reset">Use whole image</button></figcaption>
+    </figure>
+    <figure>
+      <div class="trace-fit trace-result" role="img" aria-label="Traced result"></div>
+      <figcaption>Traced result: black areas are carved.</figcaption>
+    </figure>
+  `;
   root.innerHTML = `
-    <div class="trace-views">
-      <figure>
-        <canvas class="trace-crop" aria-label="Scanned image. Drag to crop."></canvas>
-        <figcaption>Drag on the image to crop. <button type="button" class="trace-reset">Use whole image</button></figcaption>
-      </figure>
-      <figure>
-        <div class="trace-result" aria-label="Traced result"></div>
-        <figcaption>Traced result: black areas are carved.</figcaption>
-      </figure>
-    </div>
+    <div class="trace-settings">
     <div class="field">
       <label for="t-threshold">Threshold</label>
       <div class="input-row">
@@ -51,11 +61,30 @@ export function mountTracePanel(
       </div>
       <small class="hint">Specks up to this many pixels are ignored.</small>
     </div>
+    </div>
+    <div class="trace-accept-row">
+      <button type="button" class="trace-accept">Done tracing</button>
+      <small class="hint trace-accepted-note" hidden>Trace accepted. Pick Trace above the preview to see it again.</small>
+    </div>
   `;
 
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
-  const cropCanvas = $<HTMLCanvasElement>(".trace-crop");
-  const resultEl = $<HTMLElement>(".trace-result");
+  const cropCanvas = view.querySelector<HTMLCanvasElement>(".trace-crop")!;
+  const resultEl = view.querySelector<HTMLElement>(".trace-result")!;
+  const settingsEl = $<HTMLElement>(".trace-settings");
+  const acceptButton = $<HTMLButtonElement>(".trace-accept");
+  const acceptedNote = $<HTMLElement>(".trace-accepted-note");
+  let accepted = false;
+  const setAccepted = (next: boolean) => {
+    accepted = next;
+    settingsEl.hidden = next;
+    acceptedNote.hidden = !next;
+    acceptButton.textContent = next ? "Adjust trace" : "Done tracing";
+  };
+  acceptButton.addEventListener("click", () => {
+    setAccepted(!accepted);
+    onAccepted();
+  });
   const threshold = $<HTMLInputElement>("#t-threshold");
   const thresholdOut = $<HTMLOutputElement>("output");
   const invert = $<HTMLInputElement>("#t-invert");
@@ -81,6 +110,7 @@ export function mountTracePanel(
       const result = await traceImage(image, settings());
       if (id !== traceId) return;
       resultEl.innerHTML = result.svg;
+      fitAspect(resultEl.querySelector("svg"));
       const count = result.design
         ? `${result.design.paths.length} shape${result.design.paths.length === 1 ? "" : "s"} traced.`
         : "";
@@ -102,7 +132,7 @@ export function mountTracePanel(
   });
   invert.addEventListener("change", scheduleRetrace);
   speckle.addEventListener("input", scheduleRetrace);
-  $<HTMLButtonElement>(".trace-reset").addEventListener("click", () => {
+  view.querySelector<HTMLButtonElement>(".trace-reset")!.addEventListener("click", () => {
     crop = undefined;
     drawCrop();
     scheduleRetrace();
@@ -145,6 +175,16 @@ export function mountTracePanel(
   cropCanvas.addEventListener("pointerup", endDrag);
   cropCanvas.addEventListener("pointercancel", endDrag);
 
+  /** Give the CSS the element's width/height ratio, so it can scale the element to fit its figure. */
+  function fitAspect(el: Element | null): void {
+    if (!(el instanceof HTMLCanvasElement || el instanceof SVGSVGElement)) return;
+    const [w, h] =
+      el instanceof HTMLCanvasElement
+        ? [el.width, el.height]
+        : [Number.parseFloat(el.getAttribute("width") ?? ""), Number.parseFloat(el.getAttribute("height") ?? "")];
+    if (w > 0 && h > 0) el.style.setProperty("--aspect", String(w / h));
+  }
+
   function drawCrop(): void {
     if (!image) return;
     const g = cropCanvas.getContext("2d")!;
@@ -168,6 +208,7 @@ export function mountTracePanel(
       image?.close();
       image = null;
       crop = undefined;
+      setAccepted(false);
       try {
         image = await createImageBitmap(file);
       } catch {
@@ -179,6 +220,7 @@ export function mountTracePanel(
       const scale = Math.min(1, 1200 / Math.max(image.width, image.height));
       cropCanvas.width = Math.max(1, Math.round(image.width * scale));
       cropCanvas.height = Math.max(1, Math.round(image.height * scale));
+      fitAspect(cropCanvas);
       drawCrop();
       resultEl.replaceChildren();
       await retrace();
@@ -191,6 +233,9 @@ export function mountTracePanel(
       crop = undefined;
       resultEl.replaceChildren();
       root.hidden = true;
+      setAccepted(false);
     },
+    loaded: () => !root.hidden,
+    accepted: () => accepted,
   };
 }
