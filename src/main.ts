@@ -67,7 +67,7 @@ let lastHasImage = false;
 let warnings: TemplateWarning[] = [];
 // The quick preview (projection alone) runs here on every edit; flattening runs in the worker.
 const builder = createTemplateBuilder();
-const background = startBackgroundBuild(showTemplate);
+const background = startBackgroundBuild(showTemplate, ({ slits }) => viewport.setStatus(`Placing slits… ${slits}`));
 /** The export details of the latest edit, to pair with the worker's template when it arrives. */
 let pending: Omit<ExportSource, "template"> | null = null;
 /** The latest template the worker built, with its export details, for the Paper view (null: none). */
@@ -99,6 +99,7 @@ function persist(): void {
   const m = form.read();
   const p = designPanel.placement();
   const orNull = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x : null);
+  const slits = slitPanel.options();
   saveSettings(browserStorage(), {
     mode: header.mode(),
     cells: gridPanel.cells(),
@@ -109,7 +110,7 @@ function persist(): void {
       rings: m.rings.map((r) => ({ position: orNull(r.position), circumference: orNull(r.circumference) })),
     },
     placement: { width: orNull(p.width), verticalOffset: p.verticalOffset, rotation: p.rotation },
-    slits: slitPanel.options(),
+    slits: { count: slits.count, maxDepth: slits.depth },
     cut: slitPanel.cut(),
     ...exportPanel.options(),
     step,
@@ -239,6 +240,7 @@ function showTemplate(outcome: BuildOutcome): void {
   viewport.setStatus(null);
   if (!outcome.ok) {
     console.error("Template build failed:", outcome.message);
+    slitPanel.showAutoCount(null);
     preview.setStretch(null);
     exportPanel.setFailed(outcome.message);
     built = null;
@@ -247,6 +249,7 @@ function showTemplate(outcome: BuildOutcome): void {
   }
   const { template, warnings: templateWarnings } = outcome;
   preview.setStretch(template?.stretch ?? null);
+  slitPanel.showAutoCount(template && pending.slits.count === "auto" ? template.slits.length : null);
   // The same input as the quick preview, plus what only flattening finds (slits cut short).
   showWarnings(templateWarnings);
   built = template ? { template, ...pending } : null;

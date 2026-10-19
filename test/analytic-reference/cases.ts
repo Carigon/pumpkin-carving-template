@@ -31,19 +31,11 @@ const face = designOf([
   ]),
 ]);
 
-/** An oval, 3 units wide and 2 tall: convex, so each slit runs straight in until it nears the design. */
-const oval = designOf([
-  Array.from({ length: 48 }, (_, k) => ({ x: 1.5 * Math.cos((2 * Math.PI * k) / 48), y: Math.sin((2 * Math.PI * k) / 48) })),
-]);
-
 const noSlits = { count: 0, depth: 1 };
 
 /**
  * Pumpkins and placements whose templates the analytic surface produced, kept as the reference for the mesh.
- *
- * Slits change how the paper relaxes, and where a design leaves several equally deep places for one, which it takes
- * is down to the mesh. So the star and face, which leave such choices, are flattened without slits, and slits are
- * compared on the oval, where each one's place is clear.
+ * Flattened without slits: where slits go depends on the stretch, which depends on the mesh.
  */
 export const referenceCases: [string, TemplateInput][] = [
   [
@@ -88,31 +80,6 @@ export const referenceCases: [string, TemplateInput][] = [
       design: star,
       placement: { width: 12, verticalOffset: 4, rotation: 0 },
       slits: noSlits,
-    },
-  ],
-  [
-    "a slit oval on a sphere",
-    {
-      measurements: { height: 60 / Math.PI, rings: [{ position: 0.5, circumference: 60 }], units: "in" },
-      design: oval,
-      placement: { width: 5, verticalOffset: -1, rotation: 20 },
-    },
-  ],
-  [
-    "a slit oval on a squat ellipsoid",
-    {
-      measurements: { height: 8, rings: [{ position: 0.5, circumference: 34 }], units: "in" },
-      design: oval,
-      placement: { width: 5, verticalOffset: 0.5, rotation: 0 },
-    },
-  ],
-  [
-    "a slit oval on a tall, tapered pumpkin in cm",
-    {
-      measurements: { height: 35, rings: [{ position: 0.3, circumference: 76 }, { position: 0.8, circumference: 46 }], units: "cm" },
-      design: oval,
-      placement: { width: 10, verticalOffset: 2, rotation: 0 },
-      slits: { count: 6, depth: 2.5 },
     },
   ],
 ];

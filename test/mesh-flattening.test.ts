@@ -10,14 +10,13 @@ import reference from "./analytic-reference/templates.json";
 type Recorded = {
   designPaths: [number, number][][];
   cutOutline: [number, number][];
-  slits: [number, number][][];
   /** Largest stretch of a triangle on the paper (inside the cut-out edge), and the RMS over the whole patch. */
   stretch: { maxOnPaper: number; rms: number };
 };
 const recorded = reference as unknown as Record<string, Recorded>;
 
 /**
- * How far design paths, the cut-out edge and slits may move from the analytic template: 1 mm. The analytic
+ * How far design paths and the cut-out edge may move from the analytic template: 1 mm. The analytic
  * template turned its paper upright through its (u, v) chart, which is off by a fraction of a degree high up on a
  * pumpkin (the chart's scale changes with height), so about half of this is the reference's own error.
  */
@@ -80,30 +79,11 @@ describe.each(referenceCases)("the template on the mesh for %s", (name, input) =
     expect(apart(template!.cutOutline, toPoints(analytic.cutOutline), true)).toBeLessThan(tolerance);
   });
 
-  it("has the analytic template's slits: as many, as deep to within 1 mm, in the same places along the edge", () => {
-    const outline = toPoints(analytic.cutOutline);
-    const depth = (slit: Point2[], edge: Point2[]) => Math.max(...slit.map((p) => distanceToLine(p, edge, true)));
-    /** Direction from the design center to where the slit opens on the edge, in degrees. */
-    const mouth = (slit: Point2[]) => (Math.atan2(slit[0].y + slit.at(-1)!.y, slit[0].x + slit.at(-1)!.x) * 180) / Math.PI;
-    // Each slit may start up to 0.4 of the spacing to either side of its place, wherever the mesh offers the
-    // shortest way in, so the two templates' slits can sit that far apart.
-    const shift = (0.4 * 360) / template!.slits.length;
-
-    expect(template!.slits).toHaveLength(analytic.slits.length);
-    template!.slits.forEach((slit, i) => {
-      const other = toPoints(analytic.slits[i]);
-      expect(Math.abs(depth(slit, template!.cutOutline) - depth(other, outline)), `slit ${i} depth`).toBeLessThan(tolerance);
-      const turn = Math.abs(((mouth(slit) - mouth(other) + 540) % 360) - 180);
-      expect(turn, `slit ${i} place`).toBeLessThan(shift);
-    });
-  });
-
   it("has the analytic template's stretch", () => {
     // Over the whole patch, to within 5 %.
     expect(Math.abs(template!.stretch.rms / analytic.stretch.rms - 1)).toBeLessThan(0.05);
-    // At a slit's tip the paper opens up and the stretch there depends on how finely the tip is meshed; elsewhere
-    // the worst on the paper matches to within 5 %. (Outside the cut-out edge the patch's ragged border stretches
+    // The worst on the paper matches to within 5 %. (Outside the cut-out edge the patch's ragged border stretches
     // more, but that paper is cut off.)
-    if (template!.slits.length === 0) expect(Math.abs(maxOnPaper(template!) / analytic.stretch.maxOnPaper - 1)).toBeLessThan(0.05);
+    expect(Math.abs(maxOnPaper(template!) / analytic.stretch.maxOnPaper - 1)).toBeLessThan(0.05);
   });
 });

@@ -18,8 +18,8 @@ export interface Settings {
   };
   /** Width and offset in `units` (width null when empty); rotation in degrees. */
   placement: { width: number | null; verticalOffset: number; rotation: number };
-  /** Depth in `units`. */
-  slits: { count: number; depth: number };
+  /** Slit count ("auto" unless the carver typed one) and max depth in `units`. */
+  slits: { count: number | "auto"; maxDepth: number };
   /** Paper margin around the design in `units`; whether the PDF prints the solid cut-out edge. */
   cut: { margin: number; line: boolean };
   paper: Paper;
@@ -79,7 +79,7 @@ export function saveSettings(storage: SettingsStorage | undefined, s: Settings):
       rings: rings.map((r) => ({ position: r.position, circumference: r.circumference })),
     },
     placement: { width, verticalOffset, rotation },
-    slits: { count: s.slits.count, depth: s.slits.depth },
+    slits: { count: s.slits.count, maxDepth: s.slits.maxDepth },
     cut: { margin: s.cut.margin, line: s.cut.line },
     paper: s.paper,
     filled: s.filled,
@@ -130,7 +130,10 @@ function validate(s: Record<string, unknown>): RestoredSettings {
       verticalOffset: length(finite(p.verticalOffset)),
       rotation: inRange(p.rotation, -MAX_ROTATION, MAX_ROTATION),
     }),
-    slits: group({ count: integerIn(sl.count, 0, MAX_SLITS), depth: length(nonNegative(sl.depth)) }),
+    // Slit settings saved before Auto (a count and a depth, no max depth) held the old defaults, not choices: drop them.
+    slits: "maxDepth" in sl
+      ? group({ count: sl.count === "auto" ? ("auto" as const) : integerIn(sl.count, 0, MAX_SLITS), maxDepth: length(nonNegative(sl.maxDepth)) })
+      : undefined,
     cut: group({ margin: length(positive(c.margin)), line: typeof c.line === "boolean" ? c.line : undefined }),
     paper: oneOf(s.paper, ["letter", "a4"] as const),
     filled: typeof s.filled === "boolean" ? s.filled : undefined,

@@ -25,7 +25,7 @@ const full: Settings = {
     ],
   },
   placement: { width: 15, verticalOffset: -2, rotation: 10 },
-  slits: { count: 12, depth: 4 },
+  slits: { count: 12, maxDepth: 4 },
   cut: { margin: 2.5, line: false },
   paper: "a4",
   filled: true,
@@ -63,7 +63,7 @@ describe("settings", () => {
         rings: [{ position: 0.3, circumference: -2 }, 7, { position: 1.5, circumference: 20 }, { position: 0.6, circumference: 20 }],
       },
       placement: { width: 15, verticalOffset: "up", rotation: 90 },
-      slits: { count: 2.5, depth: 4 },
+      slits: { count: 2.5, maxDepth: 4 },
       cut: { margin: 0, line: "no" },
       paper: "tabloid",
       filled: "yes",
@@ -73,9 +73,19 @@ describe("settings", () => {
       units: "cm",
       measurements: { rings: [{ position: 0.6, circumference: 20 }] },
       placement: { width: 15 },
-      slits: { depth: 4 },
+      slits: { maxDepth: 4 },
       step: "measure",
     });
+  });
+
+  it("restores an Auto slit count", () => {
+    const storage = memoryStorage();
+    saveSettings(storage, { ...full, slits: { count: "auto", maxDepth: 5 } });
+    expect(loadSettings(storage).slits).toEqual({ count: "auto", maxDepth: 5 });
+  });
+
+  it("drops slit settings saved before Auto, which always held a count, so the new defaults apply", () => {
+    expect(loadSettings(saved({ ...full, slits: { count: 8, depth: 1 } })).slits).toBeUndefined();
   });
 
   it("drops measurements saved with a front arc and rings along it, so the form starts from its defaults", () => {

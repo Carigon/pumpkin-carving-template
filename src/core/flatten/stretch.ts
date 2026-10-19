@@ -55,3 +55,34 @@ function singularValues(p0: Vec3, p1: Vec3, p2: Vec3, u0: Point2, u1: Point2, u2
   const sigma2 = Q >= R ? Q - R : 0;
   return { sigma1: Q + R, sigma2, area: twiceArea / 2 };
 }
+
+/** Summary of the stretch over part of a flattened mesh, weighted by surface area. */
+export interface StrainSummary {
+  rms: number;
+  /** 95th percentile: 5 % of the area stretches more. */
+  p95: number;
+}
+
+/**
+ * The stretch of a flattened mesh over the triangles `on` picks out (e.g. those on the paper), weighted by surface
+ * area: its root mean square and 95th percentile. The worst single triangles sit at slit tips and depend on how
+ * finely the tip is meshed, so the maximum is left out.
+ */
+export function strainSummary(mesh: TriangleMesh, flat: Point2[], on: ArrayLike<boolean | number>): StrainSummary {
+  const values: number[] = [];
+  const areas: number[] = [];
+  mesh.triangles.forEach(([i0, i1, i2], t) => {
+    if (!on[t]) return;
+    const { sigma1, sigma2, area } = singularValues(mesh.vertices[i0], mesh.vertices[i1], mesh.vertices[i2], flat[i0], flat[i1], flat[i2]);
+    if (area <= 0) return;
+    values.push(Math.max(sigma1, 1 / Math.max(sigma2, 1e-6)) - 1);
+    areas.push(area);
+  });
+  const total = areas.reduce((s, a) => s + a, 0);
+  if (total === 0) return { rms: 0, p95: 0 };
+  const rms = Math.sqrt(values.reduce((s, v, k) => s + areas[k] * v * v, 0) / total);
+  const order = values.map((_, k) => k).sort((a, b) => values[a] - values[b]);
+  let sum = 0;
+  const at = order.find((k) => (sum += areas[k]) >= 0.95 * total) ?? order[order.length - 1];
+  return { rms, p95: values[at] };
+}

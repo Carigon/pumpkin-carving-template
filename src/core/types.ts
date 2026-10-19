@@ -94,24 +94,39 @@ export interface OutsideSilhouetteWarning {
   message: string;
 }
 
-/**
- * Some slits ran into design lines well before their set depth (under half of it), so they were cut short (or
- * left out). Slits that only fall a little short, or are limited by the size of the paper, don't count.
- */
-export interface SlitShortenedWarning {
-  kind: "slit-shortened";
-  /** Number of slits cut short. */
+/** Fewer slits than the set count fit: the design leaves no more blank paper deep enough, away from the others. */
+export interface SlitsDontFitWarning {
+  kind: "slits-dont-fit";
+  /** Number of slits that fit. */
   count: number;
   message: string;
 }
 
-export type TemplateWarning = MeasurementWarning | FrontLimitWarning | OutsideSilhouetteWarning | SlitShortenedWarning;
+/**
+ * Auto stopped with parts of the paper still stretching more than its target (3 %, at the 95th percentile): it
+ * placed as many slits as it may (24), no more fit, or more would barely help.
+ */
+export interface SlitLimitWarning {
+  kind: "slit-limit";
+  message: string;
+}
 
-/** Slits let the paper bend around the pumpkin. They're spaced evenly in angle around the design center. */
+export type TemplateWarning = MeasurementWarning | FrontLimitWarning | OutsideSilhouetteWarning | SlitsDontFitWarning | SlitLimitWarning;
+
+/**
+ * Slits let the paper bend around the pumpkin. They're placed one at a time where they relieve the most stretch,
+ * at least about 1 in apart.
+ */
 export interface SlitOptions {
-  /** Number of slits (0 = none). */
-  count: number;
-  /** How far each slit runs in from the cut-out edge, in the measurement units. */
+  /**
+   * Number of slits (0 = none), or "auto": add slits until the paper's stretch is at most 3 % nearly everywhere
+   * (95th percentile), the next slit would lower it by less than 3 %, or there are 24.
+   */
+  count: number | "auto";
+  /**
+   * The deepest a slit may run in from the cut-out edge, in the measurement units. Each goes this deep unless the
+   * design is in the way; one that can't get about 3/4 in deep (or through most of a narrower margin) isn't placed.
+   */
   depth: number;
 }
 
@@ -149,7 +164,7 @@ export interface TemplateInput {
   /** The design to place. Projection happens only when both design and placement are given. */
   design?: Design;
   placement?: Placement;
-  /** Slit count and depth; defaults to `defaultSlits(units)`. */
+  /** Slit count and max depth; defaults to `defaultSlits(units)`. */
   slits?: SlitOptions;
   /** Paper margin between the design and the cut-out edge, in the measurement units; defaults to `defaultMargin(units)`. */
   margin?: number;
@@ -232,4 +247,10 @@ export interface StretchMap {
   max: number;
   /** Area-weighted root mean square over the patch. */
   rms: number;
+}
+
+/** How far a template build has got: placing slits takes a while. */
+export interface BuildProgress {
+  /** Slits placed so far. */
+  slits: number;
 }
