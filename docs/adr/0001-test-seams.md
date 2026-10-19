@@ -12,8 +12,9 @@ edge and slit placement can be rewritten freely. The spec also lists PDF layout,
 While building the layers around the core, a few small pure helpers got direct unit tests anyway:
 PDF page layout and tiling (`test/pdf-layout.test.ts`), raster preparation before tracing
 (`test/raster-prep.test.ts`), settings storage (`test/settings.test.ts`), the calibration grid's PDF
-export (`test/calibration-grid.test.ts`) and the unit-switching length fields
-(`test/length-fields.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
+export (`test/calibration-grid.test.ts`), the unit-switching length fields
+(`test/length-fields.test.ts`), the step model `steps` (`test/steps.test.ts`, `test/step-badges.test.ts`) and
+the Paper view's geometry `paperView` (`test/paper-view.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).
 
 ## Decision

@@ -24,8 +24,6 @@ export interface Viewport {
    * keep the view the carver picked, unless it's no longer available, when the step's default view shows.
    */
   offer(step: Step): void;
-  /** The view showing now. */
-  view(): View;
 }
 
 /** The switcher's label for each view, in the order the switcher lists them. */
@@ -129,6 +127,5 @@ export function mountViewport(root: HTMLElement): Viewport {
       renderSwitcher(step);
       show(step.views.includes(current) ? current : step.defaultView);
     },
-    view: () => current,
   };
 }

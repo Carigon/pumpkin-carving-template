@@ -1,18 +1,6 @@
 import type { Point2 } from "./core";
-import { layoutTemplatePdf, type ClipRect, type TemplatePdfInput } from "./pdf/layout";
+import { layoutTemplatePdf, type TemplatePage, type TemplatePdfInput } from "./pdf/layout";
 import { stretchTint } from "./stretchTint";
-
-/** A printed page that carries (part of) the template, in the template's frame and units. */
-export interface PaperPage {
-  /** Page number in the PDF (1 = first page). */
-  number: number;
-  /** The name printed on the page: "A1", "B1", … for tiles, "1" when the template fits on one page. */
-  label: string;
-  /** The whole sheet. */
-  sheet: ClipRect;
-  /** The area inside the page margins, where the template prints. */
-  printable: ClipRect;
-}
 
 /** One triangle of the flattened patch on the paper, with how much the paper stretches there. */
 export interface PaperStretch {
@@ -39,7 +27,7 @@ export interface PaperView {
   /** The flat side of the stretch map. */
   stretch: PaperStretch[];
   /** The pages that carry the template, from the PDF's own page layout. */
-  pages: PaperPage[];
+  pages: TemplatePage[];
   /** Every page of the PDF, including the info page when there is one. */
   pageCount: number;
 }
@@ -63,7 +51,7 @@ export function paperView(source: TemplatePdfInput): PaperView {
       value: values[t],
       tint: stretchTint(values[t]),
     })),
-    pages: layout.templatePages.map((p) => ({ number: p.index + 1, label: p.name, sheet: p.sheet, printable: p.printable })),
+    pages: layout.templatePages,
     pageCount: layout.pages.length,
   };
 }

@@ -1,13 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { ProjectedDesign, StretchMap, SurfaceParameters } from "../core";
-import { stretchTint } from "../stretchTint";
+import { STRETCH_MAX_ALPHA, stretchTint } from "../stretchTint";
 
 const FRONT_LIMIT_DEGREES = 60;
 const COLOR_OK = new THREE.Color(0x1b1b1b);
 const COLOR_PAST_LIMIT = new THREE.Color(0xd4a017);
-/** The stretch tint's opacity at full strength (see `stretchTint`). */
-const STRETCH_MAX_ALPHA = 0.75;
 const COLOR_STRETCH = new THREE.Color(0xb0004a);
 
 export interface PumpkinPreview {
