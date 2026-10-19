@@ -1,0 +1,95 @@
+:root {
+  --bg: #fffaf3;
+  --fg: #2b2118;
+  --muted: #7a6a5a;
+  --accent: #e26a12;
+  --warn-bg: #fdecea;
+  --warn-fg: #a3261b;
+  --border: #e3d6c6;
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1712;
+    --fg: #f3e9dd;
+    --muted: #b3a493;
+    --warn-bg: #3d1a16;
+    --warn-fg: #ffb4a8;
+    --border: #4a3c2f;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+h1 {
+  color: var(--accent);
+}
+
+.measurements {
+  display: grid;
+  gap: 1rem;
+}
+
+.units {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  gap: 1rem;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.input-row input {
+  width: 8rem;
+  font-size: 1rem;
+  padding: 0.3rem;
+}
+
+.input-row input[aria-invalid="true"] {
+  outline: 2px solid var(--warn-fg);
+}
+
+.hint,
+.muted {
+  color: var(--muted);
+}
+
+.warning {
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.semi-axes {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.semi-axes dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
