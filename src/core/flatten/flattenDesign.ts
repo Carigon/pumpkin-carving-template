@@ -1,7 +1,7 @@
 import { signedArea } from "../geometry/distanceField";
 import { barycentric, centroid, distance, dot3, length3, normalize3, polylineLength, scale3, sub3 } from "../geometry/vector";
 import type { Projection } from "../projection/projection";
-import type { Surface, SurfaceCoords, SurfaceSample } from "../surface/surface";
+import type { Surface, SurfaceCoords, SurfaceSample, Vec3 } from "../surface/surface";
 import { cutRegion } from "../template/cutOutline";
 import { finishSlits, planSlits, type SlitPlanOptions } from "../template/slits";
 import type { Point2 } from "../types";
@@ -38,6 +38,8 @@ export interface FlatDesign {
   /** The flattened mesh, for stretch. `flat[i]` is the paper position of `mesh.vertices[i]`. */
   mesh: TriangleMesh;
   flat: Point2[];
+  /** Outward surface normal at each mesh vertex. */
+  normals: Vec3[];
   /** The cut-out edge on paper: the design's outline grown by the margin (see `cutRegion`). */
   outline: Point2[];
   /**
@@ -129,7 +131,8 @@ export function flattenDesign({ surface, projection, center, paths, margin, slit
     designPaths,
     slitOptions,
   );
-  return { paths: designPaths, outline, slits, blockedSlits: blocked, mesh, flat };
+  const normals = mesh.domain.map((p) => surface.sample(chart.toCoords(p)).normal);
+  return { paths: designPaths, outline, slits, blockedSlits: blocked, mesh, flat, normals };
 }
 
 /** The design paths plus the design center, which the paper must cover for the center cross. */

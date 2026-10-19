@@ -209,6 +209,8 @@ export interface FlatTemplate {
 export interface StretchMap {
   triangles: [number, number, number][];
   surface: Vec3[];
+  /** Outward unit surface normal at each `surface` vertex. */
+  normals: Vec3[];
   flat: Point2[];
   /**
    * Per triangle: max(σ1, 1/σ2) − 1, with σ the singular values of the surface → paper map.

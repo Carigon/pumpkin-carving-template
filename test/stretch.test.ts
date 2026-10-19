@@ -64,4 +64,22 @@ describe("stretch", () => {
     const nearest = Math.min(...stretch.flat.map((p) => Math.hypot(p.x, p.y)));
     expect(nearest).toBeLessThan(0.5);
   });
+
+  it("gives the outward surface normal at each 3D vertex, so the preview can draw the tint just above the skin", () => {
+    const stretch = buildTemplate({
+      measurements: sphere(30),
+      design: disc(),
+      placement: { width: 6, verticalOffset: 1, rotation: 0 },
+    }).template!.stretch;
+
+    const R = 30 / (2 * Math.PI);
+    expect(stretch.normals).toHaveLength(stretch.surface.length);
+    stretch.normals.forEach((n, i) => {
+      // On a sphere the outward normal is the point's direction from the center.
+      const p = stretch.surface[i];
+      expect(n[0]).toBeCloseTo(p[0] / R, 3);
+      expect(n[1]).toBeCloseTo(p[1] / R, 3);
+      expect(n[2]).toBeCloseTo(p[2] / R, 3);
+    });
+  });
 });
