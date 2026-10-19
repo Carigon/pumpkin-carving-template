@@ -1,5 +1,6 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
 import { readSvgDesign } from "../input/svgDesign";
+import { mountTracePanel } from "./tracePanel";
 
 const CM_PER_IN = 2.54;
 const DEFAULTS_IN = { width: 6, verticalOffset: 0 };
@@ -23,10 +24,11 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
     <h2>Design</h2>
     <form class="design" novalidate>
       <div class="field">
-        <label for="d-file">SVG file</label>
-        <input id="d-file" type="file" accept=".svg,image/svg+xml" />
-        <small class="hint" id="d-file-status">Closed shapes become the carve areas.</small>
+        <label for="d-file">SVG file or scanned stencil</label>
+        <input id="d-file" type="file" accept=".svg,image/svg+xml,image/*" />
+        <small class="hint" id="d-file-status">Closed shapes become the carve areas. Images are traced in your browser.</small>
       </div>
+      <div id="d-trace"></div>
       <div class="field">
         <label for="d-width">Width seen from the front</label>
         <div class="input-row">
@@ -69,15 +71,32 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
   offset.value = String(DEFAULTS_IN.verticalOffset);
   let design: Design | null = null;
   let units: Units = "in";
+  const showStatus = (text: string, failed: boolean) => {
+    status.textContent = text;
+    status.classList.toggle("warning-text", failed);
+  };
+  const traceEl = $<HTMLElement>("d-trace");
+  const trace = mountTracePanel(traceEl,(traced, text, failed) => {
+    design = traced;
+    showStatus(text, failed);
+    onChange();
+  });
 
   file.addEventListener("change", async () => {
     const f = file.files?.[0];
     if (!f) return;
+    if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
+      design = null;
+      showStatus("Tracing…", false);
+      onChange();
+      await trace.load(f);
+      return;
+    }
+    trace.clear();
     const { design: read, notes } = readSvgDesign(await f.text());
     design = read;
     const count = read ? `${read.paths.length} shape${read.paths.length === 1 ? "" : "s"} loaded.` : "";
-    status.textContent = [count, ...notes].filter(Boolean).join(" ");
-    status.classList.toggle("warning-text", read === null);
+    showStatus([count, ...notes].filter(Boolean).join(" "), read === null);
     onChange();
   });
   rotationRange.addEventListener("input", () => {
@@ -87,7 +106,7 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
     rotationRange.value = rotation.value;
   });
   form.addEventListener("input", (e) => {
-    if (e.target !== file) onChange();
+    if (e.target !== file && !traceEl.contains(e.target as Node)) onChange();
   });
   form.addEventListener("submit", (e) => e.preventDefault());
 

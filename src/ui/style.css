@@ -115,3 +115,53 @@ h1 {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+.trace {
+  display: grid;
+  gap: 1rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.trace[hidden] {
+  display: none;
+}
+
+.trace-views {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.8rem;
+}
+
+.trace-views figure {
+  margin: 0;
+}
+
+.trace-views figcaption {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.trace-crop {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.trace-result {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.trace-result svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.trace .field.checkbox label {
+  font-weight: 400;
+}
