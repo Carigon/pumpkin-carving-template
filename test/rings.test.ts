@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, nextRing, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
+import { buildTemplate, convertLength, nextRing, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
 
 /** Radius of the fitted profile at height `y` (0 at mid-height), interpolated between profile points. */
 function radiusAt(surface: SurfaceParameters, y: number): number {
@@ -153,7 +153,8 @@ describe("pumpkin profile through rings at known heights", () => {
       const [x, y, z] = p.surface!.point;
       expect(x).toBeCloseTo(p.front.x, 9);
       expect(y).toBeCloseTo(p.front.y, 9);
-      expect(Math.hypot(x, z) / radiusAt(surface!, y)).toBeCloseTo(1, 3);
+      // The mesh is within 0.25 mm of the smooth shape; measured across, a little more where the side leans.
+      expect(Math.abs(Math.hypot(x, z) - radiusAt(surface!, y))).toBeLessThan(2 * convertLength(0.025, "cm", "in"));
     }
     expect(template!.stretch.max).toBeLessThan(0.06);
   });

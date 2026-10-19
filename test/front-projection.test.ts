@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type Design, type Placement } from "../src/core";
+import { buildTemplate, convertLength, type Design, type Placement } from "../src/core";
 
 // A sphere: height = circumference / π, widest at mid-height.
 const CIRCUMFERENCE = 60;
 const R = CIRCUMFERENCE / (2 * Math.PI);
+/** The surface is a triangle mesh within 0.25 mm of the smooth shape. */
+const MESH_TOLERANCE = convertLength(0.025, "cm", "in");
 const plainSphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }], units: "in" as const };
 /** The same sphere measured with more tape rings, a quarter and three quarters of the way up. */
 const ringedSphere = {
@@ -47,13 +49,16 @@ describe.each([
         const [p] = design!.paths[0].points;
         const point = p.surface!.point;
         const expectedAngle = Math.asin(x / R);
+        // Off by up to the mesh tolerance along the surface's normal, which turns the angle by up to tan(angle) times that.
+        const angleTolerance = (2 * MESH_TOLERANCE) / R;
 
-        expect(Math.hypot(...point)).toBeCloseTo(R, 6);
-        expect(point[1]).toBeCloseTo(0, 6);
-        expect(Math.atan2(point[0], point[2])).toBeCloseTo(expectedAngle, 6);
+        expect(Math.abs(Math.hypot(...point) - R)).toBeLessThan(MESH_TOLERANCE);
+        expect(point[0]).toBeCloseTo(x, 9);
+        expect(point[1]).toBeCloseTo(0, 9);
+        expect(Math.abs(Math.atan2(point[0], point[2]) - expectedAngle)).toBeLessThan(angleTolerance);
         // Great-circle distance from the front point (0, 0, R).
-        expect(R * Math.acos(point[2] / R)).toBeCloseTo(R * expectedAngle, 5);
-        expect(p.angleFromFront!).toBeCloseTo((expectedAngle * 180) / Math.PI, 4);
+        expect(Math.abs(R * Math.atan2(Math.hypot(point[0], point[1]), point[2]) - R * expectedAngle)).toBeLessThan(2 * MESH_TOLERANCE);
+        expect(Math.abs(p.angleFromFront! - (expectedAngle * 180) / Math.PI)).toBeLessThan((angleTolerance * 180) / Math.PI);
       },
     );
   });

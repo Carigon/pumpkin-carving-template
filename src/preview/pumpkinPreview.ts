@@ -17,7 +17,7 @@ export interface PumpkinPreview {
 }
 
 /**
- * Three.js preview: the fitted pumpkin (its side profile spun around the vertical axis) plus the projected design lines, orbitable.
+ * Three.js preview: the fitted pumpkin (the builder's surface mesh) plus the projected design lines, orbitable.
  * Holds no geometry logic: it only draws what the builder returned.
  * Axes match the core: x right, y up (stem), +z toward the viewer.
  */
@@ -66,7 +66,7 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
   scene.add(tint, lines, missed);
 
   let size = 0;
-  let shownProfile: SurfaceParameters["profile"] | null = null;
+  let shownMesh: SurfaceParameters["mesh"] | null = null;
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = canvas;
@@ -91,12 +91,15 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
       if (!surface) return;
 
       const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
-      if (surface.profile !== shownProfile) {
-        // Lathe points go base → stem so the faces point outward.
-        const points = surface.profile.map((p) => new THREE.Vector2(p.radius, p.height)).reverse();
+      if (surface.mesh !== shownMesh) {
+        const { positions, normals, triangles } = surface.mesh;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+        g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(normals), 3));
+        g.setIndex(new THREE.BufferAttribute(triangles, 1));
         pumpkin.geometry.dispose();
-        pumpkin.geometry = new THREE.LatheGeometry(points, 128);
-        shownProfile = surface.profile;
+        pumpkin.geometry = g;
+        shownMesh = surface.mesh;
       }
       const newSize = Math.max(a, b, c);
       if (Math.abs(newSize - size) > 1e-6 * newSize) {

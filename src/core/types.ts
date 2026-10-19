@@ -52,7 +52,19 @@ export interface SurfaceParameters {
   semiAxes: SemiAxes;
   /** Side profile from stem to base (finely sampled); the surface is this profile spun around the y axis. */
   profile: ProfilePoint[];
+  /** The surface as triangles, as projection sees it: within 0.25 mm of the smooth shape. */
+  mesh: SurfaceMesh;
   units: Units;
+}
+
+/** A triangle mesh of the pumpkin's surface, for drawing it. Same axes as the projected design. */
+export interface SurfaceMesh {
+  /** x, y, z per vertex. */
+  positions: Float64Array;
+  /** Outward unit normal per vertex (x, y, z), to blend across triangles for smooth shading. */
+  normals: Float64Array;
+  /** Three vertex indices per triangle, counterclockwise seen from outside. */
+  triangles: Uint32Array;
 }
 
 /** Which input a measurement warning refers to, so the UI can show it next to that field. */

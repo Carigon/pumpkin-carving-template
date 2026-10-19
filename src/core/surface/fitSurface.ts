@@ -1,6 +1,9 @@
 import type { MeasurementWarning, ProfilePoint, PumpkinMeasurements, SurfaceParameters } from "../types";
 import { angleAt, fitProfile, profileAt } from "./profile";
+import { meshSurface } from "../mesh/meshSurface";
+import { convertLength } from "../units";
 import { revolvedSurface } from "./revolved";
+import { revolvedMesh } from "./revolvedMesh";
 import type { Surface } from "./surface";
 
 export type SurfaceFit =
@@ -15,10 +18,13 @@ export type SurfaceFit =
 
 /** Points in the reported side profile. */
 const PROFILE_POINTS = 257;
+/** Furthest a facet of the mesh may stray from the smooth shape: 0.25 mm. */
+const MESH_TOLERANCE_CM = 0.025;
 
 /**
  * Fit the pumpkin surface to the tape measurements: the smoothest side profile through every ring at its
- * height, widest at the largest ring (see `fitProfile`), spun around the vertical axis.
+ * height, widest at the largest ring (see `fitProfile`), spun around the vertical axis, then triangulated. The mesh
+ * is the surface projection works against.
  */
 export function fitSurface(m: PumpkinMeasurements): SurfaceFit {
   const warnings = checkMeasurements(m);
@@ -39,14 +45,17 @@ export function fitSurface(m: PumpkinMeasurements): SurfaceFit {
     const p = profileAt(fit.profile, (Math.PI * i) / (PROFILE_POINTS - 1));
     return { radius: p.radius, height: p.y };
   });
+  const smooth = revolvedSurface(fit.profile);
+  const mesh = revolvedMesh(fit.profile, smooth, convertLength(MESH_TOLERANCE_CM, "cm", m.units));
   const widest = Math.max(...m.rings.map((r) => r.circumference / (2 * Math.PI)), ...profile.map((p) => p.radius));
   return {
     ok: true,
-    surface: revolvedSurface(fit.profile),
+    surface: meshSurface(mesh, smooth),
     parameters: {
       kind: fit.ellipsoid ? "ellipsoid" : "revolved",
       semiAxes: { sideToSide: widest, frontToBack: widest, vertical: m.height / 2 },
       profile,
+      mesh,
       units: m.units,
     },
     radiusAt: (position) => profileAt(fit.profile, angleAt(position)).radius,

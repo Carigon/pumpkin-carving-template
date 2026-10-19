@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type PumpkinMeasurements } from "../src/core";
+import { buildTemplate, convertLength, type PumpkinMeasurements } from "../src/core";
 
 const widestOnly = (circumference: number, height: number, units: "in" | "cm" = "in"): PumpkinMeasurements => ({
   height,
@@ -30,10 +30,12 @@ describe("fitting the pumpkin surface to a height and one ring at mid-height", (
     expect(surface!.profile[0].height).toBeCloseTo(c, 9);
     expect(surface!.profile[surface!.profile.length - 1].height).toBeCloseTo(-c, 9);
     for (const p of surface!.profile) expect((p.radius / a) ** 2 + (p.height / c) ** 2).toBeCloseTo(1, 6);
-    // The 3D surface itself, not just the reported profile.
+    // The 3D surface itself, not just the reported profile: a mesh within 0.25 mm of it. A point that far off the
+    // ellipsoid scales its radius by at most 1 ± 0.25 mm / (the smaller semi-axis).
+    const tolerance = convertLength(0.025, "cm", units) / Math.min(a, c);
     for (const p of design!.paths[0].points) {
       const [x, y, z] = p.surface!.point;
-      expect((x / a) ** 2 + (y / c) ** 2 + (z / a) ** 2).toBeCloseTo(1, 6);
+      expect(Math.abs(Math.sqrt((x / a) ** 2 + (y / c) ** 2 + (z / a) ** 2) - 1)).toBeLessThan(tolerance);
     }
   });
 
