@@ -177,3 +177,21 @@ h1 {
 .trace .field.checkbox label {
   font-weight: 400;
 }
+
+/* Test-grid (ball) mode: one circumference, a generated grid instead of an uploaded design. */
+.mode {
+  display: grid;
+  gap: 1rem;
+}
+
+.ball-only,
+.ball-mode .field[data-field="frontArc"],
+.ball-mode .field[data-field="depth"],
+.ball-mode #d-trace,
+.ball-mode .field:has(#d-file) {
+  display: none;
+}
+
+.ball-mode .ball-only {
+  display: block;
+}

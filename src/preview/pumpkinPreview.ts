@@ -1,14 +1,19 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type { ProjectedDesign, SurfaceParameters } from "../core";
+import type { ProjectedDesign, StretchMap, SurfaceParameters } from "../core";
 
 const FRONT_LIMIT_DEGREES = 60;
 const COLOR_OK = new THREE.Color(0x1b1b1b);
 const COLOR_PAST_LIMIT = new THREE.Color(0xd4a017);
+/** Stretch tint: invisible below STRETCH_FAINT, fully opaque from STRETCH_HEAVY (fractions, 0.05 = 5 %). */
+const STRETCH_FAINT = 0.03;
+const STRETCH_HEAVY = 0.15;
+const STRETCH_MAX_ALPHA = 0.75;
+const COLOR_STRETCH = new THREE.Color(0xb0004a);
 
 export interface PumpkinPreview {
-  /** Show the given surface and projected design; call on every input change. */
-  update(surface: SurfaceParameters | null, design: ProjectedDesign | null): void;
+  /** Show the given surface, projected design and stretch tint; call on every input change. */
+  update(surface: SurfaceParameters | null, design: ProjectedDesign | null, stretch: StretchMap | null): void;
 }
 
 /**
@@ -53,7 +58,12 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
     new THREE.BufferGeometry(),
     new THREE.PointsMaterial({ color: 0xff3030, size: 4, sizeAttenuation: false }),
   );
-  scene.add(lines, missed);
+  // Heavily stretched areas of the flattened patch, as a translucent tint just above the skin.
+  const tint = new THREE.Mesh(
+    new THREE.BufferGeometry(),
+    new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  scene.add(tint, lines, missed);
 
   let size = 0;
 
@@ -73,9 +83,10 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
   });
 
   return {
-    update(surface, design) {
+    update(surface, design, stretch) {
       pumpkin.visible = surface !== null;
       lines.visible = missed.visible = surface !== null && design !== null;
+      tint.visible = surface !== null && stretch !== null;
       if (!surface) return;
 
       const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
@@ -93,6 +104,7 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
       }
 
       if (design) setDesign(design, 0.003 * newSize);
+      if (stretch) setStretch(tint, stretch, surface, 0.0015 * newSize);
     },
   };
 
@@ -119,7 +131,31 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
   }
 }
 
-function replaceGeometry(obj: THREE.LineSegments | THREE.Points, attrs: Record<string, [number[], number]>): void {
+/**
+ * One flat-colored triangle per stretch triangle (no shared vertices, so values don't blur together),
+ * each vertex lifted along the ellipsoid normal so the chordal triangles clear the curved skin.
+ */
+function setStretch(tint: THREE.Mesh, stretch: StretchMap, surface: SurfaceParameters, lift: number): void {
+  const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
+  const lifted = stretch.surface.map(([x, y, z]) => {
+    const n = new THREE.Vector3(x / (a * a), y / (c * c), z / (b * b)).normalize();
+    return [x + n.x * lift, y + n.y * lift, z + n.z * lift];
+  });
+  const pos: number[] = [];
+  const col: number[] = [];
+  stretch.triangles.forEach((tri, t) => {
+    const k = Math.min(1, Math.max(0, (stretch.values[t] - STRETCH_FAINT) / (STRETCH_HEAVY - STRETCH_FAINT)));
+    const alpha = STRETCH_MAX_ALPHA * k * k * (3 - 2 * k);
+    if (alpha <= 0) return;
+    for (const i of tri) {
+      pos.push(...lifted[i]);
+      col.push(COLOR_STRETCH.r, COLOR_STRETCH.g, COLOR_STRETCH.b, alpha);
+    }
+  });
+  replaceGeometry(tint, { position: [pos, 3], color: [col, 4] });
+}
+
+function replaceGeometry(obj: THREE.LineSegments | THREE.Points | THREE.Mesh, attrs: Record<string, [number[], number]>): void {
   obj.geometry.dispose();
   const g = new THREE.BufferGeometry();
   for (const [name, [data, itemSize]] of Object.entries(attrs)) {

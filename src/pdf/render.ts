@@ -1,5 +1,7 @@
 import {
+  clip,
   closePath,
+  rectangle,
   endPath,
   lineTo,
   moveTo,
@@ -29,11 +31,16 @@ export async function renderPdf(layout: DocumentLayout): Promise<Uint8Array> {
   for (const { size, marks } of layout.pages) {
     const page = doc.addPage(size);
     for (const mark of marks) {
+      if (mark.clip) {
+        const { x, y, width, height } = mark.clip;
+        page.pushOperators(pushGraphicsState(), rectangle(x, y, width, height), clip(), endPath());
+      }
       if (mark.kind === "text") {
         if (mark.text) page.drawText(mark.text, { x: mark.x, y: mark.y, size: mark.size, font: mark.bold ? bold : regular, color: rgb(0, 0, 0) });
       } else {
         page.pushOperators(...pathOperators(mark));
       }
+      if (mark.clip) page.pushOperators(popGraphicsState());
     }
   }
   return doc.save();
