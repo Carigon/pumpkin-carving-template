@@ -10,6 +10,10 @@ const MAX_ROTATION = 30;
 export interface DesignPanel {
   design(): Design | null;
   placement(): Placement;
+  /** An image design is loaded and still being traced (the carver hasn't accepted the trace). */
+  tracing(): boolean;
+  /** An image design is loaded, being traced or with its trace accepted. */
+  hasImage(): boolean;
   /** Convert the length fields when the measurement units change. */
   setUnits(units: Units): void;
   /** Show design-related warnings (outside the silhouette, past the front limit). */
@@ -20,18 +24,23 @@ export interface DesignPanel {
 
 /**
  * SVG upload plus placement controls: front-view width, vertical offset and rotation.
- * Calls `onChange` whenever the design or its placement changes.
+ * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. An image's crop
+ * and traced result go in `traceView` (the viewport's Trace view).
  */
-export function mountDesignPanel(root: HTMLElement, onChange: () => void): DesignPanel {
+export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceView: HTMLElement): DesignPanel {
   root.innerHTML = `
-    <h2>Design</h2>
     <form class="design" novalidate>
+      <section class="card design-source">
+      <h2>Design</h2>
       <div class="field">
         <label for="d-file">SVG file or scanned stencil</label>
         <input id="d-file" type="file" accept=".svg,image/svg+xml,image/*" />
-        <small class="hint" id="d-file-status">Closed shapes become the carve areas. Images are traced in your browser.</small>
+        <div class="hint" id="d-file-status">Closed shapes become the carve areas. Images are traced in your browser.</div>
       </div>
       <div id="d-trace"></div>
+      </section>
+      <section class="card">
+      <h2>Placement</h2>
       <div class="field">
         <label for="d-width">Width seen from the front</label>
         <div class="input-row">
@@ -54,9 +63,10 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
           <input id="d-rotation" type="number" step="0.5" value="0" />
           <span>°</span>
         </div>
-        <small class="hint">Counterclockwise as seen from the front.</small>
+        <div class="hint">Counterclockwise as seen from the front.</div>
       </div>
       <div id="d-warnings" class="warnings" role="alert"></div>
+      </section>
     </form>
   `;
 
@@ -79,11 +89,16 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
     status.classList.toggle("warning-text", failed);
   };
   const traceEl = $<HTMLElement>("d-trace");
-  const trace = mountTracePanel(traceEl,(traced, text, failed) => {
-    design = traced;
-    showStatus(text, failed);
-    onChange();
-  });
+  const trace = mountTracePanel(
+    traceEl,
+    (traced, text, failed) => {
+      design = traced;
+      showStatus(text, failed);
+      onChange();
+    },
+    traceView,
+    onChange,
+  );
 
   file.addEventListener("change", async () => {
     const f = file.files?.[0];
@@ -115,6 +130,8 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
 
   return {
     design: () => design,
+    tracing: () => trace.loaded() && !trace.accepted(),
+    hasImage: () => trace.loaded(),
     placement: () => ({
       width: lengths.value(width),
       verticalOffset: lengths.value(offset) || 0,

@@ -1,5 +1,5 @@
 import type { Paper } from "../paper";
-import type { TemplatePdfInput } from "../pdf/layout";
+import { layoutTemplatePdf, type TemplatePdfInput } from "../pdf/layout";
 
 /** What the panel exports: everything the PDF needs except the panel's own options. */
 export type ExportSource = Omit<TemplatePdfInput, "filled" | "paper">;
@@ -22,17 +22,24 @@ export interface ExportPanel {
  */
 export function mountExportPanel(root: HTMLElement, onChange: () => void = () => {}): ExportPanel {
   root.innerHTML = `
-    <h2>Template</h2>
-    <form class="export" novalidate>
-      <label>Paper
-        <select id="x-paper">
-          <option value="letter">Letter (8.5 x 11 in)</option>
-          <option value="a4">A4 (210 x 297 mm)</option>
-        </select>
-      </label>
-      <label class="check"><input id="x-filled" type="checkbox" /> Print carve areas filled (default: outlines)</label>
-      <button id="x-download" type="submit" disabled>Download PDF</button>
-      <small class="hint" id="x-status">Load a design to make a template.</small>
+    <form class="export card" novalidate>
+      <h2>Paper and PDF</h2>
+      <div class="field">
+        <label for="x-paper">Paper</label>
+        <div class="input-row">
+          <select id="x-paper">
+            <option value="letter">Letter (8.5 x 11 in)</option>
+            <option value="a4">A4 (210 x 297 mm)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field checkbox">
+        <label><input id="x-filled" type="checkbox" /> Print carve areas filled (default: outlines)</label>
+      </div>
+      <div class="field">
+        <div class="input-row"><button id="x-download" type="submit" class="primary" disabled>Download PDF</button></div>
+        <div class="hint" id="x-status" aria-live="polite">Load a design to make a template.</div>
+      </div>
     </form>
   `;
   const form = root.querySelector("form")!;
@@ -58,10 +65,8 @@ export function mountExportPanel(root: HTMLElement, onChange: () => void = () =>
     exporting = true;
     refreshButton();
     try {
-      const [{ layoutTemplatePdf }, { renderPdf, downloadPdf }] = await Promise.all([
-        import("../pdf/layout"),
-        import("../pdf/render"),
-      ]);
+      // The page layout is already loaded (the Paper view uses it); pdf-lib loads on first export.
+      const { renderPdf, downloadPdf } = await import("../pdf/render");
       const layout = layoutTemplatePdf({ ...current, filled: filled.checked, paper: paper.value as Paper });
       downloadPdf(await renderPdf(layout), "pumpkin-template.pdf");
       const { rows, cols } = layout.tiles;
