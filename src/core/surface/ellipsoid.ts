@@ -9,6 +9,7 @@ export function ellipsoidSurface({ sideToSide: a, vertical: c, frontToBack: b }:
   const normalAt = ([x, y, z]: Vec3): Vec3 => normalize([x / (a * a), y / (c * c), z / (b * b)]);
 
   return {
+    coordRange: { minU: -Math.PI, maxU: Math.PI, minV: -Math.PI / 2, maxV: Math.PI / 2 },
     sample({ u, v }: SurfaceCoords): SurfaceSample {
       const point: Vec3 = [a * Math.cos(v) * Math.sin(u), c * Math.sin(v), b * Math.cos(v) * Math.cos(u)];
       return { point, normal: normalAt(point) };

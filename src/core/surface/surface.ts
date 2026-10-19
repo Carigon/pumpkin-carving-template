@@ -28,6 +28,11 @@ export interface SurfaceHit extends SurfaceSample {
  * (revolved side profiles, ribs) can be added without touching them.
  */
 export interface Surface {
+  /**
+   * The coordinate range `sample` covers. The edges may be singular (poles) or a seam; meshes stay a little
+   * inside it.
+   */
+  coordRange: { minU: number; maxU: number; minV: number; maxV: number };
   /** 3D point and normal at the given surface coordinates. */
   sample(coords: SurfaceCoords): SurfaceSample;
   /**

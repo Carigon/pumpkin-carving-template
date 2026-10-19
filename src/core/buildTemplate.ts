@@ -4,8 +4,7 @@ import { designWarnings } from "./projection/designWarnings";
 import { placeDesign } from "./projection/placement";
 import { projectDesign } from "./projection/projectDesign";
 import { frontProjection } from "./projection/projection";
-import { ellipsoidSurface } from "./surface/ellipsoid";
-import { fitEllipsoid } from "./surface/fitEllipsoid";
+import { fitSurface } from "./surface/fitSurface";
 import { fromInches } from "./units";
 import type { FlatTemplate, SlitOptions, TemplateInput, TemplateResult, TemplateWarning, Units } from "./types";
 
@@ -28,16 +27,15 @@ export function defaultSlits(units: Units): SlitOptions {
  */
 export function buildTemplate(input: TemplateInput): TemplateResult {
   const { units } = input.measurements;
-  const fit = fitEllipsoid(input.measurements);
-  if (!fit.ok) return { surface: null, design: null, template: null, warnings: [fit.warning] };
-  const surfaceParameters = { kind: "ellipsoid" as const, semiAxes: fit.semiAxes, units };
+  const fit = fitSurface(input.measurements);
+  if (!fit.ok) return { surface: null, design: null, template: null, warnings: fit.warnings };
+  const { surface, parameters: surfaceParameters } = fit;
 
   const { design, placement } = input;
   if (!design || !placement || !(placement.width > 0)) {
     return { surface: surfaceParameters, design: null, template: null, warnings: [] };
   }
 
-  const surface = ellipsoidSurface(fit.semiAxes);
   const projection = frontProjection(surface);
   const frontViewPaths = placeDesign(design, placement);
   const projected = projectDesign(frontViewPaths, projection);

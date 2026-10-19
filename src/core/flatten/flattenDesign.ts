@@ -12,8 +12,11 @@ import { cutSlits, gridMesh, meshLocator, trimMesh, type MeshLocator, type Trian
 const MESH_CELLS = 1500;
 /** Design segments are split into at least this many pieces across the design. */
 const DESIGN_STEPS = 100;
-/** Keep the mesh this far (radians of latitude) from the poles, where the surface coordinates pinch. */
-const POLE_GAP = 0.05;
+/**
+ * Keep the mesh this fraction of the coordinate range away from its edges, where the coordinates pinch
+ * (poles) or wrap (seam). 0.05 rad of latitude, as before, on the latitude range π.
+ */
+const EDGE_GAP = 0.05 / Math.PI;
 /** The mesh reaches this many margins past the cut-out edge, so the edge and the slit ends sit inside it. */
 const MESH_OVERHANG = 0.5;
 
@@ -170,13 +173,17 @@ function metricChart(surface: Surface, center: SurfaceCoords) {
       const q = surface.sample({ u: center.u, v }).point;
       return su / Math.max(1e-9, length3(sub3(surface.sample({ u: center.u + h, v }).point, q)) / h);
     },
-    /** Domain range that stays clear of the poles and of the longitude seam behind the pumpkin. */
-    limits: () => ({
-      minX: (-Math.PI + POLE_GAP - center.u) * su,
-      maxX: (Math.PI - POLE_GAP - center.u) * su,
-      minY: (-Math.PI / 2 + POLE_GAP - center.v) * sv,
-      maxY: (Math.PI / 2 - POLE_GAP - center.v) * sv,
-    }),
+    /** Domain range that stays clear of the edges of the surface coordinates (poles, seam). */
+    limits: () => {
+      const { minU, maxU, minV, maxV } = surface.coordRange;
+      const gapU = EDGE_GAP * (maxU - minU), gapV = EDGE_GAP * (maxV - minV);
+      return {
+        minX: (minU + gapU - center.u) * su,
+        maxX: (maxU - gapU - center.u) * su,
+        minY: (minV + gapV - center.v) * sv,
+        maxY: (maxV - gapV - center.v) * sv,
+      };
+    },
   };
 }
 

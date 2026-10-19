@@ -9,9 +9,27 @@ export interface PumpkinMeasurements {
   circumference: number;
   /** Stem-to-base arc measured over the front. */
   frontArc: number;
-  /** Optional front-to-back depth (full diameter, not radius). */
+  /**
+   * Optional front-to-back depth: the straight-line distance through the pumpkin (full diameter, not radius).
+   * Every horizontal cross-section then gets the same front-to-back : side-to-side ratio as the widest one.
+   */
   depth?: number;
+  /** Optional: where the widest circumference was taken, as the distance from the stem along the front arc. */
+  circumferenceAt?: number;
+  /**
+   * Optional extra tape rings along the front arc. With none (and no `circumferenceAt`) the pumpkin is the
+   * v1 ellipsoid; with any, it is a surface of revolution whose side profile passes through every ring.
+   */
+  rings?: Ring[];
   units: Units;
+}
+
+/** A horizontal tape ring, taken at a mark on the front arc. */
+export interface Ring {
+  /** Distance of the mark from the stem, along the front arc. */
+  distance: number;
+  /** Circumference of the pumpkin at that mark. */
+  circumference: number;
 }
 
 /** Semi-axes of the fitted ellipsoid, in the measurement units. */
@@ -24,19 +42,36 @@ export interface SemiAxes {
   vertical: number;
 }
 
+/** One point of the side profile: the side-to-side radius at a height (y, stem up, 0 at mid-height). */
+export interface ProfilePoint {
+  radius: number;
+  height: number;
+}
+
 /** Derived surface parameters, for the preview and the PDF info block. */
 export interface SurfaceParameters {
-  kind: "ellipsoid";
+  /** "ellipsoid" (widest ring only) or "revolved" (a side profile through extra rings). */
+  kind: "ellipsoid" | "revolved";
+  /**
+   * Half the overall size: largest side-to-side and front-to-back radius and half the height.
+   * For the ellipsoid these are its semi-axes.
+   */
   semiAxes: SemiAxes;
+  /** Side profile from stem to base (finely sampled); the surface is this profile spun around the y axis. */
+  profile: ProfilePoint[];
+  /** Front-to-back : side-to-side ratio of every horizontal cross-section (1 = round from above). */
+  depthRatio: number;
   units: Units;
 }
 
 /** Which input a measurement warning refers to, so the UI can show it next to that field. */
-export type MeasurementField = "circumference" | "frontArc" | "depth";
+export type MeasurementField = "circumference" | "circumferenceAt" | "frontArc" | "depth" | "ring";
 
 export interface MeasurementWarning {
   kind: "impossible-measurement";
   field: MeasurementField;
+  /** For field "ring": the index of the offending ring in `PumpkinMeasurements.rings`. */
+  ring?: number;
   message: string;
 }
 
