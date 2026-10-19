@@ -1,5 +1,5 @@
-// Public API of the core. Tests go through `buildTemplate` only.
-export { buildTemplate, defaultMargin, defaultSlits } from "./buildTemplate";
+// Public API of the core. Tests go through `buildTemplate` (and the builder that keeps the surface between calls).
+export { buildTemplate, createTemplateBuilder, defaultMargin, defaultSlits, type TemplateBuilder } from "./buildTemplate";
 // Filling in a new ring from the current fit, for the measurement form.
 export { nextRing } from "./rings";
 export type * from "./types";

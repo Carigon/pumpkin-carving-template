@@ -12,8 +12,10 @@ const STRETCH_MAX_ALPHA = 0.75;
 const COLOR_STRETCH = new THREE.Color(0xb0004a);
 
 export interface PumpkinPreview {
-  /** Show the given surface, projected design and stretch tint; call on every input change. */
-  update(surface: SurfaceParameters | null, design: ProjectedDesign | null, stretch: StretchMap | null): void;
+  /** Show the given surface and projected design; call on every input change. Clears the stretch tint. */
+  update(surface: SurfaceParameters | null, design: ProjectedDesign | null): void;
+  /** Tint the surface where the paper stretches (null: no tint), once the flat template for the shown design is built. */
+  setStretch(stretch: StretchMap | null): void;
 }
 
 /**
@@ -84,10 +86,10 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
   });
 
   return {
-    update(surface, design, stretch) {
+    update(surface, design) {
       pumpkin.visible = surface !== null;
       lines.visible = missed.visible = surface !== null && design !== null;
-      tint.visible = surface !== null && stretch !== null;
+      tint.visible = false;
       if (!surface) return;
 
       const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
@@ -114,7 +116,10 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
       }
 
       if (design) setDesign(design, 0.003 * newSize);
-      if (stretch) setStretch(tint, stretch, 0.0015 * newSize);
+    },
+    setStretch(stretch) {
+      tint.visible = pumpkin.visible && stretch !== null;
+      if (tint.visible) setStretch(tint, stretch!, 0.0015 * size);
     },
   };
 

@@ -40,10 +40,13 @@ export function buildBvh({ positions, triangles }: SurfaceMesh): Bvh {
   }
 
   // Nodes: box (min xyz, max xyz); an inner node's children are `left` and `left + 1`, a leaf holds order[start, start + size).
-  const nodeBoxes: number[] = [];
-  const left: number[] = [];
-  const start: number[] = [];
-  const size: number[] = [];
+  // A tree over n triangles has fewer than 2n nodes; typed arrays keep the ray casts' lookups fast.
+  const maxNodes = Math.max(1, 2 * count);
+  const nodeBoxes = new Float64Array(6 * maxNodes);
+  const left = new Int32Array(maxNodes);
+  const start = new Uint32Array(maxNodes);
+  const size = new Uint32Array(maxNodes);
+  let nodeCount = 1;
 
   const build = (node: number, from: number, to: number) => {
     const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
@@ -65,13 +68,12 @@ export function buildBvh({ positions, triangles }: SurfaceMesh): Bvh {
     const axis = [0, 1, 2].reduce((a, k) => (spread[3 + k] - spread[k] > spread[3 + a] - spread[a] ? k : a), 0);
     const mid = (from + to) >> 1;
     splitAt(order, from, to, mid, (t) => centroids[3 * t + axis]);
-    const child = left.length;
+    const child = nodeCount;
+    nodeCount += 2;
     left[node] = child;
-    left.push(-1, -1);
     build(child, from, mid);
     build(child + 1, mid, to);
   };
-  left.push(-1);
   if (count > 0) build(0, 0, count);
 
   /**
@@ -117,12 +119,24 @@ export function buildBvh({ positions, triangles }: SurfaceMesh): Bvh {
     raycast(origin, direction) {
       if (count === 0) return null;
       let best: RayHit | null = null;
+      // Nodes still to visit, with the distance to where the ray enters each; the nearer child is visited first.
       const stack = [0];
+      const enters = [entry(0, origin, direction)];
       while (stack.length > 0) {
         const node = stack.pop()!;
-        if (entry(node, origin, direction) > (best?.t ?? Infinity)) continue;
+        if (enters.pop()! > (best?.t ?? Infinity)) continue;
         if (left[node] >= 0) {
-          stack.push(left[node], left[node] + 1);
+          const a = left[node], b = a + 1;
+          const ta = entry(a, origin, direction), tb = entry(b, origin, direction);
+          const [near, far, tNear, tFar] = ta <= tb ? [a, b, ta, tb] : [b, a, tb, ta];
+          if (tFar < Infinity) {
+            stack.push(far);
+            enters.push(tFar);
+          }
+          if (tNear < Infinity) {
+            stack.push(near);
+            enters.push(tNear);
+          }
           continue;
         }
         for (let i = start[node]; i < start[node] + size[node]; i++) {

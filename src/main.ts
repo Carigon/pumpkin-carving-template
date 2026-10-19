@@ -1,14 +1,15 @@
 import "./ui/style.css";
-import { buildTemplate } from "./core";
+import { createTemplateBuilder, type TemplateWarning } from "./core";
 import { ballMeasurements, gridDesign } from "./input/calibrationGrid";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountDesignPanel } from "./ui/designPanel";
-import { mountExportPanel } from "./ui/exportPanel";
+import { mountExportPanel, type ExportSource } from "./ui/exportPanel";
 import { mountMeasurementForm } from "./ui/measurementForm";
 import { mountModePanel } from "./ui/modePanel";
 import { mountSlitPanel } from "./ui/slitPanel";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
+import { startBackgroundBuild, type BuildOutcome } from "./worker/backgroundBuild";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 app.innerHTML = `
@@ -24,18 +25,25 @@ app.innerHTML = `
       Red dots: points that miss the pumpkin. Crimson tint: where the paper has to stretch or squeeze to lie on
       the pumpkin (faint from about 3 %, solid from 15 %); lines there won't land exactly. Smaller designs or
       more, deeper slits reduce it.</small>
+    <small class="hint" id="stretch-status" aria-live="polite" hidden></small>
   </section>
   <section id="export"></section>
   <section id="surface-info" aria-live="polite"></section>
 `;
 
 const infoEl = app.querySelector<HTMLElement>("#surface-info")!;
+const stretchStatus = app.querySelector<HTMLElement>("#stretch-status")!;
 const preview = mountPumpkinPreview(app.querySelector<HTMLCanvasElement>("#preview-canvas")!);
 const modePanel = mountModePanel(app.querySelector<HTMLElement>("#mode")!, app, update);
 const form = mountMeasurementForm(app.querySelector<HTMLElement>("#measurements")!, update);
 const designPanel = mountDesignPanel(app.querySelector<HTMLElement>("#design")!, update);
 const slitPanel = mountSlitPanel(app.querySelector<HTMLElement>("#slits")!, update);
 const exportPanel = mountExportPanel(app.querySelector<HTMLElement>("#export")!, persist);
+// The quick preview (projection alone) runs here on every edit; flattening runs in the worker.
+const builder = createTemplateBuilder();
+const background = startBackgroundBuild(showTemplate);
+/** The export details of the latest edit, to pair with the worker's template when it arrives. */
+let pending: Omit<ExportSource, "template"> | null = null;
 restore();
 update();
 
@@ -89,25 +97,53 @@ function update(): void {
   // A grid is one solid carve area: no blank paper for slits.
   const slits = ball ? { count: 0, depth: 0 } : slitPanel.options();
   const cut = slitPanel.cut();
-  const result = buildTemplate({ measurements, design, placement, slits, margin: cut.margin });
-  form.showWarnings(result.warnings);
-  designPanel.showWarnings(result.warnings);
-  slitPanel.showWarnings(result.warnings);
-  renderSurfaceInfo(infoEl, result.surface);
-  preview.update(result.surface, result.design, result.template?.stretch ?? null);
-  exportPanel.setSource(
-    result.template && result.surface
-      ? {
-          template: result.template,
-          surface: result.surface,
-          measurements,
-          placement,
-          slits,
-          cut,
-          ...(ball ? { calibrationBall: ballCircumference } : {}),
-        }
-      : null,
-  );
+  const input = { measurements, design, placement, slits, margin: cut.margin };
+  const quick = builder.preview(input);
+  showWarnings(quick.warnings);
+  renderSurfaceInfo(infoEl, quick.surface);
+  preview.update(quick.surface, quick.design);
+  if (quick.surface && quick.design) {
+    pending = {
+      surface: quick.surface,
+      measurements,
+      placement,
+      slits,
+      cut,
+      ...(ball ? { calibrationBall: ballCircumference } : {}),
+    };
+    background.request(input);
+    stretchStatus.textContent = "Stretch tint: updating…";
+    stretchStatus.hidden = false;
+    exportPanel.setUpdating();
+  } else {
+    pending = null;
+    background.cancel();
+    stretchStatus.hidden = true;
+    exportPanel.setSource(null);
+  }
   // Last, so the design and slit lengths have already been converted to the current units.
   persist();
+}
+
+function showWarnings(warnings: TemplateWarning[]): void {
+  form.showWarnings(warnings);
+  designPanel.showWarnings(warnings);
+  slitPanel.showWarnings(warnings);
+}
+
+/** The worker's template for the latest edit: stretch tint, slit warnings and export. */
+function showTemplate(outcome: BuildOutcome): void {
+  if (!pending) return;
+  stretchStatus.hidden = true;
+  if (!outcome.ok) {
+    console.error("Template build failed:", outcome.message);
+    preview.setStretch(null);
+    exportPanel.setFailed(outcome.message);
+    return;
+  }
+  const { template, warnings } = outcome;
+  preview.setStretch(template?.stretch ?? null);
+  // The same input as the quick preview, plus what only flattening finds (slits cut short).
+  showWarnings(warnings);
+  exportPanel.setSource(template ? { template, ...pending } : null);
 }

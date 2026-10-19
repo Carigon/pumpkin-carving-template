@@ -4,9 +4,17 @@ import { designWarnings } from "./projection/designWarnings";
 import { placeDesign } from "./projection/placement";
 import { projectDesign } from "./projection/projectDesign";
 import { frontProjection } from "./projection/projection";
-import { fitSurface } from "./surface/fitSurface";
+import { fitSurface, type SurfaceFit } from "./surface/fitSurface";
 import { fromInches } from "./units";
-import type { FlatTemplate, SlitOptions, TemplateInput, TemplateResult, TemplateWarning, Units } from "./types";
+import type {
+  FlatTemplate,
+  PumpkinMeasurements,
+  SlitOptions,
+  TemplateInput,
+  TemplateResult,
+  TemplateWarning,
+  Units,
+} from "./types";
 
 /** Paper margin between the design and the cut-out edge, unless the carver changes it. */
 const DEFAULT_CUT_MARGIN_IN = 0.75;
@@ -31,9 +39,40 @@ export function defaultSlits(units: Units): SlitOptions {
  * No DOM, canvas, WebGL or PDF dependencies.
  */
 export function buildTemplate(input: TemplateInput): TemplateResult {
+  return createTemplateBuilder().build(input);
+}
+
+/**
+ * A template builder that keeps the fitted surface (mesh and lookup tree) between calls, so it is refitted
+ * only when the measurements change, not on placement, design, slit or margin edits.
+ */
+export interface TemplateBuilder {
+  /** The same result as `buildTemplate`. */
+  build(input: TemplateInput): TemplateResult;
+  /**
+   * The quick part alone: the surface and the design projected onto it, without flattening. `template` is
+   * null, and slit warnings (which need the flat template) are left out.
+   */
+  preview(input: TemplateInput): TemplateResult;
+}
+
+export function createTemplateBuilder(): TemplateBuilder {
+  let fitted: { key: string; fit: SurfaceFit } | null = null;
+  const fitFor = (m: PumpkinMeasurements): SurfaceFit => {
+    const key = JSON.stringify(m);
+    if (fitted?.key !== key) fitted = { key, fit: fitSurface(m) };
+    return fitted.fit;
+  };
+  return {
+    build: (input) => buildFromFit(input, fitFor(input.measurements), true),
+    preview: (input) => buildFromFit(input, fitFor(input.measurements), false),
+  };
+}
+
+/** The template for `input` on an already fitted surface; without `flatten`, only the quick projection. */
+function buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean): TemplateResult {
   const { units } = input.measurements;
-  const fit = fitSurface(input.measurements);
-  if (!fit.ok) return { surface: null, design: null, template: null, warnings: fit.warnings };
+  if (!fit.ok) return { surface: null, design: null, template: null, warnings: [...fit.warnings] };
   const { surface, parameters: surfaceParameters } = fit;
 
   const { design, placement } = input;
@@ -44,6 +83,8 @@ export function buildTemplate(input: TemplateInput): TemplateResult {
   const projection = frontProjection(surface);
   const frontViewPaths = placeDesign(design, placement);
   const projected = projectDesign(frontViewPaths, projection);
+  const warnings: TemplateWarning[] = designWarnings(projected);
+  if (!flatten) return { surface: surfaceParameters, design: projected, template: null, warnings };
 
   const margin = input.margin !== undefined && input.margin > 0 ? input.margin : defaultMargin(units);
   const slitOptions = input.slits ?? defaultSlits(units);
@@ -71,7 +112,6 @@ export function buildTemplate(input: TemplateInput): TemplateResult {
     };
   }
 
-  const warnings: TemplateWarning[] = designWarnings(projected);
   const blocked = flat?.blockedSlits ?? 0;
   if (template && blocked > 0) {
     warnings.push({
