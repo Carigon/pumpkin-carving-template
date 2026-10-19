@@ -284,7 +284,8 @@ function drawFurniture(
   const { sideToSide, frontToBack, vertical } = surface.semiAxes;
   const lines: [string, number, boolean?][] = [
     [calibrationBall ? `Calibration grid for a ${len(calibrationBall)} ball` : "Pumpkin carving template", 11, true],
-    [`Circumference: ${len(measurements.circumference)}`, 8.5],
+    [`Circumference: ${len(measurements.circumference)}${measurements.circumferenceAt !== undefined ? `, ${len(measurements.circumferenceAt)} from the stem` : ""}`, 8.5],
+    ...ringLines(measurements, len),
     [`Front arc (stem to base): ${len(measurements.frontArc)}`, 8.5],
     [`Depth: ${measurements.depth ? len(measurements.depth) : "not given (round)"}`, 8.5],
     [`Fitted shape: ${fmt(2 * sideToSide)} x ${fmt(2 * frontToBack)} x ${fmt(2 * vertical)} ${u}`, 8.5],
@@ -318,6 +319,17 @@ function drawFurniture(
     lineY -= size + 3;
   }
   return marks;
+}
+
+/** Extra rings, down the arc: one per line, or packed three to a line when there are many (the block has little room). */
+function ringLines({ rings = [] }: PumpkinMeasurements, len: (v: number) => string): [string, number][] {
+  const sorted = [...rings].sort((a, b) => a.distance - b.distance);
+  if (sorted.length <= 3) return sorted.map((r) => [`Ring: ${len(r.circumference)} around, ${len(r.distance)} from the stem`, 8.5]);
+  const lines: [string, number][] = [["Rings (around @ from the stem):", 8.5]];
+  for (let i = 0; i < sorted.length; i += 3) {
+    lines.push([`  ${sorted.slice(i, i + 3).map((r) => `${len(r.circumference)} @ ${len(r.distance)}`).join("; ")}`, 8.5]);
+  }
+  return lines;
 }
 
 function bounds(points: Point2[]) {

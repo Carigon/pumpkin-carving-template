@@ -37,6 +37,21 @@ describe("length fields", () => {
     expect(fields.value(input)).toBe(20);
   });
 
+  it("fields added later (e.g. a new ring) follow unit switches; removed ones don't", () => {
+    const { input, root } = fakePanel();
+    const fields = lengthFields(root, []);
+    const removed = { value: "" } as HTMLInputElement;
+    fields.add(input);
+    fields.add(removed);
+    fields.set(input, 10);
+    fields.set(removed, 10);
+    fields.remove(removed);
+
+    fields.setUnits("cm");
+    expect(fields.value(input)).toBeCloseTo(25.4, 12);
+    expect(removed.value).toBe("10");
+  });
+
   it("reads an empty field as NaN", () => {
     const { input, root } = fakePanel();
     const fields = lengthFields(root, [input]);

@@ -10,7 +10,15 @@ export interface Settings {
   gridWidth: number | null;
   units: Units;
   /** Lengths in `units`; null when the field was left empty. */
-  measurements: { circumference: number | null; frontArc: number | null; depth: number | null };
+  measurements: {
+    circumference: number | null;
+    frontArc: number | null;
+    depth: number | null;
+    /** Where the widest circumference was taken, along the front arc from the stem. */
+    circumferenceAt: number | null;
+    /** Extra tape rings, in list order. */
+    rings: { distance: number | null; circumference: number | null }[];
+  };
   /** Width and offset in `units` (width null when empty); rotation in degrees. */
   placement: { width: number | null; verticalOffset: number; rotation: number };
   /** Depth in `units`. */
@@ -42,6 +50,7 @@ const KEY = "pumpkin-template-settings";
 const MAX_ROTATION = 30;
 const MAX_SLITS = 24;
 const MAX_CELLS = 20;
+const MAX_RINGS = 20;
 
 /** The browser's localStorage, or undefined where it can't be reached (e.g. blocked by privacy settings). */
 export function browserStorage(): SettingsStorage | undefined {
@@ -54,14 +63,20 @@ export function browserStorage(): SettingsStorage | undefined {
 
 /** Save the settings. Only the known fields are written; failures (full or blocked storage) are ignored. */
 export function saveSettings(storage: SettingsStorage | undefined, s: Settings): void {
-  const { circumference, frontArc, depth } = s.measurements;
+  const { circumference, frontArc, depth, circumferenceAt, rings } = s.measurements;
   const { width, verticalOffset, rotation } = s.placement;
   const picked: Settings = {
     mode: s.mode,
     cells: s.cells,
     gridWidth: s.gridWidth,
     units: s.units,
-    measurements: { circumference, frontArc, depth },
+    measurements: {
+      circumference,
+      frontArc,
+      depth,
+      circumferenceAt,
+      rings: rings.map((r) => ({ distance: r.distance, circumference: r.circumference })),
+    },
     placement: { width, verticalOffset, rotation },
     slits: { count: s.slits.count, depth: s.slits.depth },
     paper: s.paper,
@@ -103,6 +118,8 @@ function validate(s: Record<string, unknown>): RestoredSettings {
       circumference: length(emptyOr(m.circumference, positive)),
       frontArc: length(emptyOr(m.frontArc, positive)),
       depth: length(emptyOr(m.depth, positive)),
+      circumferenceAt: length(emptyOr(m.circumferenceAt, positive)),
+      rings: length(rings(m.rings)),
     }),
     placement: group({
       width: length(emptyOr(p.width, positive)),
@@ -126,6 +143,17 @@ function compact<T extends Record<string, unknown>>(o: T): Compact<T> {
 function group<T extends Record<string, unknown>>(o: T): Compact<T> | undefined {
   const c = compact(o);
   return Object.keys(c).length ? c : undefined;
+}
+
+/** The rings whose lengths are all valid (or empty); the rest are dropped. */
+function rings(x: unknown): Settings["measurements"]["rings"] | undefined {
+  if (!Array.isArray(x)) return undefined;
+  return x.slice(0, MAX_RINGS).flatMap((r) => {
+    if (!isRecord(r)) return [];
+    const distance = emptyOr(r.distance, positive);
+    const circumference = emptyOr(r.circumference, positive);
+    return distance === undefined || circumference === undefined ? [] : [{ distance, circumference }];
+  });
 }
 
 function isRecord(x: unknown): x is Record<string, unknown> {

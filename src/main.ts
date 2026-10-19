@@ -42,7 +42,8 @@ update();
 /** Put back the last-used settings. Units go first so the length fields are read in the saved units. */
 function restore(): void {
   const saved = loadSettings(browserStorage());
-  form.restore({ units: saved.units, values: saved.measurements });
+  const { rings, ...values } = saved.measurements ?? {};
+  form.restore({ units: saved.units, values, rings });
   if (saved.units) {
     modePanel.setUnits(saved.units);
     designPanel.setUnits(saved.units);
@@ -64,7 +65,13 @@ function persist(): void {
     cells: modePanel.cells(),
     gridWidth: orNull(modePanel.gridWidth()),
     units: m.units,
-    measurements: { circumference: orNull(m.circumference), frontArc: orNull(m.frontArc), depth: orNull(m.depth) },
+    measurements: {
+      circumference: orNull(m.circumference),
+      frontArc: orNull(m.frontArc),
+      depth: orNull(m.depth),
+      circumferenceAt: orNull(m.circumferenceAt),
+      rings: (m.rings ?? []).map((r) => ({ distance: orNull(r.distance), circumference: orNull(r.circumference) })),
+    },
     placement: { width: orNull(p.width), verticalOffset: p.verticalOffset, rotation: p.rotation },
     slits: slitPanel.options(),
     ...exportPanel.options(),

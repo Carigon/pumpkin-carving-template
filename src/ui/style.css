@@ -100,6 +100,37 @@ h1 {
   padding: 0.4rem 1rem;
 }
 
+.rings {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ring-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ring .input-row {
+  flex-wrap: wrap;
+}
+
+.ring .input-row input {
+  width: 5rem;
+}
+
+.ring label {
+  display: inline;
+  font-weight: 400;
+}
+
+.rings .add-ring {
+  justify-self: start;
+}
+
 .warnings {
   display: grid;
   gap: 0.4rem;
@@ -186,6 +217,8 @@ h1 {
 
 .ball-only,
 .ball-mode .field[data-field="frontArc"],
+.ball-mode .field[data-field="circumferenceAt"],
+.ball-mode .rings,
 .ball-mode .field[data-field="depth"],
 .ball-mode #d-trace,
 .ball-mode .field:has(#d-file),

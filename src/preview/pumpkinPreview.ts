@@ -17,7 +17,7 @@ export interface PumpkinPreview {
 }
 
 /**
- * Three.js preview: the ellipsoid pumpkin plus the projected design lines, orbitable.
+ * Three.js preview: the fitted pumpkin (its side profile spun around the vertical axis) plus the projected design lines, orbitable.
  * Holds no geometry logic: it only draws what the builder returned.
  * Axes match the core: x right, y up (stem), +z toward the viewer.
  */
@@ -38,7 +38,7 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
   scene.add(sun);
 
   const pumpkin = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 128, 96),
+    new THREE.BufferGeometry(),
     new THREE.MeshStandardMaterial({
       color: 0xff7518,
       roughness: 0.7,
@@ -66,6 +66,7 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
   scene.add(tint, lines, missed);
 
   let size = 0;
+  let shownProfile: SurfaceParameters["profile"] | null = null;
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = canvas;
@@ -90,7 +91,14 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
       if (!surface) return;
 
       const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
-      pumpkin.scale.set(a, c, b);
+      if (surface.profile !== shownProfile) {
+        // Lathe points go base → stem so the faces point outward; cross-sections are stretched front to back.
+        const points = surface.profile.map((p) => new THREE.Vector2(p.radius, p.height)).reverse();
+        pumpkin.geometry.dispose();
+        pumpkin.geometry = new THREE.LatheGeometry(points, 128);
+        pumpkin.scale.set(1, 1, surface.depthRatio);
+        shownProfile = surface.profile;
+      }
       const newSize = Math.max(a, b, c);
       if (Math.abs(newSize - size) > 1e-6 * newSize) {
         // Keep the orbit direction, refit the distance and clip planes to the pumpkin's size.
@@ -104,7 +112,7 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
       }
 
       if (design) setDesign(design, 0.003 * newSize);
-      if (stretch) setStretch(tint, stretch, surface, 0.0015 * newSize);
+      if (stretch) setStretch(tint, stretch, 0.0015 * newSize);
     },
   };
 
@@ -133,13 +141,12 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
 
 /**
  * One flat-colored triangle per stretch triangle (no shared vertices, so values don't blur together),
- * each vertex lifted along the ellipsoid normal so the chordal triangles clear the curved skin.
+ * each vertex lifted along the surface normal so the chordal triangles clear the curved skin.
  */
-function setStretch(tint: THREE.Mesh, stretch: StretchMap, surface: SurfaceParameters, lift: number): void {
-  const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
-  const lifted = stretch.surface.map(([x, y, z]) => {
-    const n = new THREE.Vector3(x / (a * a), y / (c * c), z / (b * b)).normalize();
-    return [x + n.x * lift, y + n.y * lift, z + n.z * lift];
+function setStretch(tint: THREE.Mesh, stretch: StretchMap, lift: number): void {
+  const lifted = stretch.surface.map(([x, y, z], i) => {
+    const [nx, ny, nz] = stretch.normals[i];
+    return [x + nx * lift, y + ny * lift, z + nz * lift];
   });
   const pos: number[] = [];
   const col: number[] = [];

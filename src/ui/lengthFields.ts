@@ -10,13 +10,17 @@ export interface LengthFields {
   value(input: HTMLInputElement): number;
   /** Set a field to a value in the current units (null = empty). */
   set(input: HTMLInputElement, value: number | null): void;
+  /** Start or stop following unit switches for a field created or removed later (e.g. a ring row). */
+  add(input: HTMLInputElement): void;
+  remove(input: HTMLInputElement): void;
   /** Convert every field (and the `.unit-label`s under `root`) to `next` units. */
   setUnits(next: Units): void;
   units(): Units;
 }
 
-export function lengthFields(root: HTMLElement, inputs: HTMLInputElement[], initial: Units = "in"): LengthFields {
+export function lengthFields(root: HTMLElement, initialInputs: HTMLInputElement[], initial: Units = "in"): LengthFields {
   let units = initial;
+  const inputs = new Set(initialInputs);
   /** Exact value behind each field, with the text shown for it. */
   const exact = new Map<HTMLInputElement, { value: number; shown: string }>();
 
@@ -40,6 +44,11 @@ export function lengthFields(root: HTMLElement, inputs: HTMLInputElement[], init
     value,
     set,
     units: () => units,
+    add: (input) => void inputs.add(input),
+    remove(input) {
+      inputs.delete(input);
+      exact.delete(input);
+    },
     setUnits(next) {
       if (next === units) return;
       for (const input of inputs) {

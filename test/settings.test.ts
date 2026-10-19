@@ -17,7 +17,16 @@ const full: Settings = {
   cells: 8,
   gridWidth: 12,
   units: "cm",
-  measurements: { circumference: 80, frontArc: 40, depth: null },
+  measurements: {
+    circumference: 80,
+    frontArc: 40,
+    depth: null,
+    circumferenceAt: 22,
+    rings: [
+      { distance: 10, circumference: 60 },
+      { distance: 30, circumference: null },
+    ],
+  },
   placement: { width: 15, verticalOffset: -2, rotation: 10 },
   slits: { count: 12, depth: 4 },
   paper: "a4",
@@ -45,7 +54,13 @@ describe("settings", () => {
       cells: 0,
       gridWidth: -1,
       units: "cm",
-      measurements: { circumference: -5, frontArc: 40, depth: "deep" },
+      measurements: {
+        circumference: -5,
+        frontArc: 40,
+        depth: "deep",
+        circumferenceAt: 0,
+        rings: [{ distance: 5, circumference: -2 }, 7, { distance: 3, circumference: 20 }],
+      },
       placement: { width: 15, verticalOffset: "up", rotation: 90 },
       slits: { count: 2.5, depth: 4 },
       paper: "tabloid",
@@ -54,7 +69,7 @@ describe("settings", () => {
     const storage = memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) });
     expect(loadSettings(storage)).toEqual({
       units: "cm",
-      measurements: { frontArc: 40 },
+      measurements: { frontArc: 40, rings: [{ distance: 3, circumference: 20 }] },
       placement: { width: 15 },
       slits: { depth: 4 },
     });

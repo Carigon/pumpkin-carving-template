@@ -49,6 +49,21 @@ describe("PDF layout", () => {
     expect(info).toContain("1000 in");
   });
 
+  it("lists where the widest ring was taken and every extra ring in the info block", () => {
+    const ringed: PumpkinMeasurements = {
+      ...measurements,
+      circumferenceAt: 500,
+      rings: [{ distance: 250, circumference: 1400 }, { distance: 750, circumference: 1500 }],
+    };
+    const info = find(layoutTemplatePdf({ ...input, measurements: ringed }).pages[0].marks, "info")
+      .map((m) => (m.kind === "text" ? m.text : ""))
+      .join("\n");
+
+    expect(info).toContain("Circumference: 2000 in, 500 in from the stem");
+    expect(info).toContain("Ring: 1400 in around, 250 in from the stem");
+    expect(info).toContain("Ring: 1500 in around, 750 in from the stem");
+  });
+
   it("names the slit settings in the info block and says to cut the dashed slits", () => {
     const info = (slits: { count: number; depth: number }) =>
       find(layoutTemplatePdf({ ...input, slits }).pages[0].marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
