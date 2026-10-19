@@ -23,8 +23,8 @@ describe("step model", () => {
   it.each([
     { mode: "pumpkin", tracing: false },
     { mode: "test-grid", tracing: false },
-  ] as const)("without an image every step shows only the 3D view ($mode)", (state) => {
-    for (const step of steps(state)) {
+  ] as const)("without an image Measure and Design/Grid show only the 3D view ($mode)", (state) => {
+    for (const step of steps(state).filter((s) => s.id !== "template")) {
       expect(step.defaultView).toBe("3d");
       expect(step.views).toEqual(["3d"]);
     }
@@ -50,8 +50,23 @@ describe("step model", () => {
     { mode: "test-grid", tracing: true, image: true },
   ] as const)("only the Design step offers Trace ($mode, tracing: $tracing)", (state) => {
     for (const step of steps(state).filter((s) => s.id !== "design")) {
-      expect(step.defaultView).toBe("3d");
-      expect(step.views).toEqual(["3d"]);
+      expect(step.views).not.toContain("trace");
+    }
+  });
+
+  it.each([
+    { mode: "pumpkin", tracing: false },
+    { mode: "pumpkin", tracing: true, image: true },
+    { mode: "test-grid", tracing: false },
+  ] as const)("Template opens on the Paper view and can switch to 3D ($mode)", (state) => {
+    const template = steps(state).find((s) => s.id === "template")!;
+    expect(template.defaultView).toBe("paper");
+    expect(template.views).toEqual(["3d", "paper"]);
+  });
+
+  it("only the Template step offers Paper", () => {
+    for (const step of steps({ mode: "pumpkin", tracing: true, image: true }).filter((s) => s.id !== "template")) {
+      expect(step.views).not.toContain("paper");
     }
   });
 

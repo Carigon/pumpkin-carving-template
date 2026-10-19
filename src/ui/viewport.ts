@@ -11,6 +11,8 @@ export interface Viewport {
   readonly canvas: HTMLCanvasElement;
   /** The Trace view's element, where the trace panel puts the crop image and the traced result. */
   readonly traceView: HTMLElement;
+  /** The Paper view's element, where the flat template is drawn on its pages. */
+  readonly paperView: HTMLElement;
   /** Show a small status badge over the viewport (e.g. "Updating stretch tint…"); null hides it. */
   setStatus(text: string | null): void;
   /** Show a placeholder message over the 3D view; null hides it. */
@@ -30,6 +32,7 @@ export interface Viewport {
 const VIEW_LABELS: Record<View, string> = {
   "3d": "3D",
   trace: "Trace",
+  paper: "Paper",
 };
 
 /**
@@ -67,6 +70,7 @@ export function mountViewport(root: HTMLElement): Viewport {
       </details>
     </div>
     <div class="view view-trace" data-view="trace"></div>
+    <div class="view view-paper" data-view="paper"></div>
     <div class="view-switcher" role="radiogroup" aria-label="View" hidden></div>
     <div class="status-badge" role="status" hidden></div>
   `;
@@ -107,6 +111,7 @@ export function mountViewport(root: HTMLElement): Viewport {
   return {
     canvas: root.querySelector<HTMLCanvasElement>(".preview-canvas")!,
     traceView: views.trace,
+    paperView: views.paper,
     setStatus(text) {
       status.textContent = text ?? "";
       status.hidden = text === null;

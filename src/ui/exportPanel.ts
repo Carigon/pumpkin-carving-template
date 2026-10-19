@@ -1,5 +1,5 @@
 import type { Paper } from "../paper";
-import type { TemplatePdfInput } from "../pdf/layout";
+import { layoutTemplatePdf, type TemplatePdfInput } from "../pdf/layout";
 
 /** What the panel exports: everything the PDF needs except the panel's own options. */
 export type ExportSource = Omit<TemplatePdfInput, "filled" | "paper">;
@@ -58,10 +58,8 @@ export function mountExportPanel(root: HTMLElement, onChange: () => void = () =>
     exporting = true;
     refreshButton();
     try {
-      const [{ layoutTemplatePdf }, { renderPdf, downloadPdf }] = await Promise.all([
-        import("../pdf/layout"),
-        import("../pdf/render"),
-      ]);
+      // The page layout is already loaded (the Paper view uses it); pdf-lib loads on first export.
+      const { renderPdf, downloadPdf } = await import("../pdf/render");
       const layout = layoutTemplatePdf({ ...current, filled: filled.checked, paper: paper.value as Paper });
       downloadPdf(await renderPdf(layout), "pumpkin-template.pdf");
       const { rows, cols } = layout.tiles;
