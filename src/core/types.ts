@@ -118,5 +118,19 @@ export interface TemplateResult {
   surface: SurfaceParameters | null;
   /** The projected design, or null when there is no design/placement or no surface. */
   design: ProjectedDesign | null;
+  /** The flat paper template, or null when there is no projected design or none of it lands on the pumpkin. */
+  template: FlatTemplate | null;
   warnings: TemplateWarning[];
+}
+
+/**
+ * The flat paper template, in physical paper units (the measurement units).
+ * Origin at the design center (where the center cross goes); +y points toward the stem.
+ */
+export interface FlatTemplate {
+  units: Units;
+  /** Flattened design paths (carve areas), implicitly closed. Holes are nested paths: fill them even-odd. */
+  designPaths: Point2[][];
+  /** The cut-out edge: the design's outline grown by about 3/4 in. Implicitly closed, counterclockwise. */
+  cutOutline: Point2[];
 }
