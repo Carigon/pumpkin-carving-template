@@ -101,7 +101,8 @@ export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
     return { title, ...tileTemplate(input, scale, box, size), templateFits: false };
   }
 
-  const furnitureH = CHECK_SQUARE + GAP;
+  const furniture = drawFurniture(input, PAGE_MARGIN, PAGE_MARGIN, pageW);
+  const furnitureH = furniture.height + GAP;
   const together = templateH + GAP + furnitureH <= usableH;
   // Template origin (the design center) on the page.
   const origin = {
@@ -109,13 +110,12 @@ export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
     y: together ? pageH - PAGE_MARGIN - box.maxY : pageH / 2 - (box.minY + box.maxY) / 2,
   };
   const templateMarks = drawTemplate(input, scale, origin);
-  const furniture = drawFurniture(input, PAGE_MARGIN, PAGE_MARGIN);
 
   return {
     title,
     pages: together
-      ? [{ size, marks: [...templateMarks, ...furniture] }]
-      : [{ size, marks: templateMarks }, { size, marks: furniture }],
+      ? [{ size, marks: [...templateMarks, ...furniture.marks] }]
+      : [{ size, marks: templateMarks }, { size, marks: furniture.marks }],
     templateFits: true,
     tiles: { rows: 1, cols: 1 },
   };
@@ -166,12 +166,13 @@ function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<ty
     }
   }
 
-  const noteY = PAGE_MARGIN + CHECK_SQUARE + 2 * GAP;
+  const furniture = drawFurniture(input, PAGE_MARGIN, PAGE_MARGIN, pageW);
+  const noteY = PAGE_MARGIN + furniture.height + 2 * GAP;
   const note: Mark[] = [
     label(PAGE_MARGIN, noteY + 12, `Tiled on ${rows * cols} pages (${rows} rows x ${cols} columns), page A1 at the top left.`),
     label(PAGE_MARGIN, noteY, "Trim a page along its dotted line, lay it over its neighbour so the dotted lines and crosses match, and tape."),
   ].map((m) => ({ ...m, size: 8.5 }));
-  pages.push({ size, marks: [...drawFurniture(input, PAGE_MARGIN, PAGE_MARGIN), ...note] });
+  pages.push({ size, marks: [...furniture.marks, ...note] });
   return { pages, tiles: { rows, cols } };
 }
 
@@ -280,19 +281,24 @@ function drawTemplate({ template, filled, cut }: TemplatePdfInput, scale: number
   return marks;
 }
 
-/** The 10 cm check square and the info block, with the square's lower-left corner at (x, y). */
+/**
+ * The 10 cm check square with the info block to its right, the block's lower-left corner at (x, y). The block is
+ * as tall as the square, or taller when the info runs longer (many rings); the square then sits at its top.
+ */
 function drawFurniture(
   { measurements, surface, placement, slits, cut, filled, calibrationBall }: TemplatePdfInput,
   x: number,
   y: number,
-): Mark[] {
+  pageW: number,
+): { marks: Mark[]; height: number } {
+  const infoX = x + CHECK_SQUARE + GAP;
   const u = measurements.units;
   const len = (v: number) => `${fmt(v)} ${u}`;
   const { sideToSide, frontToBack, vertical } = surface.semiAxes;
   const lines: [string, number, boolean?][] = [
     [calibrationBall ? `Calibration grid for a ${len(calibrationBall)} ball` : "Pumpkin carving template", 11, true],
     [`Circumference: ${len(measurements.circumference)}${measurements.circumferenceAt !== undefined ? `, ${len(measurements.circumferenceAt)} from the stem` : ""}`, 8.5],
-    ...ringLines(measurements, len),
+    ...ringLines(measurements, len, pageW - PAGE_MARGIN - infoX),
     [`Front arc (stem to base): ${len(measurements.frontArc)}`, 8.5],
     [`Depth: ${measurements.depth ? len(measurements.depth) : "not given (round)"}`, 8.5],
     [`Fitted shape: ${fmt(2 * sideToSide)} x ${fmt(2 * frontToBack)} x ${fmt(2 * vertical)} ${u}`, 8.5],
@@ -311,32 +317,46 @@ function drawFurniture(
     ["The square must measure 10 cm on each side.", 8.5],
   ];
 
+  // First baseline 11 pt below the top; each line then takes its size plus 3 pt.
+  const infoH = 11 + lines.slice(1).reduce((sum, [, size]) => sum + size + 3, 0);
+  const height = Math.max(CHECK_SQUARE, infoH);
+  const top = y + height;
   const square: Point2[] = [
-    { x, y },
-    { x: x + CHECK_SQUARE, y },
-    { x: x + CHECK_SQUARE, y: y + CHECK_SQUARE },
-    { x, y: y + CHECK_SQUARE },
+    { x, y: top - CHECK_SQUARE },
+    { x: x + CHECK_SQUARE, y: top - CHECK_SQUARE },
+    { x: x + CHECK_SQUARE, y: top },
+    { x, y: top },
   ];
   const marks: Mark[] = [
     { kind: "path", role: "check-square", subpaths: [square], closed: true, stroke: { width: 0.5 } },
-    { kind: "text", role: "check-square", x: x + 4, y: y + CHECK_SQUARE - 12, text: "10 cm x 10 cm", size: 8 },
+    { kind: "text", role: "check-square", x: x + 4, y: top - 12, text: "10 cm x 10 cm", size: 8 },
   ];
-  let lineY = y + CHECK_SQUARE - 11;
+  let lineY = top - 11;
   for (const [text, size, bold] of lines) {
-    marks.push({ kind: "text", role: "info", x: x + CHECK_SQUARE + GAP, y: lineY, text, size, bold });
+    marks.push({ kind: "text", role: "info", x: infoX, y: lineY, text, size, bold });
     lineY -= size + 3;
   }
-  return marks;
+  return { marks, height };
 }
 
-/** Extra rings, down the arc: one per line, or packed three to a line when there are many (the block has little room). */
-function ringLines({ rings = [] }: PumpkinMeasurements, len: (v: number) => string): [string, number][] {
+/**
+ * Extra rings, down the arc: one per line when there are few, otherwise packed as many to a line as fit in
+ * `width` pt (the info block grows taller if it must).
+ */
+function ringLines({ rings = [] }: PumpkinMeasurements, len: (v: number) => string, width: number): [string, number][] {
   const sorted = [...rings].sort((a, b) => a.distance - b.distance);
   if (sorted.length <= 3) return sorted.map((r) => [`Ring: ${len(r.circumference)} around, ${len(r.distance)} from the stem`, 8.5]);
   const lines: [string, number][] = [["Rings (around @ from the stem):", 8.5]];
-  for (let i = 0; i < sorted.length; i += 3) {
-    lines.push([`  ${sorted.slice(i, i + 3).map((r) => `${len(r.circumference)} @ ${len(r.distance)}`).join("; ")}`, 8.5]);
+  let line = "";
+  for (const r of sorted) {
+    const item = `${len(r.circumference)} @ ${len(r.distance)}`;
+    const joined = line ? `${line}; ${item}` : `  ${item}`;
+    if (line && textWidth(joined, 8.5) > width) {
+      lines.push([`${line};`, 8.5]);
+      line = `  ${item}`;
+    } else line = joined;
   }
+  lines.push([line, 8.5]);
   return lines;
 }
 

@@ -64,6 +64,32 @@ describe("PDF layout", () => {
     expect(info).toContain("Ring: 1500 in around, 750 in from the stem");
   });
 
+  it("with many rings, the info block stays on the page, clear of the check square and the template", () => {
+    const rings = Array.from({ length: 10 }, (_, i) => ({ distance: 50 + 90 * i, circumference: 1500 + 10.25 * i }));
+    const ringed: PumpkinMeasurements = { ...measurements, circumferenceAt: 500, rings };
+    for (const paper of ["letter", "a4"] as const) {
+      const layout = layoutTemplatePdf({ ...input, measurements: ringed, paper });
+      const [pageW] = layout.pages[0].size;
+      const marks = layout.pages.flatMap((p) => p.marks);
+      const info = find(marks, "info").filter((m): m is Extract<Mark, { kind: "text" }> => m.kind === "text");
+      const [square] = find(marks, "check-square").filter((m) => m.kind === "path");
+      const sq = square.kind === "path" ? square.subpaths.flat() : [];
+      const squareRight = Math.max(...sq.map((p) => p.x));
+      const squareBottom = Math.min(...sq.map((p) => p.y));
+      const template = [...find(marks, "cut-outline"), ...find(marks, "design")].flatMap((m) => (m.kind === "path" ? m.subpaths.flat() : []));
+      const templateBottom = Math.min(...template.map((p) => p.y));
+
+      expect(info.map((m) => m.text).join("\n")).toContain("1592.25 in");
+      for (const m of info) {
+        // Beside the square, never over it; on the page (18 pt margins); below the template.
+        expect(m.x).toBeGreaterThan(squareRight);
+        expect(m.y).toBeGreaterThanOrEqual(Math.max(18, squareBottom));
+        expect(m.x + m.text.length * m.size * 0.55).toBeLessThanOrEqual(pageW - 18);
+        expect(m.y + m.size).toBeLessThan(templateBottom);
+      }
+    }
+  });
+
   it("names the slit settings in the info block and says to cut the dashed slits", () => {
     const info = (slits: { count: number; depth: number }) =>
       find(layoutTemplatePdf({ ...input, slits }).pages[0].marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
