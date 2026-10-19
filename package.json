@@ -1,0 +1,25 @@
+{
+  "name": "sphereprojection",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "~5.9.0",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "esm-potrace-wasm": "^0.5.1",
+    "pdf-lib": "^1.17.1",
+    "svgpath": "^2.6.0",
+    "three": "^0.186.1"
+  }
+}

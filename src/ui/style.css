@@ -1,0 +1,250 @@
+:root {
+  --bg: #fffaf3;
+  --fg: #2b2118;
+  --muted: #7a6a5a;
+  --accent: #e26a12;
+  --warn-bg: #fdecea;
+  --warn-fg: #a3261b;
+  --border: #e3d6c6;
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1712;
+    --fg: #f3e9dd;
+    --muted: #b3a493;
+    --warn-bg: #3d1a16;
+    --warn-fg: #ffb4a8;
+    --border: #4a3c2f;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+h1 {
+  color: var(--accent);
+}
+
+.measurements {
+  display: grid;
+  gap: 1rem;
+}
+
+.units {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  gap: 1rem;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.input-row input {
+  width: 8rem;
+  font-size: 1rem;
+  padding: 0.3rem;
+}
+
+.input-row input[aria-invalid="true"] {
+  outline: 2px solid var(--warn-fg);
+}
+
+.hint,
+.muted {
+  color: var(--muted);
+}
+
+.warning {
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.design,
+.slits {
+  display: grid;
+  gap: 1rem;
+}
+
+.export {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+
+.export button {
+  font-size: 1rem;
+  padding: 0.4rem 1rem;
+}
+
+.rings {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ring-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ring .input-row {
+  flex-wrap: wrap;
+}
+
+.ring .input-row input {
+  width: 5rem;
+}
+
+.ring label {
+  display: inline;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.rings .add-ring {
+  justify-self: start;
+}
+
+.ring-at {
+  display: contents;
+}
+
+.ring-name {
+  font-weight: 600;
+}
+
+/* The only ring can't be removed. */
+.ring:only-child .remove-ring {
+  visibility: hidden;
+}
+
+.warnings {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.warning-text {
+  color: var(--warn-fg);
+}
+
+#preview-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  touch-action: none;
+}
+
+.semi-axes {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.semi-axes dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace {
+  display: grid;
+  gap: 1rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.trace[hidden] {
+  display: none;
+}
+
+.trace-views {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.8rem;
+}
+
+.trace-views figure {
+  margin: 0;
+}
+
+.trace-views figcaption {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.trace-crop {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.trace-result {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.trace-result svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.trace .field.checkbox label {
+  font-weight: 400;
+}
+
+/* Test-grid (ball) mode: one circumference, a generated grid instead of an uploaded design. */
+.mode {
+  display: grid;
+  gap: 1rem;
+}
+
+.ball-only,
+.ball-mode .field[data-field="height"],
+.ball-mode .rings .pumpkin-only,
+.ball-mode .ring:not(:first-child),
+.ball-mode .ring-name,
+.ball-mode .ring-at,
+.ball-mode .ring-fraction,
+.ball-mode .remove-ring,
+.ball-mode .add-ring,
+.ball-mode #d-trace,
+.ball-mode .field:has(#d-file),
+.ball-mode .field:has(#d-width),
+.ball-mode #slits {
+  display: none;
+}
+
+.ball-mode .ball-only {
+  display: block;
+}
