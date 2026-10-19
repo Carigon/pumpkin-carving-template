@@ -124,11 +124,12 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
     const pos: number[] = [];
     const col: number[] = [];
     const miss: number[] = [];
-    for (const { points } of design.paths) {
-      for (let i = 0; i < points.length; i++) {
-        const p = points[i];
-        const q = points[(i + 1) % points.length];
-        if (!p.surface) miss.push(p.front.x, p.front.y, 0);
+    for (const { points, line } of design.paths) {
+      // Missed design points get a marker; the line simply stops where it leaves the outline.
+      for (const p of points) if (!p.surface) miss.push(p.front.x, p.front.y, 0);
+      for (let i = 0; i < line.length; i++) {
+        const p = line[i];
+        const q = line[(i + 1) % line.length];
         if (!p.surface || !q.surface) continue;
         for (const s of [p, q]) {
           const { point, normal } = s.surface!;

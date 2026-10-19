@@ -166,7 +166,13 @@ export interface ProjectedPoint {
 }
 
 export interface ProjectedPath {
+  /** The design's own points, in the input's order. */
   points: ProjectedPoint[];
+  /**
+   * The closed path for drawing: `points` with more points along each edge, so the line follows the curved skin
+   * instead of cutting straight through it between the design's points.
+   */
+  line: ProjectedPoint[];
 }
 
 /** The design projected onto the 3D surface, for the preview. Same path and point order as the input design. */

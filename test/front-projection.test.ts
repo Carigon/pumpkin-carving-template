@@ -100,6 +100,32 @@ describe.each([
     });
   });
 
+  describe("the projected line, for drawing", () => {
+    // A triangle 12 in wide on a sphere of radius ≈ 9.55: a straight chord between its corners would sink about 2 in.
+    const triangle = designOf([[-6, -4], [6, -4], [0, 5]]);
+    const placed = { width: 12, verticalOffset: 0, rotation: 0 };
+
+    it("follows the surface along long straight edges", () => {
+      const { design } = buildTemplate({ measurements: sphere, design: triangle, placement: placed });
+
+      const line = design!.paths[0].line;
+      for (let i = 0; i < line.length; i++) {
+        const a = line[i].surface!.point, b = line[(i + 1) % line.length].surface!.point;
+        const middle = [0, 1, 2].map((k) => (a[k] + b[k]) / 2);
+        // Each chord's middle stays within a hundredth of an inch (plus the mesh's own tolerance) of the skin.
+        expect(R - Math.hypot(...middle)).toBeLessThan(0.01 + MESH_TOLERANCE);
+      }
+    });
+
+    it("passes through the design's own points, in order", () => {
+      const { design } = buildTemplate({ measurements: sphere, design: triangle, placement: placed });
+
+      const { points, line } = design!.paths[0];
+      const own = line.filter((p) => points.some((q) => q.front.x === p.front.x && q.front.y === p.front.y));
+      expect(own).toEqual(points);
+    });
+  });
+
   describe("points missing the silhouette", () => {
     it("are reported, counted, and left off the surface while the rest still project", () => {
       const { design, warnings } = buildTemplate({
@@ -117,6 +143,8 @@ describe.each([
       const points = design!.paths[0].points;
       expect(points.map((p) => p.surface === null)).toEqual([true, false, true, false]);
       expect(points[0].angleFromFront).toBeNull();
+      // The drawn line misses along the stretches past the outline too, but the count stays with the design's own points.
+      expect(design!.paths[0].line.filter((p) => p.surface === null).length).toBeGreaterThan(2);
     });
 
     it("a design inside the outline reports none", () => {
