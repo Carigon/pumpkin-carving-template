@@ -82,14 +82,144 @@ body {
 }
 
 .view-3d {
+  position: relative;
   display: flex;
   flex-direction: column;
 }
 
-.view-notes {
-  display: grid;
-  gap: 0.25rem;
-  padding: 0.25rem 0.75rem 0.5rem;
+/* Overlays on the 3D view: always a dark scene, so they use fixed light-on-dark colors in both themes. */
+.legend,
+.status-badge,
+.view-placeholder {
+  position: absolute;
+  color: #f3e9dd;
+  background: rgb(20 16 12 / 0.78);
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.legend {
+  left: 0.5rem;
+  bottom: 0.5rem;
+  max-width: calc(100% - 1rem);
+  padding: 0.3rem 0.6rem;
+}
+
+.legend summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.legend summary::-webkit-details-marker {
+  display: none;
+}
+
+.legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.legend-more {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.legend[open] .legend-more {
+  display: none;
+}
+
+.legend-detail {
+  margin: 0.4rem 0 0.1rem;
+  padding-left: 1.1rem;
+  max-width: 28rem;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 0.15rem;
+}
+
+/* Colors match the Three.js preview (src/preview/pumpkinPreview.ts). */
+.swatch-line {
+  height: 0.2rem;
+  background: #1b1b1b;
+  outline: 1px solid #f3e9dd;
+}
+
+.swatch-gold {
+  height: 0.2rem;
+  background: #d4a017;
+}
+
+.swatch-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ff3030;
+}
+
+.swatch-stretch {
+  background: #b0004a;
+}
+
+.status-badge {
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+.status-badge[hidden],
+.view-placeholder[hidden] {
+  display: none;
+}
+
+.view-placeholder {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(22rem, calc(100% - 2rem));
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.view-placeholder[data-kind="note"] {
+  top: 0.75rem;
+  transform: translateX(-50%);
+}
+
+.step-badge {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: 0.4rem;
+  vertical-align: 0.15em;
+  border-radius: 50%;
+  background: var(--warn-fg);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .controls {
@@ -389,11 +519,11 @@ body {
   justify-items: start;
 }
 
-/* The view switcher: a segmented radio group over the top-right of the viewport. */
+/* The view switcher: a segmented radio group over the top-left of the viewport (the status badge is top-right). */
 .view-switcher {
   position: absolute;
   top: 0.5rem;
-  right: 0.5rem;
+  left: 0.5rem;
   z-index: 1;
   display: flex;
   border: 1px solid var(--border);

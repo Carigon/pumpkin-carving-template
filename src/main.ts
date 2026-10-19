@@ -12,7 +12,7 @@ import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
-import { stepInMode, steps, type Step, type StepId } from "./steps";
+import { stepInMode, steps, warnedSteps, type Step, type StepId } from "./steps";
 import { startBackgroundBuild, type BuildOutcome } from "./worker/backgroundBuild";
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -59,6 +59,8 @@ const tabs = mountStepTabs(
 let step: StepId = "measure";
 /** Whether an image is loaded and being traced, as last seen by `followTrace`. */
 let traceState = "";
+/** The warnings showing now, for the step tabs' badges. */
+let warnings: TemplateWarning[] = [];
 // The quick preview (projection alone) runs here on every edit; flattening runs in the worker.
 const builder = createTemplateBuilder();
 const background = startBackgroundBuild(showTemplate);
@@ -123,7 +125,7 @@ function goTo(next: StepId): void {
 /** Show the current step's tab and panel, and switch the viewport to its default view. */
 function enterStep(): void {
   const list = stepList();
-  tabs.render(list, step);
+  renderTabs(list);
   viewport.enter(list.find((s) => s.id === step)!);
 }
 
@@ -139,6 +141,11 @@ function followTrace(): void {
   const current = stepList().find((s) => s.id === step)!;
   if (step === "design") viewport.enter(current);
   else viewport.offer(current);
+}
+
+/** Show the step tabs, with a badge on each step that has a warning. */
+function renderTabs(list = stepList()): void {
+  tabs.render(list, step, warnedSteps(header.mode(), warnings));
 }
 
 /** Show the current mode's inputs and keep the carver on the same step (Design and Grid stand in for each other). */
@@ -179,6 +186,9 @@ function update(): void {
   showWarnings(quick.warnings);
   renderSurfaceInfo(infoEl, quick.surface);
   preview.update(quick.surface, quick.design);
+  if (!quick.surface) viewport.setPlaceholder("Fix the measurements in the Measure step to see the pumpkin.");
+  else if (!quick.design) viewport.setPlaceholder("Load a design in the Design step to see it on the pumpkin.", "note");
+  else viewport.setPlaceholder(null);
   if (quick.surface && quick.design) {
     pending = {
       surface: quick.surface,
@@ -189,7 +199,7 @@ function update(): void {
       ...(ball ? { calibrationBall: ballCircumference } : {}),
     };
     background.request(input);
-    viewport.setStatus("Stretch tint: updating…");
+    viewport.setStatus("Updating stretch tint…");
     exportPanel.setUpdating();
   } else {
     pending = null;
@@ -201,10 +211,12 @@ function update(): void {
   persist();
 }
 
-function showWarnings(warnings: TemplateWarning[]): void {
+function showWarnings(next: TemplateWarning[]): void {
+  warnings = next;
   form.showWarnings(warnings);
   designPanel.showWarnings(warnings);
   slitPanel.showWarnings(warnings);
+  renderTabs();
 }
 
 /** The worker's template for the latest edit: stretch tint, slit warnings and export. */

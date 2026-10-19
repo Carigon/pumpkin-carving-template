@@ -2,6 +2,7 @@
  * The step model: which steps the controls pane offers and what the viewport shows on each. Pure, so the
  * DOM wiring (tabs, Back/Next, the viewport) only renders what this returns.
  */
+import type { TemplateWarning } from "./core";
 
 /** What the app is making: a pumpkin template, or a test grid to check the template on a ball. */
 export type Mode = "pumpkin" | "test-grid";
@@ -59,4 +60,17 @@ function designStep(state: StepState): Step {
     // Trace only while there's an image to show, so the switcher never lands on an empty view.
     views: image ? ["3d", "trace"] : ["3d"],
   };
+}
+
+/** Which step each kind of warning belongs to (Design stands for Grid in test-grid mode). */
+const WARNING_STEP: Record<TemplateWarning["kind"], StepId> = {
+  "impossible-measurement": "measure",
+  "past-front-limit": "design",
+  "outside-silhouette": "design",
+  "slit-shortened": "template",
+};
+
+/** The steps whose tab carries a warning badge, given the current warnings. */
+export function warnedSteps(mode: Mode, warnings: readonly Pick<TemplateWarning, "kind">[]): Set<StepId> {
+  return new Set(warnings.map((w) => stepInMode(WARNING_STEP[w.kind], mode)));
 }
