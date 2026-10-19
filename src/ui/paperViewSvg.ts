@@ -1,10 +1,9 @@
 import type { Point2 } from "../core";
 import type { PaperView } from "../paperView";
 import type { ClipRect } from "../pdf/layout";
+import { STRETCH_MAX_ALPHA } from "../stretchTint";
 
 const SVG = "http://www.w3.org/2000/svg";
-/** The stretch tint's opacity at full strength, as on the 3D view. */
-const STRETCH_MAX_ALPHA = 0.75;
 /** For unique clip-path ids. */
 let clipCount = 0;
 
@@ -52,7 +51,7 @@ function drawing(view: PaperView, filled: boolean): SVGSVGElement {
   // Everything in the template frame, y flipped for SVG.
   const xy = (p: Point2) => `${round(p.x)},${round(-p.y)}`;
   const box = bounds([
-    ...view.pages.flatMap(({ sheet }) => corners(sheet)),
+    ...view.pages.flatMap(({ sheet }) => oppositeCorners(sheet)),
     ...(view.outline ?? []),
     ...view.design.flat(),
   ]);
@@ -79,7 +78,8 @@ function drawing(view: PaperView, filled: boolean): SVGSVGElement {
       y: round(-(printable.y + printable.height) + 1.1 * size),
       "font-size": round(size),
     });
-    label.textContent = view.pages.length > 1 ? `${page.label} · page ${page.number}` : `Page ${page.number}`;
+    const number = page.index + 1;
+    label.textContent = view.pages.length > 1 ? `${page.name} · page ${number}` : `Page ${number}`;
     sheets.append(label);
   }
 
@@ -87,18 +87,22 @@ function drawing(view: PaperView, filled: boolean): SVGSVGElement {
   const clipId = `paper-clip-${++clipCount}`;
   const clip = el("clipPath", { id: clipId });
   clip.append(el("path", { d: `M${view.paperArea.map(xy).join("L")}Z` }));
-  svg.append(el("defs", {}));
-  svg.firstChild!.appendChild(clip);
+  const defs = el("defs", {});
+  defs.append(clip);
   const tint = el("g", { class: "paper-stretch", "clip-path": `url(#${clipId})` });
+  // Every triangle, untinted ones too, so hovering anywhere on the patch shows its stretch value.
   for (const t of view.stretch) {
-    if (t.tint <= 0) continue;
-    tint.append(el("polygon", { points: t.corners.map(xy).join(" "), "fill-opacity": round(STRETCH_MAX_ALPHA * t.tint) }));
+    const triangle = el("polygon", { points: t.corners.map(xy).join(" "), "fill-opacity": round(STRETCH_MAX_ALPHA * t.tint) });
+    const title = el("title", {});
+    title.textContent = `Stretch ${(100 * t.value).toFixed(1)} %`;
+    triangle.append(title);
+    tint.append(triangle);
   }
 
   const path = (lines: Point2[][], closed: boolean) =>
     lines.map((line) => `M${line.map(xy).join("L")}${closed ? "Z" : ""}`).join("");
   const design = el("path", { class: filled ? "paper-design filled" : "paper-design", d: path(view.design, true) });
-  svg.append(sheets, tint, design);
+  svg.append(defs, sheets, tint, design);
   if (view.outline) svg.append(el("path", { class: "paper-outline", d: path([view.outline], true) }));
   if (view.slits.length > 0) svg.append(el("path", { class: "paper-slits", d: path(view.slits, false) }));
   return svg;
@@ -110,7 +114,8 @@ function el(name: string, attrs: Record<string, string | number>): SVGElement {
   return node;
 }
 
-function corners(r: ClipRect): Point2[] {
+/** The rectangle's lower-left and upper-right corners (enough for a bounding box). */
+function oppositeCorners(r: ClipRect): Point2[] {
   return [
     { x: r.x, y: r.y },
     { x: r.x + r.width, y: r.y + r.height },

@@ -13,7 +13,7 @@ export interface DesignPanel {
   /** An image design is loaded and still being traced (the carver hasn't accepted the trace). */
   tracing(): boolean;
   /** An image design is loaded, being traced or with its trace accepted. */
-  image(): boolean;
+  hasImage(): boolean;
   /** Convert the length fields when the measurement units change. */
   setUnits(units: Units): void;
   /** Show design-related warnings (outside the silhouette, past the front limit). */
@@ -131,7 +131,7 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
   return {
     design: () => design,
     tracing: () => trace.loaded() && !trace.accepted(),
-    image: () => trace.loaded(),
+    hasImage: () => trace.loaded(),
     placement: () => ({
       width: lengths.value(width),
       verticalOffset: lengths.value(offset) || 0,

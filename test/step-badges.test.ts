@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { warnedSteps } from "../src/steps";
+import { steps, type Mode, type StepState } from "../src/steps";
+
+/** The steps whose tab carries a warning badge. */
+function badged(mode: Mode, warnings: StepState["warnings"]) {
+  return steps({ mode, tracing: false, hasImage: false, warnings })
+    .filter((s) => s.warned)
+    .map((s) => s.id);
+}
 
 describe("step warning badges", () => {
   it.each([
@@ -8,20 +15,16 @@ describe("step warning badges", () => {
     { kind: "outside-silhouette", pumpkin: "design", grid: "grid" },
     { kind: "slit-shortened", pumpkin: "template", grid: "template" },
   ] as const)("$kind badges $pumpkin in pumpkin mode and $grid in test-grid mode", ({ kind, pumpkin, grid }) => {
-    expect([...warnedSteps("pumpkin", [{ kind }])]).toEqual([pumpkin]);
-    expect([...warnedSteps("test-grid", [{ kind }])]).toEqual([grid]);
+    expect(badged("pumpkin", [{ kind }])).toEqual([pumpkin]);
+    expect(badged("test-grid", [{ kind }])).toEqual([grid]);
   });
 
   it("no warnings, no badges", () => {
-    expect(warnedSteps("pumpkin", []).size).toBe(0);
+    expect(badged("pumpkin", [])).toEqual([]);
   });
 
   it("badges each step with a warning once, however many warnings it has", () => {
-    const badged = warnedSteps("pumpkin", [
-      { kind: "past-front-limit" },
-      { kind: "outside-silhouette" },
-      { kind: "slit-shortened" },
-    ]);
-    expect([...badged].sort()).toEqual(["design", "template"]);
+    const list = badged("pumpkin", [{ kind: "past-front-limit" }, { kind: "outside-silhouette" }, { kind: "slit-shortened" }]);
+    expect(list).toEqual(["design", "template"]);
   });
 });

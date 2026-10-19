@@ -45,13 +45,13 @@ describe("Paper view page tiles", () => {
   it.each(["letter", "a4"] as const)("match the PDF's tiled pages: count, positions and numbering (%s)", (paper) => {
     const input = { ...source({ width: 16, measurements: { height: 1000, rings: [{ circumference: 2000, position: 0.5 }], units: "in" } }), paper };
     const layout = layoutTemplatePdf(input);
-    const pdfTiles = layout.pages.map((p, i) => ({ page: p, number: i + 1 })).filter(({ page }) => find(page.marks, "design").length > 0);
+    const pdfTiles = layout.pages.map((page, index) => ({ page, index })).filter(({ page }) => find(page.marks, "design").length > 0);
 
     const view = paperView(input);
 
     expect(pdfTiles.length).toBeGreaterThan(1);
     expect(view.pageCount).toBe(layout.pages.length);
-    expect(view.pages.map((p) => p.number)).toEqual(pdfTiles.map((t) => t.number));
+    expect(view.pages.map((p) => p.index)).toEqual(pdfTiles.map((t) => t.index));
     for (const [i, tile] of view.pages.entries()) {
       const { page } = pdfTiles[i];
       const o = originOn(page.marks)!;
@@ -67,7 +67,7 @@ describe("Paper view page tiles", () => {
       expect(tile.printable.width).toBeCloseTo(clip.width / 72, 6);
       expect(tile.printable.height).toBeCloseTo(clip.height / 72, 6);
       const label = find(page.marks, "join").find((m) => m.kind === "text" && m.text.startsWith("Page "));
-      expect(label?.kind === "text" && label.text).toContain(`Page ${tile.label} `);
+      expect(label?.kind === "text" && label.text).toContain(`Page ${tile.name} `);
     }
   });
 
@@ -81,8 +81,8 @@ describe("Paper view page tiles", () => {
     expect(view.pageCount).toBe(layout.pages.length);
     expect(view.pages).toHaveLength(1);
     const [tile] = view.pages;
-    expect(tile.number).toBe(1);
-    expect(tile.label).toBe("1");
+    expect(tile.index).toBe(0);
+    expect(tile.name).toBe("1");
     expect(tile.sheet.x).toBeCloseTo(-o.x / 72, 6);
     expect(tile.sheet.y).toBeCloseTo(-o.y / 72, 6);
     expect(tile.sheet.width).toBeCloseTo(612 / 72, 6);

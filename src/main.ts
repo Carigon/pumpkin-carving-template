@@ -14,7 +14,7 @@ import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
-import { stepInMode, steps, warnedSteps, type Step, type StepId } from "./steps";
+import { stepInMode, steps, type Step, type StepId } from "./steps";
 import { startBackgroundBuild, type BuildOutcome } from "./worker/backgroundBuild";
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -60,8 +60,9 @@ const tabs = mountStepTabs(
 );
 /** The step showing in the controls pane. */
 let step: StepId = "measure";
-/** Whether an image is loaded and being traced, as last seen by `followTrace`. */
-let traceState = "";
+/** Whether an image is being traced and whether one is loaded, as last seen by `followTrace` (none at start). */
+let lastTracing = false;
+let lastHasImage = false;
 /** The warnings showing now, for the step tabs' badges. */
 let warnings: TemplateWarning[] = [];
 // The quick preview (projection alone) runs here on every edit; flattening runs in the worker.
@@ -115,9 +116,9 @@ function persist(): void {
   });
 }
 
-/** The steps for the current mode and design, from the step model. */
+/** The steps for the current mode, design and warnings, from the step model. */
 function stepList(): Step[] {
-  return steps({ mode: header.mode(), tracing: designPanel.tracing(), image: designPanel.image() });
+  return steps({ mode: header.mode(), tracing: designPanel.tracing(), hasImage: designPanel.hasImage(), warnings });
 }
 
 /** A tab or Back/Next picked a step. */
@@ -140,9 +141,11 @@ function enterStep(): void {
  * only updates the switcher, keeping the view the carver picked if it's still available.
  */
 function followTrace(): void {
-  const state = `${designPanel.tracing()}/${designPanel.image()}`;
-  if (state === traceState) return;
-  traceState = state;
+  const tracing = designPanel.tracing();
+  const hasImage = designPanel.hasImage();
+  if (tracing === lastTracing && hasImage === lastHasImage) return;
+  lastTracing = tracing;
+  lastHasImage = hasImage;
   const current = stepList().find((s) => s.id === step)!;
   if (step === "design") viewport.enter(current);
   else viewport.offer(current);
@@ -150,7 +153,7 @@ function followTrace(): void {
 
 /** Show the step tabs, with a badge on each step that has a warning. */
 function renderTabs(list = stepList()): void {
-  tabs.render(list, step, warnedSteps(header.mode(), warnings));
+  tabs.render(list, step);
 }
 
 /** Show the current mode's inputs and keep the carver on the same step (Design and Grid stand in for each other). */
@@ -242,18 +245,22 @@ function showTemplate(outcome: BuildOutcome): void {
     paper.empty(`The template couldn't be built: ${outcome.message}`);
     return;
   }
-  const { template, warnings } = outcome;
+  const { template, warnings: templateWarnings } = outcome;
   preview.setStretch(template?.stretch ?? null);
   // The same input as the quick preview, plus what only flattening finds (slits cut short).
-  showWarnings(warnings);
+  showWarnings(templateWarnings);
   built = template ? { template, ...pending } : null;
   exportPanel.setSource(built);
   drawPaper();
 }
 
-/** The paper size or carve-area style changed: redraw the Paper view and remember the choice. */
+/**
+ * The paper size or carve-area style changed: redraw the Paper view and remember the choice. With no template
+ * the Paper view keeps its message (bad measurements, no design, a failed build or nothing on the pumpkin),
+ * which doesn't depend on the paper.
+ */
 function changePaper(): void {
-  drawPaper();
+  if (built) drawPaper();
   persist();
 }
 
