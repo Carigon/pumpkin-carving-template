@@ -4,6 +4,7 @@ import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountDesignPanel } from "./ui/designPanel";
 import { mountExportPanel } from "./ui/exportPanel";
 import { mountMeasurementForm } from "./ui/measurementForm";
+import { mountSlitPanel } from "./ui/slitPanel";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -11,6 +12,7 @@ app.innerHTML = `
   <h1>Pumpkin carving template</h1>
   <section id="measurements"></section>
   <section id="design"></section>
+  <section id="slits"></section>
   <section id="preview">
     <h2>Preview</h2>
     <canvas id="preview-canvas" aria-label="3D preview of the design on the pumpkin. Drag to orbit."></canvas>
@@ -25,17 +27,20 @@ const infoEl = app.querySelector<HTMLElement>("#surface-info")!;
 const preview = mountPumpkinPreview(app.querySelector<HTMLCanvasElement>("#preview-canvas")!);
 const form = mountMeasurementForm(app.querySelector<HTMLElement>("#measurements")!, update);
 const designPanel = mountDesignPanel(app.querySelector<HTMLElement>("#design")!, update);
+const slitPanel = mountSlitPanel(app.querySelector<HTMLElement>("#slits")!, update);
 const exportPanel = mountExportPanel(app.querySelector<HTMLElement>("#export")!);
 update();
 
 function update(): void {
   const measurements = form.read();
   designPanel.setUnits(measurements.units);
+  slitPanel.setUnits(measurements.units);
   const design = designPanel.design() ?? undefined;
   const placement = designPanel.placement();
-  const result = buildTemplate({ measurements, design, placement });
+  const result = buildTemplate({ measurements, design, placement, slits: slitPanel.options() });
   form.showWarnings(result.warnings);
   designPanel.showWarnings(result.warnings);
+  slitPanel.showWarnings(result.warnings);
   renderSurfaceInfo(infoEl, result.surface);
   preview.update(result.surface, result.design);
   exportPanel.setSource(

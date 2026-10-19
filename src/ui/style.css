@@ -83,7 +83,8 @@ h1 {
   color: var(--warn-fg);
 }
 
-.design {
+.design,
+.slits {
   display: grid;
   gap: 1rem;
 }

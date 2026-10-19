@@ -57,6 +57,16 @@ describe("PDF layout", () => {
     expect(filled).toMatchObject({ fill: "even-odd" });
   });
 
+  it("draws the slits as dashed lines", () => {
+    const slits = [[{ x: 0, y: 2 }, { x: 0, y: 1.5 }, { x: 0.01, y: 2 }]];
+    const { marks } = layoutTemplatePdf({ ...input, template: { ...input.template, slits } }).pages[0];
+
+    const [slit] = find(marks, "slit");
+    expect(slit).toMatchObject({ kind: "path", closed: false });
+    expect(slit).toHaveProperty("stroke.dash");
+    expect(bbox(slit).height).toBeCloseTo(0.5 * 72, 3);
+  });
+
   it("renders to a one-page PDF", async () => {
     const bytes = await renderPdf(layoutTemplatePdf(input));
     const doc = await PDFDocument.load(bytes);

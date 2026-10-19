@@ -18,7 +18,7 @@ const PAGE_MARGIN = 18;
 const CHECK_SQUARE = (100 / 25.4) * 72;
 const GAP = 14;
 
-export type MarkRole = "design" | "cut-outline" | "center-cross" | "stem-arrow" | "check-square" | "info";
+export type MarkRole = "design" | "cut-outline" | "slit" |"center-cross" | "stem-arrow" | "check-square" | "info";
 
 export type Mark =
   | {
@@ -105,6 +105,9 @@ function drawTemplate({ template, filled }: TemplatePdfInput, scale: number, ori
       ...(filled ? { fill: "even-odd" as const, fillGray: 0.6 } : {}),
     },
     { kind: "path", role: "cut-outline", subpaths: [template.cutOutline.map(place)], closed: true, stroke: { width: 1 } },
+    ...(template.slits.length > 0
+      ? [{ kind: "path" as const, role: "slit" as const, subpaths: template.slits.map((s) => s.map(place)), closed: false, stroke: { width: 0.75, dash: [4, 3] } }]
+      : []),
     {
       kind: "path",
       role: "center-cross",
