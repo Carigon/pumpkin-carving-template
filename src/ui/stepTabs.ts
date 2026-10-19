@@ -1,8 +1,11 @@
 import type { Step, StepId } from "../steps";
 
 export interface StepTabs {
-  /** Show `list` as the tabs, with `current` selected and its panel showing. */
-  render(list: readonly Step[], current: StepId): void;
+  /**
+   * Show `list` as the tabs, with `current` selected and its panel showing. Tabs of the steps in `warned` carry a
+   * warning badge, announced as e.g. "Design, has warnings".
+   */
+  render(list: readonly Step[], current: StepId, warned?: ReadonlySet<StepId>): void;
 }
 
 /**
@@ -56,9 +59,11 @@ export function mountStepTabs(
   });
 
   return {
-    render(nextList, nextCurrent) {
+    render(nextList, nextCurrent, warned = new Set()) {
       list = nextList;
       current = nextCurrent;
+      // Re-rendering (e.g. when the warnings change) mustn't drop the keyboard focus on a tab.
+      const focused = tablist.contains(document.activeElement) ? document.activeElement?.id : undefined;
       tablist.replaceChildren(
         ...list.map((step) => {
           const tab = document.createElement("button");
@@ -71,10 +76,21 @@ export function mountStepTabs(
           tab.setAttribute("aria-selected", String(selected));
           tab.tabIndex = selected ? 0 : -1;
           tab.textContent = step.title;
+          if (warned.has(step.id)) {
+            const dot = document.createElement("span");
+            dot.className = "step-badge";
+            dot.setAttribute("aria-hidden", "true");
+            const text = document.createElement("span");
+            text.className = "visually-hidden";
+            text.textContent = ", has warnings";
+            tab.append(dot, text);
+            tab.title = `${step.title} has warnings`;
+          }
           tab.addEventListener("click", () => onSelect(step.id));
           return tab;
         }),
       );
+      if (focused) tablist.querySelector<HTMLElement>(`#${focused}`)?.focus();
 
       const shown = panels[current];
       for (const panel of navs.keys()) panel.hidden = panel !== shown;
