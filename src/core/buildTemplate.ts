@@ -24,8 +24,13 @@ const DEFAULT_CUT_MARGIN_IN = 0.75;
 const SLIT_CLEARANCE_IN = 0.1;
 /** Least distance between two slits, so they don't crowd one gap and leave thin strips of paper. */
 const SLIT_SPACING_IN = 1;
-/** Shorter slits barely relieve any stretch, so they aren't placed. */
+/**
+ * Short stubs on open paper barely relieve any stretch, so slits shorter than this aren't placed, unless the margin
+ * is narrower: a slit that runs through most of the margin band (`MIN_MARGIN_SHARE` of the paper between the edge
+ * and the design's clearance) still helps a lot on solid designs, where nothing deeper fits.
+ */
 const MIN_SLIT_DEPTH_IN = 0.75;
+const MIN_MARGIN_SHARE = 0.8;
 /** Deeper than the margin, so slits reach in between parts of the design where there is room. */
 const DEFAULT_SLIT_DEPTH_IN = 2;
 
@@ -120,7 +125,7 @@ function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean):
       depth: slitOptions.depth,
       clearance: fromInches(SLIT_CLEARANCE_IN, units),
       spacing: fromInches(SLIT_SPACING_IN, units),
-      minDepth: fromInches(MIN_SLIT_DEPTH_IN, units),
+      minDepth: Math.min(fromInches(MIN_SLIT_DEPTH_IN, units), MIN_MARGIN_SHARE * (margin - fromInches(SLIT_CLEARANCE_IN, units))),
     },
   });
   let next = steps.next();

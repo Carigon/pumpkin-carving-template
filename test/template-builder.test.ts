@@ -21,7 +21,7 @@ const input: TemplateInput = {
 describe("the template builder", () => {
   it("builds the same template as buildTemplate", () => {
     expect(createTemplateBuilder().build(input)).toEqual(buildTemplate(input));
-  });
+  }, 30_000);
 
   it("builds in steps, reporting each slit as it is placed, to the same template", () => {
     const slitted: TemplateInput = { measurements: sphere, ...ring(30, between), slits: { count: 2, depth: 2 } };

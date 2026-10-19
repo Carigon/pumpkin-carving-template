@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildTemplate, type Point2, type TemplateInput } from "../src/core";
 import even from "./even-spacing.json";
-import { between, dots, evenSpacingCases, onSphere, paperStrain, placed, ring, sphere, squat, tapering, designOf } from "./slit-cases";
+import { between, circle, designOf, dots, evenSpacingCases, onSphere, paperStrain, placed, ring, sphere, squat, tapering } from "./slit-cases";
 
 function distanceToSegment(p: Point2, a: Point2, b: Point2): number {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -165,21 +165,51 @@ describe("slits", () => {
   );
 
   describe("when the design leaves no blank paper deeper than the margin", () => {
-    // A solid disc reaching 45° from the front: the only blank paper is the 3/4 in margin around it, and slits
-    // that short barely help.
+    // An oval 5 in wide on a squat pumpkin, and a disc reaching 45° from the front of a sphere: solid carve areas,
+    // so the only blank paper is the 3/4 in margin around them.
+    const oval = designOf(Array.from({ length: 48 }, (_, k): [number, number] => [1.5 * Math.cos((2 * Math.PI * k) / 48), Math.sin((2 * Math.PI * k) / 48)]));
+    const solidOval: TemplateInput = { measurements: { height: 8, rings: [{ position: 0.5, circumference: 34 }], units: "in" }, ...placed(oval, 5, 0.5) };
     const disc = designOf(Array.from({ length: 64 }, (_, k) => onSphere(45 * deg, (k * 2 * Math.PI) / 64)));
-    const placement = { width: disc.bbox.maxX - disc.bbox.minX, verticalOffset: 0, rotation: 0 };
+    const solidDisc: TemplateInput = { measurements: sphere, ...placed(disc, disc.bbox.maxX - disc.bbox.minX) };
 
-    it("no slits are placed, and a set count says none fit", () => {
-      const { template, warnings } = buildTemplate({ measurements: sphere, design: disc, placement, slits: { count: 8, depth: 2 } });
+    it.each<[string, TemplateInput["slits"]]>([
+      ["Auto", undefined],
+      ["a set count", { count: 8, depth: 2 }],
+    ])(
+      "with %s, slits run through most of the margin and relieve the stretch",
+      (_, slits) => {
+        const { template, warnings } = buildTemplate({ ...solidOval, slits });
+        const { template: plain } = buildTemplate({ ...solidOval, slits: { count: 0, depth: 2 } });
 
-      expect(template!.slits).toEqual([]);
-      expect(warnings).toMatchObject([{ kind: "slits-dont-fit", count: 0 }]);
-      expect(warnings[0].message).not.toBe("");
-    });
+        expect(template!.slits.length).toBeGreaterThanOrEqual(6);
+        for (const slit of template!.slits) {
+          expect(crossesAny(slit, template!.designPaths)).toBe(false);
+          // About 0.65 in: the margin less the slit's clearance from the design.
+          expect(depthIn(slit, template!.cutOutline)).toBeGreaterThan(0.5);
+          expect(depthIn(slit, template!.cutOutline)).toBeLessThan(0.75);
+        }
+        expect(paperStrain(template!).rms).toBeLessThan(0.75 * paperStrain(plain!).rms);
+        expect(warnings).toEqual([]);
+      },
+      SLOW,
+    );
 
-    it("Auto says the paper still stretches more than 3 %", () => {
-      const { template, warnings } = buildTemplate({ measurements: sphere, design: disc, placement });
+    it(
+      "a set count is placed even where it barely helps; Auto then places none",
+      () => {
+        const { template: set, warnings } = buildTemplate({ ...solidDisc, slits: { count: 8, depth: 2 } });
+        const { template: auto } = buildTemplate(solidDisc);
+
+        expect(set!.slits).toHaveLength(8);
+        expect(warnings).toEqual([]);
+        expect(paperStrain(set!).rms).toBeLessThan(paperStrain(auto!).rms);
+        expect(auto!.slits).toEqual([]);
+      },
+      SLOW,
+    );
+
+    it("Auto says so when no slit fits and the paper still stretches more than 3 %", () => {
+      const { template, warnings } = buildTemplate({ ...solidDisc, slits: { count: "auto", depth: 0 } });
 
       expect(template!.slits).toEqual([]);
       expect(paperStrain(template!).p95).toBeGreaterThan(0.03);
@@ -187,6 +217,20 @@ describe("slits", () => {
       expect(warnings[0].message).not.toBe("");
     });
   });
+
+  it(
+    "a set count that doesn't fit places what fits and says how many",
+    () => {
+      // A dot 1 in across: its cut-out edge is about 8 in around, room for only a few slits 1 in apart.
+      const { template, warnings } = buildTemplate({ measurements: sphere, ...placed(designOf(circle(0, 0, 0.5)), 1), slits: { count: 12, depth: 2 } });
+
+      expect(template!.slits.length).toBeGreaterThan(0);
+      expect(template!.slits.length).toBeLessThan(12);
+      expect(warnings).toMatchObject([{ kind: "slits-dont-fit", count: template!.slits.length }]);
+      expect(warnings[0].message).not.toBe("");
+    },
+    SLOW,
+  );
 
   it(
     "a design spanning 90° on a sphere stays within the stretch limits with the default slits, far less than without",

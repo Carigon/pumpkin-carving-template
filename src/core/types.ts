@@ -125,7 +125,7 @@ export interface SlitOptions {
   count: number | "auto";
   /**
    * The deepest a slit may run in from the cut-out edge, in the measurement units. Each goes this deep unless the
-   * design is in the way; one that can't get about 3/4 in deep isn't placed.
+   * design is in the way; one that can't get about 3/4 in deep (or through most of a narrower margin) isn't placed.
    */
   depth: number;
 }
