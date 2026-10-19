@@ -1,3 +1,4 @@
+import { DESIGN_STEPS, densify } from "../geometry/densify";
 import { signedArea } from "../geometry/distanceField";
 import { barycentric, centroid, cross3, distance, dot3, normalize3, polylineLength, scale3, sub3 } from "../geometry/vector";
 import type { MeshHit, MeshLocation, MeshSurface } from "../mesh/meshSurface";
@@ -12,8 +13,6 @@ import { growPatch, longestEdge, refinePatch, weldMesh } from "./patch";
 
 /** Squares' worth of fine triangles over the paper (two triangles each): a few thousand triangles. */
 const MESH_CELLS = 1500;
-/** Design segments are split into at least this many pieces across the design. */
-const DESIGN_STEPS = 100;
 /** The mesh reaches this many margins past the cut-out edge, so the edge and the slit ends sit inside it. */
 const MESH_OVERHANG = 0.5;
 
@@ -199,20 +198,6 @@ function projectPaths(paths: Point2[][], projection: Projection): MeshHit[][] {
     path.flatMap((p) => {
       const hit = projection.project(p);
       return hit ? [hit] : [];
-    }),
-  );
-}
-
-/** Split each closed path's segments so no piece is longer than `step`; paths stay closed implicitly. */
-function densify(paths: Point2[][], step: number): Point2[][] {
-  return paths.map((path) =>
-    path.flatMap((a, i) => {
-      const b = path[(i + 1) % path.length];
-      const pieces = Math.max(1, Math.ceil(distance(a, b) / step));
-      return Array.from({ length: pieces }, (_, k) => ({
-        x: a.x + ((b.x - a.x) * k) / pieces,
-        y: a.y + ((b.y - a.y) * k) / pieces,
-      }));
     }),
   );
 }
