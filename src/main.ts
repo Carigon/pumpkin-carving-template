@@ -37,7 +37,7 @@ function update(): void {
   form.showWarnings(result.warnings);
   designPanel.showWarnings(result.warnings);
   renderSurfaceInfo(infoEl, result.surface);
-  preview.update(result.surface, result.design);
+  preview.update(result.surface, result.design, result.template?.stretch ?? null);
   exportPanel.setSource(
     result.template && result.surface ? { template: result.template, surface: result.surface, measurements, placement } : null,
   );

@@ -1,4 +1,5 @@
 import { flattenDesign } from "./flatten/flattenDesign";
+import { stretchMap } from "./flatten/stretch";
 import { designWarnings } from "./projection/designWarnings";
 import { placeDesign } from "./projection/placement";
 import { projectDesign } from "./projection/projectDesign";
@@ -35,7 +36,12 @@ export function buildTemplate(input: TemplateInput): TemplateResult {
   const flat = flattenDesign(shape, projection, { x: 0, y: placement.verticalOffset }, placed, 1.5 * margin);
   const template: FlatTemplate | null =
     flat && flat.paths.length > 0
-      ? { units, designPaths: flat.paths, cutOutline: cutOutline(flat.paths, margin) }
+      ? {
+          units,
+          designPaths: flat.paths,
+          cutOutline: cutOutline(flat.paths, margin),
+          stretch: stretchMap(flat.mesh, flat.flat),
+        }
       : null;
 
   return { surface, design, template, warnings: designWarnings(design) };
