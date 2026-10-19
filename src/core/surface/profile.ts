@@ -50,8 +50,10 @@ export type ProfileFit =
 const INTERVALS = 256;
 const MIN_MODES = 16;
 const MAX_ITERATIONS = 60;
-/** How closely the widest point's place is found when it isn't given, as a fraction of the arc. */
-const WIDEST_TOLERANCE = 3e-3;
+/** Places tried for the widest point, when it isn't given, between each pair of neighbouring rings (odd). */
+const WIDEST_SAMPLES = 11;
+/** How much less smooth than the best a place for the widest point can be and still count as nearly as good. */
+const NEARLY_SMOOTHEST = 5e-3;
 // Gauss–Legendre, 3 points on [0, 1].
 const GL_X = [0.5 - Math.sqrt(0.15), 0.5, 0.5 + Math.sqrt(0.15)];
 const GL_W = [5 / 18, 8 / 18, 5 / 18];
@@ -79,38 +81,46 @@ export function fitProfile(length: number, knots: ProfileKnot[], widest: { rho: 
 
   // Otherwise search for the widest point's place. It can go between two neighbouring knots (poles included),
   // far enough from each for the radius to reach R, with the rings rising before it and falling after it.
+  // Smoothness often barely changes across a wide stretch (a barrel's flat side), with shallow dips here and
+  // there, so rather than its exact minimum, take the middle of the places that are nearly as smooth as the best:
+  // symmetric rings then give a symmetric shape, and a small change to a ring moves the widest point only a little.
   const poles = [{ s: 0, rho: 0 }, ...sorted, { s: L, rho: 0 }];
-  let best: { c: Float64Array; energy: number } | null = null;
+  let best: { s: number; energy: number; samples: { s: number; energy: number }[]; from: Float64Array } | null = null;
   for (let i = 0; i + 1 < poles.length; i++) {
     const lo = poles[i].s + (R - poles[i].rho), hi = poles[i + 1].s - (R - poles[i + 1].rho);
     if (!(hi > lo) || !unimodal(sorted, R, (poles[i].s + poles[i + 1].s) / 2)) continue;
-    // Golden-section search for the smoothest place, keeping clear of the ends where the profile would have to
-    // run straight out (|dρ/ds| = 1).
-    const margin = 0.02 * (hi - lo);
-    const energyAt = (s: number) => {
-      // Starting from the best fit so far is quicker; from scratch if that fails.
-      let fit = model.fit(knots, R, s, true, best?.c);
-      if (!fit.ok && best) fit = model.fit(knots, R, s, true);
-      if (fit.ok && (!best || fit.energy < best.energy)) best = fit;
-      return fit.ok ? fit.energy : Infinity;
-    };
-    const g = (Math.sqrt(5) - 1) / 2;
-    let a = lo + margin, b = hi - margin;
-    let x1 = b - g * (b - a), x2 = a + g * (b - a);
-    let f1 = energyAt(x1), f2 = energyAt(x2);
-    while (b - a > WIDEST_TOLERANCE * L) {
-      if (f1 <= f2) {
-        [b, x2, f2] = [x2, x1, f1];
-        x1 = b - g * (b - a);
-        f1 = energyAt(x1);
-      } else {
-        [a, x1, f1] = [x1, x2, f2];
-        x2 = a + g * (b - a);
-        f2 = energyAt(x2);
-      }
-    }
+    // Keep clear of the ends, where the profile would have to run straight out (|dρ/ds| = 1). Every fit starts
+    // from the one in the middle, so mirror-image places get mirror-image fits.
+    const a = lo + 0.02 * (hi - lo), b = hi - 0.02 * (hi - lo);
+    const middle = model.fit(knots, R, (a + b) / 2, true);
+    const from = middle.ok ? middle.c : undefined;
+    const samples = Array.from({ length: WIDEST_SAMPLES }, (_, k) => {
+      const s = a + ((b - a) * k) / (WIDEST_SAMPLES - 1);
+      let fit = k === (WIDEST_SAMPLES - 1) / 2 ? middle : model.fit(knots, R, s, true, from);
+      if (!fit.ok && from) fit = model.fit(knots, R, s, true);
+      return { s, energy: fit.ok ? fit.energy : Infinity };
+    });
+    const top = samples.reduce((p, q) => (q.energy < p.energy ? q : p));
+    if (top.energy < Infinity && (!best || top.energy < best.energy) && from) best = { ...top, samples, from };
   }
-  if (best) return model.table((best as { c: Float64Array }).c);
+  if (best) {
+    const { samples, energy } = best as { samples: { s: number; energy: number }[]; energy: number };
+    const limit = energy * (1 + NEARLY_SMOOTHEST) + 1e-12;
+    // Ends of the nearly-smoothest places (the first and last sample within the limit), interpolated outward
+    // to where the smoothness crosses the limit.
+    const first = samples.findIndex((x) => x.energy <= limit);
+    const last = samples.length - 1 - [...samples].reverse().findIndex((x) => x.energy <= limit);
+    const edge = (j: number, dir: 1 | -1) => {
+      const inside = samples[j], outside = samples[j + dir];
+      if (!outside || !Number.isFinite(outside.energy)) return inside.s;
+      return inside.s + ((outside.s - inside.s) * (limit - inside.energy)) / (outside.energy - inside.energy);
+    };
+    const at = (edge(first, -1) + edge(last, 1)) / 2;
+    const from = (best as { from: Float64Array }).from;
+    let fit = model.fit(knots, R, at, true, from);
+    if (!fit.ok) fit = model.fit(knots, R, (best as { s: number }).s, true, from);
+    if (fit.ok) return model.table(fit.c);
+  }
   // Rings that go up and down: keep the profile that is widest where it is widest.
   return free.ok ? model.table(free.c) : free;
 }

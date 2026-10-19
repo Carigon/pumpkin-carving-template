@@ -41,6 +41,17 @@ function circumferenceAt(surface: SurfaceParameters, distance: number): number {
   return 0;
 }
 
+/** The largest radius on the front meridian and how far along the arc from the stem it is. */
+function widestOf(surface: SurfaceParameters) {
+  const m = frontMeridian(surface);
+  let walked = 0, widestAt = 0, widest = 0;
+  m.forEach((p, i) => {
+    if (i > 0) walked += Math.hypot(p.rho - m[i - 1].rho, p.y - m[i - 1].y);
+    if (p.r > widest) [widest, widestAt] = [p.r, walked];
+  });
+  return { widest, widestAt };
+}
+
 const height = (s: SurfaceParameters) => s.profile[0].height - s.profile[s.profile.length - 1].height;
 
 describe("pumpkin profile from extra circumference rings", () => {
@@ -218,15 +229,35 @@ describe("pumpkin profile from extra circumference rings", () => {
     const { surface, warnings } = buildTemplate({ measurements });
 
     expect(warnings).toEqual([]);
-    const m = frontMeridian(surface!);
-    let walked = 0, widestAt = 0, widest = 0;
-    m.forEach((p, i) => {
-      if (i > 0) walked += Math.hypot(p.rho - m[i - 1].rho, p.y - m[i - 1].y);
-      if (p.r > widest) [widest, widestAt] = [p.r, walked];
-    });
+    const { widest, widestAt } = widestOf(surface!);
     expect(ellipsePerimeter(widest, widest * surface!.depthRatio) / measurements.circumference).toBeCloseTo(1, 3);
     if (measurements.circumferenceAt !== undefined) {
       expect(Math.abs(widestAt - measurements.circumferenceAt)).toBeLessThan(0.02 * measurements.frontArc);
     }
+  });
+
+  describe("with no widest position, a symmetric barrel", () => {
+    const barrel = (lower: number): PumpkinMeasurements => ({
+      circumference: 30, frontArc: 17.5, rings: [{ distance: 5, circumference: 28 }, { distance: 12.5, circumference: lower }], units: "in",
+    });
+
+    it("is widest at mid-arc and symmetric about mid-height", () => {
+      const { surface, warnings } = buildTemplate({ measurements: barrel(28) });
+
+      expect(warnings).toEqual([]);
+      expect(Math.abs(widestOf(surface!).widestAt - 17.5 / 2)).toBeLessThan(0.02 * 17.5);
+      const p = surface!.profile;
+      for (let i = 0; i < p.length; i++) {
+        expect(p[i].radius).toBeCloseTo(p[p.length - 1 - i].radius, 4);
+        expect(p[i].height).toBeCloseTo(-p[p.length - 1 - i].height, 4);
+      }
+    });
+
+    it("moves its widest point only slightly when one ring changes slightly", () => {
+      const before = widestOf(buildTemplate({ measurements: barrel(28) }).surface!).widestAt;
+      const after = widestOf(buildTemplate({ measurements: barrel(28.05) }).surface!).widestAt;
+
+      expect(Math.abs(after - before)).toBeLessThan(0.03 * 17.5);
+    });
   });
 });

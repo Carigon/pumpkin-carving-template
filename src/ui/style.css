@@ -125,6 +125,7 @@ h1 {
 .ring label {
   display: inline;
   font-weight: 400;
+  white-space: nowrap;
 }
 
 .rings .add-ring {

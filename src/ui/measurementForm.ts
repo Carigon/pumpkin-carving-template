@@ -110,7 +110,7 @@ export function mountMeasurementForm(
     el.className = "ring";
     el.innerHTML = `
       <div class="input-row">
-        <label for="r-${id}-d">From stem</label>
+        <label for="r-${id}-d">From stem (along the arc)</label>
         <input id="r-${id}-d" type="number" inputmode="decimal" min="0" step="any" />
         <span class="unit-label">${lengths.units()}</span>
         <label for="r-${id}-c">around</label>
