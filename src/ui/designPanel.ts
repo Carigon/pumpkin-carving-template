@@ -10,8 +10,10 @@ const MAX_ROTATION = 30;
 export interface DesignPanel {
   design(): Design | null;
   placement(): Placement;
-  /** An image design is loaded and its tracing settings are showing. */
+  /** An image design is loaded and still being traced (the carver hasn't accepted the trace). */
   tracing(): boolean;
+  /** An image design is loaded, being traced or with its trace accepted. */
+  image(): boolean;
   /** Convert the length fields when the measurement units change. */
   setUnits(units: Units): void;
   /** Show design-related warnings (outside the silhouette, past the front limit). */
@@ -22,9 +24,10 @@ export interface DesignPanel {
 
 /**
  * SVG upload plus placement controls: front-view width, vertical offset and rotation.
- * Calls `onChange` whenever the design or its placement changes.
+ * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. An image's crop
+ * and traced result go in `traceView` (the viewport's Trace view).
  */
-export function mountDesignPanel(root: HTMLElement, onChange: () => void): DesignPanel {
+export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceView: HTMLElement): DesignPanel {
   root.innerHTML = `
     <form class="design" novalidate>
       <div class="field">
@@ -80,11 +83,16 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
     status.classList.toggle("warning-text", failed);
   };
   const traceEl = $<HTMLElement>("d-trace");
-  const trace = mountTracePanel(traceEl,(traced, text, failed) => {
-    design = traced;
-    showStatus(text, failed);
-    onChange();
-  });
+  const trace = mountTracePanel(
+    traceEl,
+    (traced, text, failed) => {
+      design = traced;
+      showStatus(text, failed);
+      onChange();
+    },
+    traceView,
+    onChange,
+  );
 
   file.addEventListener("change", async () => {
     const f = file.files?.[0];
@@ -116,7 +124,8 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
 
   return {
     design: () => design,
-    tracing: () => !traceEl.hidden,
+    tracing: () => trace.loaded() && !trace.accepted(),
+    image: () => trace.loaded(),
     placement: () => ({
       width: lengths.value(width),
       verticalOffset: lengths.value(offset) || 0,

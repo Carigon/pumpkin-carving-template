@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stepInMode, steps } from "../src/steps";
+import { stepInMode, steps, type StepState } from "../src/steps";
 
 describe("step model", () => {
   it("pumpkin mode walks through Measure, Design and Template", () => {
@@ -22,10 +22,34 @@ describe("step model", () => {
 
   it.each([
     { mode: "pumpkin", tracing: false },
-    { mode: "pumpkin", tracing: true },
     { mode: "test-grid", tracing: false },
-  ] as const)("every step shows the 3D view, the only one so far ($mode, tracing: $tracing)", (state) => {
+  ] as const)("without an image every step shows only the 3D view ($mode)", (state) => {
     for (const step of steps(state)) {
+      expect(step.defaultView).toBe("3d");
+      expect(step.views).toEqual(["3d"]);
+    }
+  });
+
+  const design = (state: StepState) => steps(state).find((s) => s.id === "design")!;
+
+  it("Design opens on the Trace view while an image is being traced, and can switch back to 3D", () => {
+    const step = design({ mode: "pumpkin", tracing: true });
+    expect(step.defaultView).toBe("trace");
+    expect(step.views).toEqual(["3d", "trace"]);
+  });
+
+  it("Design opens on 3D once the trace is accepted, with Trace still available", () => {
+    const step = design({ mode: "pumpkin", tracing: false, image: true });
+    expect(step.defaultView).toBe("3d");
+    expect(step.views).toEqual(["3d", "trace"]);
+  });
+
+  it.each([
+    { mode: "pumpkin", tracing: true },
+    { mode: "pumpkin", tracing: false, image: true },
+    { mode: "test-grid", tracing: true, image: true },
+  ] as const)("only the Design step offers Trace ($mode, tracing: $tracing)", (state) => {
+    for (const step of steps(state).filter((s) => s.id !== "design")) {
       expect(step.defaultView).toBe("3d");
       expect(step.views).toEqual(["3d"]);
     }

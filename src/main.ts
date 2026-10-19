@@ -44,7 +44,7 @@ const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
 const form = mountMeasurementForm($("measurements"), update);
 const gridPanel = mountGridPanel($("grid"), update);
-const designPanel = mountDesignPanel($("design"), update);
+const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
 const exportPanel = mountExportPanel($("export"), persist);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs
@@ -57,6 +57,8 @@ const tabs = mountStepTabs(
 );
 /** The step showing in the controls pane. */
 let step: StepId = "measure";
+/** Whether an image is loaded and being traced, as last seen by `followTrace`. */
+let traceState = "";
 // The quick preview (projection alone) runs here on every edit; flattening runs in the worker.
 const builder = createTemplateBuilder();
 const background = startBackgroundBuild(showTemplate);
@@ -108,7 +110,7 @@ function persist(): void {
 
 /** The steps for the current mode and design, from the step model. */
 function stepList(): Step[] {
-  return steps({ mode: header.mode(), tracing: designPanel.tracing() });
+  return steps({ mode: header.mode(), tracing: designPanel.tracing(), image: designPanel.image() });
 }
 
 /** A tab or Back/Next picked a step. */
@@ -123,6 +125,20 @@ function enterStep(): void {
   const list = stepList();
   tabs.render(list, step);
   viewport.enter(list.find((s) => s.id === step)!);
+}
+
+/**
+ * Follow the image design: loading an image, accepting its trace or going back to adjust it changes what
+ * the viewport offers. On Design that re-enters the step (Trace while tracing, else 3D); on another step it
+ * only updates the switcher, keeping the view the carver picked if it's still available.
+ */
+function followTrace(): void {
+  const state = `${designPanel.tracing()}/${designPanel.image()}`;
+  if (state === traceState) return;
+  traceState = state;
+  const current = stepList().find((s) => s.id === step)!;
+  if (step === "design") viewport.enter(current);
+  else viewport.offer(current);
 }
 
 /** Show the current mode's inputs and keep the carver on the same step (Design and Grid stand in for each other). */
@@ -144,6 +160,7 @@ function changeUnits(): void {
 }
 
 function update(): void {
+  followTrace();
   const ball = header.mode() === "test-grid";
   const read = form.read();
   // A ball is measured by its first ring alone.
