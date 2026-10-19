@@ -67,6 +67,11 @@ export interface TemplatePdfInput {
   placement: Placement;
   /** The slit settings the template was made with. */
   slits: SlitOptions;
+  /**
+   * The paper margin the template was made with (in the measurement units), and whether to print the solid
+   * cut-out edge. Left out (e.g. for a test grid): the edge is printed and no margin is listed.
+   */
+  cut?: { margin: number; line: boolean };
   /** Print carve areas filled instead of outlined. */
   filled?: boolean;
   paper?: Paper;
@@ -216,7 +221,7 @@ function textWidth(text: string, size: number): number {
   return text.length * size * 0.55;
 }
 
-function drawTemplate({ template, filled }: TemplatePdfInput, scale: number, origin: Point2): Mark[] {
+function drawTemplate({ template, filled, cut }: TemplatePdfInput, scale: number, origin: Point2): Mark[] {
   const place = (p: Point2): Point2 => ({ x: origin.x + p.x * scale, y: origin.y + p.y * scale });
   const design = template.designPaths.map((path) => path.map(place));
   const designTop = Math.max(...design.flat().map((p) => p.y));
@@ -231,7 +236,9 @@ function drawTemplate({ template, filled }: TemplatePdfInput, scale: number, ori
       stroke: { width: 0.5 },
       ...(filled ? { fill: "even-odd" as const, fillGray: 0.6 } : {}),
     },
-    { kind: "path", role: "cut-outline", subpaths: [template.cutOutline.map(place)], closed: true, stroke: { width: 1 } },
+    ...(cut?.line === false
+      ? []
+      : [{ kind: "path" as const, role: "cut-outline" as const, subpaths: [template.cutOutline.map(place)], closed: true, stroke: { width: 1 } }]),
     ...(template.slits.length > 0
       ? [{ kind: "path" as const, role: "slit" as const, subpaths: template.slits.map((s) => s.map(place)), closed: false, stroke: { width: 0.75, dash: [4, 3] } }]
       : []),
@@ -275,7 +282,7 @@ function drawTemplate({ template, filled }: TemplatePdfInput, scale: number, ori
 
 /** The 10 cm check square and the info block, with the square's lower-left corner at (x, y). */
 function drawFurniture(
-  { measurements, surface, placement, slits, filled, calibrationBall }: TemplatePdfInput,
+  { measurements, surface, placement, slits, cut, filled, calibrationBall }: TemplatePdfInput,
   x: number,
   y: number,
 ): Mark[] {
@@ -293,9 +300,10 @@ function drawFurniture(
     [`Design width seen from the front: ${len(placement.width)}`, 8.5],
     [`Moved up: ${len(placement.verticalOffset)}   Rotation: ${fmt(placement.rotation)}°`, 8.5],
     [`Slits: ${slits.count > 0 ? `${slits.count}, ${len(slits.depth)} deep` : "none"}`, 8.5],
+    ...(cut ? [[`Cut-out margin: ${len(cut.margin)}, cut line ${cut.line ? "printed" : "not printed"}`, 8.5] as [string, number]] : []),
     [`Carve areas: ${filled ? "filled" : "outlines"}`, 8.5],
     ["", 8.5],
-    [slits.count > 0 ? "Cut along the solid line and the dashed slits." : "Cut along the solid line.", 8.5],
+    ...cutInstructions(slits.count > 0, cut?.line !== false, cut ? len(cut.margin) : undefined).map((t): [string, number] => [t, 8.5]),
     ["Line up the center cross with the design's center", 8.5],
     ["on the pumpkin, arrow toward the stem.", 8.5],
     ["", 8.5],
@@ -330,6 +338,13 @@ function ringLines({ rings = [] }: PumpkinMeasurements, len: (v: number) => stri
     lines.push([`  ${sorted.slice(i, i + 3).map((r) => `${len(r.circumference)} @ ${len(r.distance)}`).join("; ")}`, 8.5]);
   }
   return lines;
+}
+
+/** What to cut, as info-block lines. Without a printed cut line the carver cuts freehand around the design. */
+function cutInstructions(withSlits: boolean, line: boolean, margin: string | undefined): string[] {
+  if (line) return [withSlits ? "Cut along the solid line and the dashed slits." : "Cut along the solid line."];
+  const leaving = margin ? `leaving about ${margin} of paper` : "leaving some paper";
+  return [`Cut around the design, ${leaving}${withSlits ? "," : "."}`, ...(withSlits ? ["and along the dashed slits."] : [])];
 }
 
 function bounds(points: Point2[]) {

@@ -8,13 +8,18 @@ import { fitSurface } from "./surface/fitSurface";
 import { fromInches } from "./units";
 import type { FlatTemplate, SlitOptions, TemplateInput, TemplateResult, TemplateWarning, Units } from "./types";
 
-/** Paper margin between the design and the cut-out edge. */
-const CUT_MARGIN_IN = 0.75;
+/** Paper margin between the design and the cut-out edge, unless the carver changes it. */
+const DEFAULT_CUT_MARGIN_IN = 0.75;
 /** Least blank paper between a slit and the design. */
 const SLIT_CLEARANCE_IN = 0.1;
 const DEFAULT_SLIT_COUNT = 8;
 /** Deeper than the margin, so slits reach in between parts of the design where there is room. */
 const DEFAULT_SLIT_DEPTH_IN = 1;
+
+/** The paper margin between the design and the cut-out edge a template gets unless the carver changes it. */
+export function defaultMargin(units: Units): number {
+  return fromInches(DEFAULT_CUT_MARGIN_IN, units);
+}
 
 /** The slits a template gets unless the carver changes them. */
 export function defaultSlits(units: Units): SlitOptions {
@@ -40,7 +45,7 @@ export function buildTemplate(input: TemplateInput): TemplateResult {
   const frontViewPaths = placeDesign(design, placement);
   const projected = projectDesign(frontViewPaths, projection);
 
-  const margin = fromInches(CUT_MARGIN_IN, units);
+  const margin = input.margin !== undefined && input.margin > 0 ? input.margin : defaultMargin(units);
   const slitOptions = input.slits ?? defaultSlits(units);
   const flat = flattenDesign({
     surface,

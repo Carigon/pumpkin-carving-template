@@ -23,6 +23,8 @@ export interface Settings {
   placement: { width: number | null; verticalOffset: number; rotation: number };
   /** Depth in `units`. */
   slits: { count: number; depth: number };
+  /** Paper margin around the design in `units`; whether the PDF prints the solid cut-out edge. */
+  cut: { margin: number; line: boolean };
   paper: Paper;
   filled: boolean;
 }
@@ -36,6 +38,7 @@ export interface RestoredSettings {
   measurements?: Partial<Settings["measurements"]>;
   placement?: Partial<Settings["placement"]>;
   slits?: Partial<Settings["slits"]>;
+  cut?: Partial<Settings["cut"]>;
   paper?: Paper;
   filled?: boolean;
 }
@@ -79,6 +82,7 @@ export function saveSettings(storage: SettingsStorage | undefined, s: Settings):
     },
     placement: { width, verticalOffset, rotation },
     slits: { count: s.slits.count, depth: s.slits.depth },
+    cut: { margin: s.cut.margin, line: s.cut.line },
     paper: s.paper,
     filled: s.filled,
   };
@@ -106,6 +110,7 @@ function validate(s: Record<string, unknown>): RestoredSettings {
   const m = record(s.measurements);
   const p = record(s.placement);
   const sl = record(s.slits);
+  const c = record(s.cut);
   // Lengths only mean something in known units.
   const length = <T>(value: T) => (units ? value : undefined);
 
@@ -127,6 +132,7 @@ function validate(s: Record<string, unknown>): RestoredSettings {
       rotation: inRange(p.rotation, -MAX_ROTATION, MAX_ROTATION),
     }),
     slits: group({ count: integerIn(sl.count, 0, MAX_SLITS), depth: length(nonNegative(sl.depth)) }),
+    cut: group({ margin: length(positive(c.margin)), line: typeof c.line === "boolean" ? c.line : undefined }),
     paper: oneOf(s.paper, ["letter", "a4"] as const),
     filled: typeof s.filled === "boolean" ? s.filled : undefined,
   });

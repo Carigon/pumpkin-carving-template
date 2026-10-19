@@ -73,6 +73,30 @@ describe("PDF layout", () => {
     expect(info({ count: 8, depth: 1 })).toContain("Cut along the solid line and the dashed slits.");
   });
 
+  it("names the cut-out margin and prints the solid cut-out edge by default", () => {
+    const { marks } = layoutTemplatePdf({ ...input, cut: { margin: 0.75, line: true } }).pages[0];
+    const info = find(marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
+
+    expect(find(marks, "cut-outline")).toHaveLength(1);
+    expect(info).toContain("Cut-out margin: 0.75 in, cut line printed");
+  });
+
+  it("leaves out the solid cut-out edge when the cut line is turned off, and says so", () => {
+    const layout = layoutTemplatePdf({ ...input, cut: { margin: 0.75, line: false } });
+    const { marks } = layout.pages[0];
+    const info = find(marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
+
+    expect(layout.pages).toHaveLength(1);
+    expect(find(marks, "cut-outline")).toHaveLength(0);
+    // Everything else is still there.
+    expect(find(marks, "design")).toHaveLength(1);
+    expect(find(marks, "slit")).toHaveLength(1);
+    expect(find(marks, "center-cross")).not.toHaveLength(0);
+    expect(find(marks, "stem-arrow")).not.toHaveLength(0);
+    expect(info).toContain("Cut-out margin: 0.75 in, cut line not printed");
+    expect(info.join("\n")).not.toContain("solid line");
+  });
+
   it("outlines carve areas by default and fills them on request", () => {
     const [outlined] = find(layoutTemplatePdf(input).pages[0].marks, "design");
     const [filled] = find(layoutTemplatePdf({ ...input, filled: true }).pages[0].marks, "design");

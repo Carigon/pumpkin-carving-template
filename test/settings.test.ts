@@ -29,6 +29,7 @@ const full: Settings = {
   },
   placement: { width: 15, verticalOffset: -2, rotation: 10 },
   slits: { count: 12, depth: 4 },
+  cut: { margin: 2.5, line: false },
   paper: "a4",
   filled: true,
 };
@@ -63,6 +64,7 @@ describe("settings", () => {
       },
       placement: { width: 15, verticalOffset: "up", rotation: 90 },
       slits: { count: 2.5, depth: 4 },
+      cut: { margin: 0, line: "no" },
       paper: "tabloid",
       filled: "yes",
     };
@@ -108,6 +110,7 @@ describe("settings", () => {
       cells: 8,
       slits: { count: 12 },
       placement: { rotation: 10 },
+      cut: { line: false },
       paper: "a4",
       filled: true,
     });

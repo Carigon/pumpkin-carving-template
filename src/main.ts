@@ -51,7 +51,7 @@ function restore(): void {
   }
   modePanel.restore(saved);
   designPanel.restorePlacement(saved.placement ?? {});
-  slitPanel.restore(saved.slits ?? {});
+  slitPanel.restore(saved.slits ?? {}, saved.cut);
   exportPanel.restore(saved);
 }
 
@@ -74,6 +74,7 @@ function persist(): void {
     },
     placement: { width: orNull(p.width), verticalOffset: p.verticalOffset, rotation: p.rotation },
     slits: slitPanel.options(),
+    cut: slitPanel.cut(),
     ...exportPanel.options(),
   });
 }
@@ -89,7 +90,8 @@ function update(): void {
   const placement = ball ? { ...designPanel.placement(), width: modePanel.gridWidth() } : designPanel.placement();
   // A grid is one solid carve area: no blank paper for slits.
   const slits = ball ? { count: 0, depth: 0 } : slitPanel.options();
-  const result = buildTemplate({ measurements, design, placement, slits });
+  const cut = slitPanel.cut();
+  const result = buildTemplate({ measurements, design, placement, slits, margin: cut.margin });
   form.showWarnings(result.warnings);
   designPanel.showWarnings(result.warnings);
   slitPanel.showWarnings(result.warnings);
@@ -103,6 +105,7 @@ function update(): void {
           measurements,
           placement,
           slits,
+          cut,
           ...(ball ? { calibrationBall: measurements.circumference } : {}),
         }
       : null,
