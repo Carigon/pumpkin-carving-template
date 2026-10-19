@@ -1,6 +1,6 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type Placement, type PumpkinMeasurements } from "../src/core";
+import { buildTemplate, type Placement, type PumpkinMeasurements, type SlitOptions } from "../src/core";
 import { layoutTemplatePdf, type Mark } from "../src/pdf/layout";
 import { renderPdf } from "../src/pdf/render";
 
@@ -11,7 +11,12 @@ const result = buildTemplate({
   design: { paths: [[{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 2 }, { x: 0, y: 2 }]], bbox: { minX: 0, minY: 0, maxX: 4, maxY: 2 } },
   placement,
 });
-const input = { template: result.template!, surface: result.surface!, measurements, placement, slits: { count: 8, depth: 1 } };
+const input = { template: result.template!, surface: result.surface!, measurements, placement, slits: { count: "auto", depth: 2 } satisfies SlitOptions };
+/** The same template with two slits drawn in (the solid design leaves no room for real ones). */
+const slitted = {
+  ...input.template,
+  slits: [[{ x: 0, y: 2 }, { x: 0, y: 1.5 }, { x: 0.01, y: 2 }], [{ x: 0, y: -2 }, { x: 0, y: -1.5 }, { x: 0.01, y: -2 }]],
+};
 
 function bbox(mark: Mark) {
   const pts = mark.kind === "path" ? mark.subpaths.flat() : [];
@@ -91,13 +96,15 @@ describe("PDF layout", () => {
     }
   });
 
-  it("names the slit settings in the info block and says to cut the dashed slits", () => {
-    const info = (slits: { count: number; depth: number }) =>
-      find(layoutTemplatePdf({ ...input, slits }).pages[0].marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
+  it("names the slits in the info block and says to cut the dashed slits", () => {
+    const info = (slits: SlitOptions, template = slitted) =>
+      find(layoutTemplatePdf({ ...input, template, slits }).pages[0].marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
 
-    expect(info({ count: 8, depth: 1 })).toContain("Slits: 8, 1 in deep");
-    expect(info({ count: 0, depth: 1 })).toContain("Slits: none");
-    expect(info({ count: 8, depth: 1 })).toContain("Cut along the solid line and the dashed slits.");
+    expect(info({ count: 2, depth: 1 })).toContain("Slits: 2, up to 1 in deep");
+    expect(info({ count: "auto", depth: 2 })).toContain("Slits: 2 (auto), up to 2 in deep");
+    expect(info({ count: "auto", depth: 2 })).toContain("Cut along the solid line and the dashed slits.");
+    expect(info({ count: "auto", depth: 2 }, input.template)).toContain("Slits: none");
+    expect(info({ count: "auto", depth: 2 }, input.template)).toContain("Cut along the solid line.");
   });
 
   it("names the cut-out margin and prints the solid cut-out edge by default", () => {
@@ -109,7 +116,7 @@ describe("PDF layout", () => {
   });
 
   it("leaves out the solid cut-out edge when the cut line is turned off, and says so", () => {
-    const layout = layoutTemplatePdf({ ...input, cut: { margin: 0.75, line: false } });
+    const layout = layoutTemplatePdf({ ...input, template: slitted, cut: { margin: 0.75, line: false } });
     const { marks } = layout.pages[0];
     const info = find(marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
 
@@ -157,7 +164,7 @@ function bigInput(widthIn: number) {
     design: { paths: [[{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }]], bbox: { minX: 0, minY: 0, maxX: 4, maxY: 3 } },
     placement,
   });
-  return { template: big.template!, surface: big.surface!, measurements, placement, slits: { count: 8, depth: 1 } };
+  return { template: big.template!, surface: big.surface!, measurements, placement, slits: { count: "auto", depth: 2 } satisfies SlitOptions };
 }
 
 /** Where the template's origin (design center) sits on a page: the middle of its center cross. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, createTemplateBuilder, type TemplateInput } from "../src/core";
+import { buildTemplate, createTemplateBuilder, type BuildProgress, type TemplateInput } from "../src/core";
+import { between, ring, sphere } from "./slit-cases";
 
 const pumpkin = {
   height: 10,
@@ -22,13 +23,25 @@ describe("the template builder", () => {
     expect(createTemplateBuilder().build(input)).toEqual(buildTemplate(input));
   });
 
+  it("builds in steps, reporting each slit as it is placed, to the same template", () => {
+    const slitted: TemplateInput = { measurements: sphere, ...ring(30, between), slits: { count: 2, depth: 2 } };
+    const steps = createTemplateBuilder().steps(slitted);
+    const progress: BuildProgress[] = [];
+    let next = steps.next();
+    for (; !next.done; next = steps.next()) progress.push(next.value);
+
+    expect(progress).toEqual([{ slits: 1 }, { slits: 2 }]);
+    expect(next.value).toEqual(buildTemplate(slitted));
+    expect(next.value.template!.slits).toHaveLength(2);
+  }, 30_000);
+
   it("previews the projected design without flattening it", () => {
     const full = buildTemplate(input);
     const quick = createTemplateBuilder().preview(input);
     expect(quick.template).toBeNull();
     expect(quick.surface).toEqual(full.surface);
     expect(quick.design).toEqual(full.design);
-    expect(quick.warnings).toEqual(full.warnings.filter((w) => w.kind !== "slit-shortened"));
+    expect(quick.warnings).toEqual(full.warnings.filter((w) => w.kind !== "slits-dont-fit" && w.kind !== "slit-limit"));
   });
 
   it("shows measurement problems in the preview", () => {

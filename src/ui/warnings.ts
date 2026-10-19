@@ -5,7 +5,8 @@ export const WARNING_PANEL: Record<TemplateWarning["kind"], "measurements" | "de
   "impossible-measurement": "measurements",
   "outside-silhouette": "design",
   "past-front-limit": "design",
-  "slit-shortened": "slits",
+  "slits-dont-fit": "slits",
+  "slit-limit": "slits",
 };
 
 /** Show the warnings that belong to `panel` in `el`, one block each. */

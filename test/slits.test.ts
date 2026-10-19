@@ -1,31 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type Design, type Point2 } from "../src/core";
-
-function designOf(...paths: [number, number][][]): Design {
-  const all = paths.flat();
-  const xs = all.map(([x]) => x);
-  const ys = all.map(([, y]) => y);
-  return {
-    paths: paths.map((path) => path.map(([x, y]) => ({ x, y }))),
-    bbox: { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) },
-  };
-}
-
-/** Distance from p to the boundary of a closed polygon. */
-function distanceToOutline(p: Point2, outline: Point2[]): number {
-  let best = Infinity;
-  outline.forEach((a, i) => {
-    const b = outline[(i + 1) % outline.length];
-    best = Math.min(best, distanceToSegment(p, a, b));
-  });
-  return best;
-}
+import { buildTemplate, type Point2, type TemplateInput } from "../src/core";
+import even from "./even-spacing.json";
+import { between, dots, evenSpacingCases, onSphere, paperStrain, placed, ring, sphere, squat, tapering, designOf } from "./slit-cases";
 
 function distanceToSegment(p: Point2, a: Point2, b: Point2): number {
   const dx = b.x - a.x, dy = b.y - a.y;
   const len2 = dx * dx + dy * dy;
   const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
   return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+}
+
+/** Distance from p to the boundary of a closed polygon. */
+function distanceToOutline(p: Point2, outline: Point2[]): number {
+  return Math.min(...outline.map((a, i) => distanceToSegment(p, a, outline[(i + 1) % outline.length])));
 }
 
 function segmentsCross(a: Point2, b: Point2, c: Point2, d: Point2): boolean {
@@ -46,6 +33,12 @@ function crossesAny(slit: Point2[], paths: Point2[][]): boolean {
   return false;
 }
 
+/** Least distance between two open polylines that don't cross. */
+function apart(a: Point2[], b: Point2[]): number {
+  const toLine = (p: Point2, line: Point2[]) => Math.min(...line.slice(1).map((q, i) => distanceToSegment(p, line[i], q)));
+  return Math.min(...a.map((p) => toLine(p, b)), ...b.map((p) => toLine(p, a)));
+}
+
 /** How sharply a polyline turns at b, in degrees. */
 function turn(a: Point2, b: Point2, c: Point2): number {
   const d = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
@@ -54,141 +47,173 @@ function turn(a: Point2, b: Point2, c: Point2): number {
 
 /** How far a slit runs in from the cut-out edge: the distance from its deepest point (the tip) to the edge. */
 const depthIn = (slit: Point2[], outline: Point2[]) => Math.max(...slit.map((p) => distanceToOutline(p, outline)));
+/** Where a slit opens on the cut-out edge: halfway between its two ends. */
+const mouth = (slit: Point2[]): Point2 => ({ x: (slit[0].x + slit.at(-1)!.x) / 2, y: (slit[0].y + slit.at(-1)!.y) / 2 });
+
+/** Placing slits runs many flattening solves. */
+const SLOW = 60_000;
+const deg = Math.PI / 180;
 
 describe("slits", () => {
-  const CIRCUMFERENCE = 60;
-  const R = CIRCUMFERENCE / (2 * Math.PI);
-  const sphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }], units: "in" as const };
-  const deg = Math.PI / 180;
-  const at = (angle: number, heading: number): [number, number] => [
-    R * Math.sin(angle) * Math.cos(heading),
-    R * Math.sin(angle) * Math.sin(heading),
-  ];
-  /** A small round carve area about 0.6 in across, `angle` from the front along `heading`. */
-  const dot = (angle: number, heading: number): [number, number][] => {
-    const [cx, cy] = at(angle, heading);
-    return Array.from({ length: 12 }, (_, k) => [cx + 0.3 * Math.cos((k * Math.PI) / 6), cy + 0.3 * Math.sin((k * Math.PI) / 6)]);
-  };
-  /**
-   * A ring of dots `angle` from the front plus one in the middle, like the features of a face: blank paper
-   * between them, and one cut-out edge around them all. Slits belong at headings 90°, 135°, ... (every 45°).
-   */
-  const ring = (angle: number, headings: number[]) => {
-    const design = designOf(dot(0, 0), ...headings.map((h) => dot(angle * deg, h * deg)));
-    return { design, placement: { width: design.bbox.maxX - design.bbox.minX, verticalOffset: 0, rotation: 0 } };
-  };
-  /** Dots between the slit headings: nothing in the slits' way. */
-  const between = [0, 45, 90, 135, 180, 225, 270, 315].map((h) => h + 22.5);
+  it(
+    "by default (Auto), slits are added until the paper stretches at most 3 % nearly everywhere",
+    () => {
+      // Dots 37° from the front: without slits, 5 % of the paper stretches more than 3 %.
+      const input = { measurements: sphere, ...ring(37, between) };
+      const { template, warnings } = buildTemplate(input);
+      const { template: plain } = buildTemplate({ ...input, slits: { count: 0, depth: 2 } });
 
-  it("by default, 8 slits run in from the cut-out edge to the default depth (1 in)", () => {
+      expect(paperStrain(plain!).p95).toBeGreaterThan(0.035);
+      expect(template!.slits.length).toBeGreaterThan(0);
+      // The builder measures the paper on its own layout of it, which differs a little from the finished paper.
+      expect(paperStrain(template!).p95).toBeLessThan(0.0305);
+      expect(warnings).toEqual([]);
+    },
+    SLOW,
+  );
+
+  it("Auto adds no slits where the paper fits well enough without them", () => {
     const { template, warnings } = buildTemplate({ measurements: sphere, ...ring(30, between) });
 
-    expect(template!.slits).toHaveLength(8);
-    for (const slit of template!.slits) {
-      // Starts and ends on the cut-out edge...
-      expect(distanceToOutline(slit[0], template!.cutOutline)).toBeLessThan(0.05);
-      expect(distanceToOutline(slit[slit.length - 1], template!.cutOutline)).toBeLessThan(0.05);
-      // ...and reaches about the set depth inward.
-      expect(depthIn(slit, template!.cutOutline)).toBeGreaterThan(0.85);
-      expect(depthIn(slit, template!.cutOutline)).toBeLessThan(1.15);
-    }
+    expect(paperStrain(template!).p95).toBeLessThan(0.03);
+    expect(template!.slits).toEqual([]);
     expect(warnings).toEqual([]);
   });
 
-  it.each([
-    ["dots right where the slits would go", [90, 135, 180, 225, 270, 315, 0, 45]],
-    ["dots close on both sides of them", [80, 100, 125, 145, 170, 190, 215, 235, 260, 280, 305, 325, 350, 10, 35, 55]],
-  ])("with %s, 2 in slits move sideways or bend into the blank paper, reach their depth and never cross the design", (_, headings) => {
-    const { template, warnings } = buildTemplate({ measurements: sphere, ...ring(30, headings), slits: { count: 8, depth: 2 } });
+  it(
+    "on a design placed high on a pumpkin that tapers toward the stem, the slits go toward the stem, where the paper stretches most",
+    () => {
+      const input = { measurements: tapering, ...placed(dots(0), 5.8, 2) };
+      const { template: auto } = buildTemplate(input);
+      const { template: four } = buildTemplate({ ...input, slits: { count: 4, depth: 2 } });
 
-    expect(template!.slits).toHaveLength(8);
-    for (const [i, slit] of template!.slits.entries()) {
-      expect(crossesAny(slit, template!.designPaths), `slit ${i}`).toBe(false);
-      expect(depthIn(slit, template!.cutOutline), `slit ${i}`).toBeGreaterThan(2 * 0.85);
-    }
-    expect(warnings).toEqual([]);
-  });
+      expect(auto!.slits.length).toBeGreaterThan(0);
+      for (const slit of auto!.slits) expect(mouth(slit).y).toBeGreaterThan(0);
+      expect(four!.slits).toHaveLength(4);
+      expect(four!.slits.filter((slit) => mouth(slit).y > 0).length).toBeGreaterThanOrEqual(3);
+    },
+    SLOW,
+  );
 
-  it("slits with blank paper ahead run straight in and back out, not staircased along the mesh", () => {
-    // Dots where the slits would go push them sideways, off the mesh's grain.
-    const { template } = buildTemplate({ measurements: sphere, ...ring(30, [90, 135, 180, 225, 270, 315, 0, 45]), slits: { count: 8, depth: 2 } });
+  it(
+    "a set count is respected; zero means none",
+    () => {
+      const input = { measurements: sphere, ...ring(30, between) };
+      const { template: three, warnings } = buildTemplate({ ...input, slits: { count: 3, depth: 2 } });
+      const { template: none } = buildTemplate({ ...input, slits: { count: 0, depth: 2 } });
 
-    for (const [i, slit] of template!.slits.entries()) {
-      const tip = slit.reduce((deepest, p, k) => (distanceToOutline(p, template!.cutOutline) > distanceToOutline(slit[deepest], template!.cutOutline) ? k : deepest), 0);
-      // Away from the tip, where the slit turns back, no bend sharper than 20°.
-      for (let k = 1; k + 1 < slit.length; k++) {
-        if (k !== tip) expect(turn(slit[k - 1], slit[k], slit[k + 1]), `slit ${i} at ${k}`).toBeLessThan(20);
+      expect(three!.slits).toHaveLength(3);
+      expect(warnings).toEqual([]);
+      expect(none!.slits).toEqual([]);
+    },
+    SLOW,
+  );
+
+  it(
+    "slits run in from the cut-out edge as deep as the blank paper allows, up to the max depth (2 in by default)",
+    () => {
+      const input = { measurements: sphere, ...ring(30, between) };
+      const { template: deep } = buildTemplate({ ...input, slits: { count: 6, depth: 2 } });
+      const { template: shallow } = buildTemplate({ ...input, slits: { count: 6, depth: 1.2 } });
+
+      for (const [i, slit] of deep!.slits.entries()) {
+        // Starts and ends on the cut-out edge...
+        expect(distanceToOutline(slit[0], deep!.cutOutline), `slit ${i}`).toBeLessThan(0.05);
+        expect(distanceToOutline(slit.at(-1)!, deep!.cutOutline), `slit ${i}`).toBeLessThan(0.05);
+        // ...and, with blank paper all the way, reaches the max depth.
+        expect(depthIn(slit, deep!.cutOutline), `slit ${i}`).toBeGreaterThan(2 * 0.9);
+        expect(depthIn(slit, deep!.cutOutline), `slit ${i}`).toBeLessThan(2 * 1.07);
       }
-    }
-  });
+      expect(shallow!.slits).toHaveLength(6);
+      for (const slit of shallow!.slits) expect(depthIn(slit, shallow!.cutOutline)).toBeCloseTo(1.2, 1);
+    },
+    SLOW,
+  );
 
-  it("a slit bends around a design line in its way rather than stopping at it", () => {
-    // A bar across the slit line toward the stem, wider than the slits may shift sideways,
-    // with blank paper beyond it: the slit has to go around it to reach its depth.
-    const bar: [number, number][] = [[-2.4, 2.6], [2.4, 2.6], [2.4, 2.9], [-2.4, 2.9]];
-    const design = designOf(dot(0, 0), ...between.map((h) => dot(30 * deg, h * deg)), bar);
-    const { template, warnings } = buildTemplate({
-      measurements: sphere,
-      design,
-      placement: { width: design.bbox.maxX - design.bbox.minX, verticalOffset: 0, rotation: 0 },
-      slits: { count: 1, depth: 2.5 },
-    });
+  it.each<[string, TemplateInput]>([
+    ["dots on a sphere", { measurements: sphere, ...ring(30, [90, 135, 180, 225, 270, 315, 0, 45]), slits: { count: 8, depth: 2 } }],
+    ["dots on a squat pumpkin", { measurements: squat, ...placed(dots(90), 5.8), slits: { count: 8, depth: 2 } }],
+    ["dots high on a tapering pumpkin", { measurements: tapering, ...placed(dots(0), 5.8, 2), slits: { count: 6, depth: 2 } }],
+  ])(
+    "with %s, slits steer around the design, never cross it and stay about 1 in apart",
+    (_, input) => {
+      const { template } = buildTemplate(input);
 
-    const [slit] = template!.slits;
-    expect(crossesAny(slit, template!.designPaths)).toBe(false);
-    // It starts above the bar and gets past it.
-    const barBottom = Math.min(...template!.designPaths[template!.designPaths.length - 1].map((p) => p.y));
-    expect(slit[0].y).toBeGreaterThan(barBottom);
-    expect(Math.min(...slit.map((p) => p.y))).toBeLessThan(barBottom);
-    expect(depthIn(slit, template!.cutOutline)).toBeGreaterThan(2.5 * 0.85);
-    expect(warnings).toEqual([]);
-  });
+      expect(template!.slits.length).toBeGreaterThan(3);
+      for (const [i, slit] of template!.slits.entries()) {
+        expect(crossesAny(slit, template!.designPaths), `slit ${i}`).toBe(false);
+        for (const [j, other] of template!.slits.slice(i + 1).entries()) expect(apart(slit, other), `slits ${i}, ${i + j + 1}`).toBeGreaterThan(0.85);
+      }
+    },
+    SLOW,
+  );
 
-  describe("when the design leaves no blank paper deep enough", () => {
-    // A solid disc reaching 45° from the front: the only blank paper is the 3/4 in margin around it.
-    const disc = designOf(Array.from({ length: 64 }, (_, k) => at(45 * deg, (k * 2 * Math.PI) / 64)));
+  it(
+    "slits with blank paper ahead run straight in and back out, not staircased along the mesh",
+    () => {
+      const { template } = buildTemplate({ measurements: sphere, ...ring(30, [90, 135, 180, 225, 270, 315, 0, 45]), slits: { count: 8, depth: 2 } });
+
+      for (const [i, slit] of template!.slits.entries()) {
+        const tip = slit.reduce((deepest, p, k) => (distanceToOutline(p, template!.cutOutline) > distanceToOutline(slit[deepest], template!.cutOutline) ? k : deepest), 0);
+        // Away from the tip, where the slit turns back, no bend sharper than 20°.
+        for (let k = 1; k + 1 < slit.length; k++) {
+          if (k !== tip) expect(turn(slit[k - 1], slit[k], slit[k + 1]), `slit ${i} at ${k}`).toBeLessThan(20);
+        }
+      }
+    },
+    SLOW,
+  );
+
+  describe("when the design leaves no blank paper deeper than the margin", () => {
+    // A solid disc reaching 45° from the front: the only blank paper is the 3/4 in margin around it, and slits
+    // that short barely help.
+    const disc = designOf(Array.from({ length: 64 }, (_, k) => onSphere(45 * deg, (k * 2 * Math.PI) / 64)));
     const placement = { width: disc.bbox.maxX - disc.bbox.minX, verticalOffset: 0, rotation: 0 };
 
-    it("slits are cut short at the design and a warning is raised when that's well short of their depth", () => {
+    it("no slits are placed, and a set count says none fit", () => {
       const { template, warnings } = buildTemplate({ measurements: sphere, design: disc, placement, slits: { count: 8, depth: 2 } });
 
-      const shortened = warnings.filter((w) => w.kind === "slit-shortened");
-      expect(shortened).toHaveLength(1);
-      expect(shortened[0]).toMatchObject({ kind: "slit-shortened", count: 8 });
-      expect(shortened[0].message).not.toBe("");
-      expect(template!.slits).toHaveLength(8);
-      for (const slit of template!.slits) {
-        expect(crossesAny(slit, template!.designPaths)).toBe(false);
-        expect(depthIn(slit, template!.cutOutline)).toBeLessThan(0.75);
-      }
+      expect(template!.slits).toEqual([]);
+      expect(warnings).toMatchObject([{ kind: "slits-dont-fit", count: 0 }]);
+      expect(warnings[0].message).not.toBe("");
     });
 
-    it("the default slits fit in the margin without a warning", () => {
+    it("Auto says the paper still stretches more than 3 %", () => {
       const { template, warnings } = buildTemplate({ measurements: sphere, design: disc, placement });
 
-      expect(template!.slits).toHaveLength(8);
-      for (const slit of template!.slits) expect(crossesAny(slit, template!.designPaths)).toBe(false);
-      expect(warnings).toEqual([]);
+      expect(template!.slits).toEqual([]);
+      expect(paperStrain(template!).p95).toBeGreaterThan(0.03);
+      expect(warnings).toMatchObject([{ kind: "slit-limit" }]);
+      expect(warnings[0].message).not.toBe("");
     });
   });
 
-  it("a design spanning 90° on a sphere stays within the stretch limit with the default slits, and less than without", () => {
-    const { template: slit } = buildTemplate({ measurements: sphere, ...ring(45, between) });
-    const { template: plain } = buildTemplate({ measurements: sphere, ...ring(45, between), slits: { count: 0, depth: 0 } });
+  it(
+    "a design spanning 90° on a sphere stays within the stretch limits with the default slits, far less than without",
+    () => {
+      const input = { measurements: sphere, ...ring(45, between) };
+      const { template: slit } = buildTemplate(input);
+      const { template: plain } = buildTemplate({ ...input, slits: { count: 0, depth: 0 } });
 
-    // Limits: 3 % on average, 20 % at worst (measured: about 2.8 % and 14 %; without slits 4 % and 15 %).
-    // The worst spots are the slit tips, where the opening paper pulls hardest.
-    expect(slit!.stretch.rms).toBeLessThan(0.03);
-    expect(slit!.stretch.max).toBeLessThan(0.2);
-    expect(slit!.stretch.rms).toBeLessThan(0.8 * plain!.stretch.rms);
-  });
+      // Limits: 2 % on average and 3.5 % over all but 5 % of the paper (measured: about 1.7 % and 3.0 %, from 3.6 %
+      // and 5.5 % without slits). Auto stops a little over its 3 % target, where more slits stop paying.
+      const withSlits = paperStrain(slit!), without = paperStrain(plain!);
+      expect(withSlits.rms).toBeLessThan(0.02);
+      expect(withSlits.p95).toBeLessThan(0.035);
+      expect(withSlits.rms).toBeLessThan(0.6 * without.rms);
+    },
+    SLOW,
+  );
 
-  it("fewer, shallower slits can be chosen; zero means none", () => {
-    const { template: few } = buildTemplate({ measurements: sphere, ...ring(30, between), slits: { count: 3, depth: 0.5 } });
-    const { template: none } = buildTemplate({ measurements: sphere, ...ring(30, between), slits: { count: 0, depth: 1 } });
+  it.each(evenSpacingCases.flatMap(([name, input]) => [4, 6, 8].map((count) => [name, count, input] as const)))(
+    "with %s, %i slits placed where they help most stretch the paper less than evenly spaced ones did",
+    (name, count, input) => {
+      const { template } = buildTemplate({ ...input, slits: { count, depth: 2 } });
+      const recorded = (even as Record<string, Record<string, number>>)[name][count];
 
-    expect(few!.slits).toHaveLength(3);
-    for (const slit of few!.slits) expect(depthIn(slit, few!.cutOutline)).toBeCloseTo(0.5, 0);
-    expect(none!.slits).toEqual([]);
-  });
+      expect(template!.slits).toHaveLength(count);
+      expect(paperStrain(template!).rms).toBeLessThan(recorded);
+    },
+    SLOW,
+  );
 });

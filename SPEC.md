@@ -35,9 +35,9 @@ A browser-based tool. I load my design (an SVG, or a scan/photo of line art that
 21. As a pumpkin carver, I want a warning when parts of my design pass about 60° from the front, so that I know they'll be distorted on the skin, without being blocked from doing it anyway.
 22. As a pumpkin carver, I want my design to look exactly like the original when the carved pumpkin is viewed from the front, so that my carving matches what I drew.
 23. As a pumpkin carver, I want the flat template to lie on the pumpkin with as little stretch as possible, so that taped-down lines land where they should.
-24. As a pumpkin carver, I want slits placed automatically, so that the paper bends around the curve without wrinkling.
-25. As a pumpkin carver, I want to choose how many slits there are, so that I can trade fewer pieces against better fit.
-26. As a pumpkin carver, I want to choose how deep the slits go, so that I can trade template stiffness against fit near the edges.
+24. As a pumpkin carver, I want slits placed automatically where the paper stretches most, and only as many as it needs, so that the paper bends around the curve without wrinkling and without cutting it up more than necessary.
+25. As a pumpkin carver, I want to see how many slits Auto chose and override it with my own number, so that I can trade fewer pieces against better fit.
+26. As a pumpkin carver, I want to choose the maximum slit depth, so that I can trade template stiffness against fit.
 27. As a pumpkin carver, I want slits that steer around my design's lines, so that no slit cuts through a line I need to trace.
 28. As a pumpkin carver, I want the cut-out edge to follow my design's outline plus a margin, so that I don't waste paper or tape a huge sheet onto the pumpkin.
 29. As a pumpkin carver, I want the cut-out edge drawn as a solid line and the slits as dashed lines, so that I know exactly what to cut.
@@ -74,14 +74,14 @@ Inputs:
 - **Design:** closed paths (polylines, or curves broken into segments by the input layer) in arbitrary design units, plus their bounding box.
 - **Pumpkin measurements:** the height, one or more tape rings (each a circumference at a fraction of the height), and units.
 - **Placement:** the design's width as seen from the front (physical units), vertical offset, and rotation.
-- **Slit options:** count and depth.
+- **Slit options:** count (a number, or Auto) and max depth.
 
 Outputs:
 - The flattened design paths in physical paper units.
 - The cut-out outline (the design's outline grown by a margin of about ¾ in).
 - The slit paths.
 - Stretch values per area, available both on the 3D surface (for the preview) and on the flat template.
-- Warnings: parts past about 60° from the front, impossible measurements, and slits that couldn't avoid design lines.
+- Warnings: parts past about 60° from the front, impossible measurements, fewer slits fitting than the set count, and Auto stopping with the paper still stretched more than its target.
 - The derived surface parameters (the fitted shape's size and side profile), for the preview and the PDF info block.
 
 ### Surface model
@@ -103,16 +103,23 @@ Outputs:
 ### Flattening
 
 - Build a triangle mesh over the covered part of the surface (the projected cut-out outline plus margin). Mesh it finely enough that the projected design curves are well approximated.
-- Slits are cuts in the mesh, running from the outline toward the design center.
+- Slits are cuts in the mesh, running in from the cut-out edge.
 - Flatten with ARAP (as-rigid-as-possible) mesh flattening: it finds the flat layout that keeps each triangle closest to its true shape, which is what physically matters when paper is taped down.
 - Map design paths into the flat layout through their position inside each triangle (barycentric coordinates).
 - Stretch per triangle is computed from how much the flattened triangle differs from the original (its singular values), and is exposed in the output.
 
 ### Slit placement
 
-- N slits are spaced evenly in angle around the design center. Each starts at the cut-out edge and runs inward to a set depth.
-- Each slit is moved sideways or bent so it runs through blank paper and doesn't cross any design path. If it can't, the slit is shortened and a warning is raised.
-- Dragging slits by hand is deferred.
+Slits go where they relieve the most stretch. The rules come from measurements in `docs/research/slit-placement.md`.
+
+- **Objective:** the paper's stretch (the per-triangle measure above, over the paper inside the cut-out edge), as an area-weighted root mean square.
+- **Greedy trial placement:** slits go in one at a time. For each, 8 candidates spread evenly around the cut-out edge are tried (each round's set sits at other places along the edge). Each candidate runs inward along the shortest path through blank paper, steering around design lines. Each is cut and scored by a short ARAP solve (5 iterations, warm-started from the current layout); the best is kept, and the mesh is solved in full before the next slit.
+- **Depth:** each slit runs as deep as the blank paper allows, up to the max depth (2 in by default). Its path through the paper is at most 1.25 × the max depth, so it can't snake along narrow gaps. A slit that can't get about ¾ in deep isn't placed: shorter ones barely help.
+- **Spacing:** a slit stays at least about 1 in from every other slit, along the edge and along its length, so slits don't crowd one gap and leave thin strips of paper.
+- **Count:** Auto by default. It adds slits until 95 % of the paper stretches 3 % or less, or the next slit would lower the RMS stretch by less than 3 % (relative), or there are 24. If it stops because 24 are placed or no more fit while the paper still stretches more than 3 %, a warning says so. A count the carver types replaces Auto; if fewer slits fit, a warning says how many did.
+- **Finishing:** on paper, each slit's tip is carried a little further straight ahead (the mesh only cuts along its edges), and each side is pulled taut so the printed slit cuts cleanly.
+- **Speed:** placing 10 slits takes a few seconds. The build runs in a worker, reports progress ("Placing slits… 4") and stops between slits when a newer edit arrives. The finished set appears at once.
+- Moving, removing or dragging individual slits is out of scope.
 
 ### PDF output
 
@@ -128,7 +135,7 @@ Outputs:
 
 ### Settings storage
 
-- The last-used measurements, units, placement and slit options are saved in localStorage. Images are not saved.
+- The last-used measurements, units, placement and slit options (count or Auto, and max depth) are saved in localStorage. Images are not saved.
 
 ## Testing Decisions
 
@@ -139,8 +146,8 @@ Outputs:
 - Planned tests:
   - **Fitting the shape to measurements:** one ring at mid-height gives the ellipsoid with semi-axes C/2π, C/2π, H/2. A sphere (height = circumference ÷ π, one ring at mid-height) gives equal semi-axes. Several rings are each passed through at their heights, the largest ring is the profile's maximum, and adding a ring read off the fitted shape doesn't change it. Impossible measurements produce a warning instead of bad geometry.
   - **Front projection on a sphere:** a design point at horizontal offset x lands on the surface at the angle arcsin(x/R), and is the expected distance along the surface from the front.
-  - **Flattening on a sphere:** distances along lines out from the design center on the template match the true distances along the surface within tolerance. Stretch stays under a set limit for a design spanning 90° with the default slits.
-  - **Slit avoidance:** for designs with paths placed in known spots, no slit crosses a design path. When avoidance is impossible, a warning is raised.
+  - **Flattening on a sphere:** distances along lines out from the design center on the template match the true distances along the surface within tolerance. For a design spanning 90°, the default (Auto) slits keep the paper's stretch under set limits (2 % RMS, 3.5 % at the 95th percentile) and well under the stretch without slits.
+  - **Slit placement:** with Auto, a design on a sphere gets its 95th-percentile stretch to 3 % or less. A design placed high on a pumpkin that tapers toward the stem gets its slits toward the stem, where the paper stretches most. A count the carver sets is respected. Slits never cross a design path and stay about 1 in apart. Trial placement stretches the paper less than evenly spaced slits did on a recorded case. When no slit fits, a warning is raised.
   - **Limit warnings:** designs pushing past about 60° from the front raise the warning. Designs inside that limit don't.
   - **Scale:** a design with a known front-view width, on a large pumpkin (close to flat at small sizes), comes out at that physical size on the flat template.
 - **Not tested automatically:** Potrace tracing (a library call with settings passed through), PDF layout and page splitting, the Three.js preview, and the UI. These are covered by a manual real-world test: print a grid template for a basketball (about 29.5 in around), tape it on, and check from the front that the grid looks square and even.
@@ -151,7 +158,7 @@ Outputs:
 - Pumpkin shapes that aren't round seen from above: oval cross-sections (depth) and ribs (the surface interface allows them later).
 - Perspective projection from a set viewing distance.
 - Correcting photos taken at an angle.
-- Dragging slits by hand.
+- Moving, removing or dragging individual slits.
 - Saving and loading whole projects as files, image included.
 - Fitting the pumpkin's shape from a photo.
 - Deployment to static hosting (comes after v1 works locally).

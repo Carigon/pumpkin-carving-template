@@ -1,4 +1,4 @@
-import type { TemplateInput } from "../core";
+import type { BuildProgress, TemplateInput } from "../core";
 import type { BuildOutcome, BuildRequest, BuildResponse } from "./protocol";
 
 export type { BuildOutcome };
@@ -6,7 +6,7 @@ export type { BuildOutcome };
 export interface BackgroundBuild {
   /**
    * Build the template for `input` once typing pauses. Replaces any request not yet started; a build already
-   * running finishes, but its result is dropped.
+   * running stops at its next slit and its result is dropped.
    */
   request(input: TemplateInput): void;
   /** Drop any pending or running build: no result arrives until the next `request`. */
@@ -17,36 +17,32 @@ export interface BackgroundBuild {
 const DEBOUNCE_MS = 250;
 
 /**
- * Builds the template in a Web Worker. At most one build runs at a time, and only the result for the latest
- * request reaches `onOutcome`. If the worker itself breaks (fails to load, or a reply can't be read), the latest
- * request fails and the next one starts a fresh worker.
+ * Builds the template in a Web Worker. Only the progress and result for the latest request reach `onProgress` and
+ * `onOutcome`; the worker drops older builds between slits. If the worker itself breaks (fails to load, or a reply
+ * can't be read), the latest request fails and the next one starts a fresh worker.
  */
-export function startBackgroundBuild(onOutcome: (outcome: BuildOutcome) => void): BackgroundBuild {
+export function startBackgroundBuild(onOutcome: (outcome: BuildOutcome) => void, onProgress: (progress: BuildProgress) => void): BackgroundBuild {
   let worker = spawn();
   let latest = 0;
   /** Whether the latest request still waits for its outcome (false after `cancel` or once delivered). */
   let waiting = false;
-  let due: BuildRequest | null = null;
-  /** Whether the worker is on a build. */
-  let running = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function spawn(): Worker {
     const w = new Worker(new URL("./templateWorker.ts", import.meta.url), { type: "module" });
     w.addEventListener("message", (e: MessageEvent<BuildResponse>) => {
-      running = false;
-      const { id, ...outcome } = e.data;
-      if (id === latest && waiting) {
-        waiting = false;
-        onOutcome(outcome);
+      if (e.data.id !== latest || !waiting) return;
+      if (e.data.kind === "progress") {
+        onProgress({ slits: e.data.slits });
+        return;
       }
-      send();
+      const { kind: _, id: __, ...outcome } = e.data;
+      waiting = false;
+      onOutcome(outcome);
     });
     const broken = (message: string) => {
       w.terminate();
       worker = spawn();
-      running = false;
-      due = null;
       if (waiting && timer === undefined) {
         waiting = false;
         onOutcome({ ok: false, message });
@@ -60,23 +56,18 @@ export function startBackgroundBuild(onOutcome: (outcome: BuildOutcome) => void)
     return w;
   }
 
-  function send(): void {
-    if (running || !due) return;
-    worker.postMessage(due);
-    running = true;
-    due = null;
-  }
+  const send = (request: BuildRequest) => worker.postMessage(request);
 
   return {
     request(input) {
       const id = ++latest;
       waiting = true;
       clearTimeout(timer);
-      due = null;
+      // Stop the running build now; the new one starts once typing pauses.
+      send({ id, input: null });
       timer = setTimeout(() => {
         timer = undefined;
-        due = { id, input };
-        send();
+        send({ id, input });
       }, DEBOUNCE_MS);
     },
     cancel() {
@@ -84,7 +75,7 @@ export function startBackgroundBuild(onOutcome: (outcome: BuildOutcome) => void)
       waiting = false;
       clearTimeout(timer);
       timer = undefined;
-      due = null;
+      send({ id: latest, input: null });
     },
   };
 }

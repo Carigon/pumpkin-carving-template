@@ -105,7 +105,12 @@ describe("Paper view template", () => {
   });
 
   it("draws the design lines and the slits, running in from the cut-out edge, in the template's frame", () => {
-    const input = source({ slits: { count: 6, depth: 0.8 } });
+    // Two blocks with a gap between them, so slits can run in.
+    const blocks: Design = {
+      paths: [rectangle.paths[0].map(({ x, y }) => ({ x: x / 2, y })), rectangle.paths[0].map(({ x, y }) => ({ x: x / 2 + 4, y }))],
+      bbox: { minX: 0, minY: 0, maxX: 6, maxY: 3 },
+    };
+    const input = source({ design: blocks, width: 6, slits: { count: 2, depth: 2 } });
     const view = paperView(input);
 
     expect(view.design).toEqual(input.template.designPaths);

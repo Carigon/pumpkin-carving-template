@@ -13,7 +13,8 @@ describe("step warning badges", () => {
     { kind: "impossible-measurement", pumpkin: "measure", grid: "measure" },
     { kind: "past-front-limit", pumpkin: "design", grid: "grid" },
     { kind: "outside-silhouette", pumpkin: "design", grid: "grid" },
-    { kind: "slit-shortened", pumpkin: "template", grid: "template" },
+    { kind: "slits-dont-fit", pumpkin: "template", grid: "template" },
+    { kind: "slit-limit", pumpkin: "template", grid: "template" },
   ] as const)("$kind badges $pumpkin in pumpkin mode and $grid in test-grid mode", ({ kind, pumpkin, grid }) => {
     expect(badged("pumpkin", [{ kind }])).toEqual([pumpkin]);
     expect(badged("test-grid", [{ kind }])).toEqual([grid]);
@@ -24,7 +25,7 @@ describe("step warning badges", () => {
   });
 
   it("badges each step with a warning once, however many warnings it has", () => {
-    const list = badged("pumpkin", [{ kind: "past-front-limit" }, { kind: "outside-silhouette" }, { kind: "slit-shortened" }]);
+    const list = badged("pumpkin", [{ kind: "past-front-limit" }, { kind: "outside-silhouette" }, { kind: "slit-limit" }]);
     expect(list).toEqual(["design", "template"]);
   });
 });

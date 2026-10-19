@@ -1,4 +1,5 @@
 import { flattenDesign } from "./flatten/flattenDesign";
+import { MAX_SLITS } from "./flatten/placeSlits";
 import { stretchMap } from "./flatten/stretch";
 import { designWarnings } from "./projection/designWarnings";
 import { placeDesign } from "./projection/placement";
@@ -7,6 +8,7 @@ import { frontProjection } from "./projection/projection";
 import { fitSurface, type SurfaceFit } from "./surface/fitSurface";
 import { fromInches } from "./units";
 import type {
+  BuildProgress,
   FlatTemplate,
   PumpkinMeasurements,
   SlitOptions,
@@ -20,9 +22,12 @@ import type {
 const DEFAULT_CUT_MARGIN_IN = 0.75;
 /** Least blank paper between a slit and the design. */
 const SLIT_CLEARANCE_IN = 0.1;
-const DEFAULT_SLIT_COUNT = 8;
+/** Least distance between two slits, so they don't crowd one gap and leave thin strips of paper. */
+const SLIT_SPACING_IN = 1;
+/** Shorter slits barely relieve any stretch, so they aren't placed. */
+const MIN_SLIT_DEPTH_IN = 0.75;
 /** Deeper than the margin, so slits reach in between parts of the design where there is room. */
-const DEFAULT_SLIT_DEPTH_IN = 1;
+const DEFAULT_SLIT_DEPTH_IN = 2;
 
 /** The paper margin between the design and the cut-out edge a template gets unless the carver changes it. */
 export function defaultMargin(units: Units): number {
@@ -31,7 +36,7 @@ export function defaultMargin(units: Units): number {
 
 /** The slits a template gets unless the carver changes them. */
 export function defaultSlits(units: Units): SlitOptions {
-  return { count: DEFAULT_SLIT_COUNT, depth: fromInches(DEFAULT_SLIT_DEPTH_IN, units) };
+  return { count: "auto", depth: fromInches(DEFAULT_SLIT_DEPTH_IN, units) };
 }
 
 /**
@@ -50,6 +55,11 @@ export interface TemplateBuilder {
   /** The same result as `buildTemplate`. */
   build(input: TemplateInput): TemplateResult;
   /**
+   * The same build in steps: it yields progress after each slit is placed and returns the result. Placing slits
+   * can take seconds, so a caller can report progress, or drop the build between slits when it's no longer wanted.
+   */
+  steps(input: TemplateInput): Generator<BuildProgress, TemplateResult>;
+  /**
    * The quick part alone: the surface and the design projected onto it, without flattening. `template` is
    * null, and slit warnings (which need the flat template) are left out.
    */
@@ -63,14 +73,24 @@ export function createTemplateBuilder(): TemplateBuilder {
     if (fitted?.key !== key) fitted = { key, fit: fitSurface(m) };
     return fitted.fit;
   };
+  const steps = (input: TemplateInput, flatten = true) => buildFromFit(input, fitFor(input.measurements), flatten);
   return {
-    build: (input) => buildFromFit(input, fitFor(input.measurements), true),
-    preview: (input) => buildFromFit(input, fitFor(input.measurements), false),
+    build: (input) => finish(steps(input)),
+    steps: (input) => steps(input),
+    preview: (input) => finish(steps(input, false)),
   };
 }
 
+/** Run a build's steps to the end. */
+function finish(steps: Generator<BuildProgress, TemplateResult>): TemplateResult {
+  for (;;) {
+    const next = steps.next();
+    if (next.done) return next.value;
+  }
+}
+
 /** The template for `input` on an already fitted surface; without `flatten`, only the quick projection. */
-function buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean): TemplateResult {
+function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean): Generator<BuildProgress, TemplateResult> {
   const { units } = input.measurements;
   if (!fit.ok) return { surface: null, design: null, template: null, warnings: [...fit.warnings] };
   const { surface, parameters: surfaceParameters } = fit;
@@ -88,18 +108,24 @@ function buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean): 
 
   const margin = input.margin !== undefined && input.margin > 0 ? input.margin : defaultMargin(units);
   const slitOptions = input.slits ?? defaultSlits(units);
-  const flat = flattenDesign({
+  const { count } = slitOptions;
+  const steps = flattenDesign({
     surface,
     projection,
     center: { x: 0, y: placement.verticalOffset },
     paths: frontViewPaths,
     margin,
     slits: {
-      count: Math.max(0, Math.round(slitOptions.count)),
+      count: count === "auto" ? count : Math.max(0, Math.round(count)),
       depth: slitOptions.depth,
       clearance: fromInches(SLIT_CLEARANCE_IN, units),
+      spacing: fromInches(SLIT_SPACING_IN, units),
+      minDepth: fromInches(MIN_SLIT_DEPTH_IN, units),
     },
   });
+  let next = steps.next();
+  for (; !next.done; next = steps.next()) yield { slits: next.value };
+  const flat = next.value;
 
   let template: FlatTemplate | null = null;
   if (flat && flat.paths.length > 0) {
@@ -112,15 +138,22 @@ function buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean): 
     };
   }
 
-  const blocked = flat?.blockedSlits ?? 0;
-  if (template && blocked > 0) {
+  if (template && count !== "auto" && template.slits.length < count) {
+    const fit = template.slits.length;
     warnings.push({
-      kind: "slit-shortened",
-      count: blocked,
+      kind: "slits-dont-fit",
+      count: fit,
       message:
-        blocked === 1
-          ? "One slit ran into the design well before its set depth, so it was cut short. Try fewer or shallower slits."
-          : `${blocked} slits ran into the design well before their set depth, so they were cut short. Try fewer or shallower slits.`,
+        fit === 0
+          ? `None of the ${count} slits fit: the design leaves no blank paper deep enough for one.`
+          : `Only ${fit} of the ${count} slits fit: the design leaves no more blank paper deep enough for one, clear of the others.`,
+    });
+  }
+  if (template && flat?.overTarget) {
+    const n = template.slits.length;
+    warnings.push({
+      kind: "slit-limit",
+      message: `${n === 0 ? "No slit fits, so parts" : n === MAX_SLITS ? `Even ${n} slits leave parts` : `Only ${n === 1 ? "one slit fits" : `${n} slits fit`}, leaving parts`} of the paper stretched more than 3 %. Expect some wrinkles, or try a smaller margin or design.`,
     });
   }
   return { surface: surfaceParameters, design: projected, template, warnings };

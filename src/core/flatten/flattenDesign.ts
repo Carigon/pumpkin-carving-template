@@ -5,11 +5,11 @@ import type { MeshHit, MeshLocation, MeshSurface } from "../mesh/meshSurface";
 import type { Projection } from "../projection/projection";
 import type { SurfaceSample, Vec3 } from "../surface/surface";
 import { cutRegion } from "../template/cutOutline";
-import { finishSlits, planSlits, type SlitPlanOptions } from "../template/slits";
+import { finishSlits } from "../template/slits";
 import type { Point2 } from "../types";
-import { arapFlatten } from "./arap";
-import { cutSlits, trimMesh, type TriangleMesh } from "./mesh";
+import { trimMesh, type TriangleMesh } from "./mesh";
 import { growPatch, longestEdge, refinePatch, weldMesh } from "./patch";
+import { placeSlits, type SlitPlacementOptions } from "./placeSlits";
 
 /** Squares' worth of fine triangles over the paper (two triangles each): a few thousand triangles. */
 const MESH_CELLS = 1500;
@@ -26,7 +26,7 @@ export interface FlattenOptions {
   paths: Point2[][];
   /** Paper margin between the design and the cut-out edge. */
   margin: number;
-  slits: SlitPlanOptions;
+  slits: SlitPlacementOptions;
 }
 
 export interface FlatDesign {
@@ -42,8 +42,8 @@ export interface FlatDesign {
    * and back out along the other side (the sides part where the paper opens up).
    */
   slits: Point2[][];
-  /** How many slits a design line kept well short of their depth (see `PaperSlits.blocked`). */
-  blockedSlits: number;
+  /** Auto placed as many slits as it may and the paper still stretches more than its target. */
+  overTarget: boolean;
 }
 
 /**
@@ -52,9 +52,11 @@ export interface FlatDesign {
  * design and the cut-out edge closely enough, cuts the slits into it, flattens it with ARAP, and carries the
  * design paths over through their barycentric position in each triangle.
  *
- * Returns null when the design center misses the surface or no design point lands on it.
+ * Placing the slits takes a while: the steps yield the number placed so far after each, so a caller can report
+ * progress or stop between slits. Returns null when the design center misses the surface or no design point lands
+ * on it.
  */
-export function flattenDesign({ surface, projection, center, paths, margin, slits: slitOptions }: FlattenOptions): FlatDesign | null {
+export function* flattenDesign({ surface, projection, center, paths, margin, slits: slitOptions }: FlattenOptions): Generator<number, FlatDesign | null> {
   const centerHit = projection.project(center);
   if (!centerHit) return null;
   const overhang = MESH_OVERHANG * margin;
@@ -103,10 +105,8 @@ export function flattenDesign({ surface, projection, center, paths, margin, slit
     return { triangle: newIndex[fine.triangle], weights: fine.weights };
   };
 
-  const slitPlan = planSlits(uncut, layoutOf(uncut), region, slitOptions);
-  const { mesh, otherSide } = cutSlits(uncut, slitPlan.chains);
+  const { chains, mesh, otherSide, flat: raw, overTarget } = yield* placeSlits(uncut, layoutOf(uncut), region, slitOptions);
   const initial = layoutOf(mesh);
-  const raw = arapFlatten(mesh, { initial });
 
   // Align: design center to the origin, and the direction toward the stem there (+y in the layout, carried onto the
   // paper through the triangle under the center) to +y.
@@ -133,15 +133,14 @@ export function flattenDesign({ surface, projection, center, paths, margin, slit
   if (designPaths.length === 0) return null;
   // The cut-out edge again, now measured on the paper itself.
   const outline = cutRegion(withCenter(designPaths), margin, { bridging: region.bridging }).outline;
-  const { slits, blocked } = finishSlits(
-    slitPlan.chains.map((chain, s) => [...chain.map((v) => flat[v]), ...otherSide[s].slice(0, -1).reverse().map((v) => flat[v])]),
-    slitPlan.chains.map((chain) => chain.length - 1),
-    slitPlan,
+  const slits = finishSlits(
+    chains.map((chain, s) => [...chain.map((v) => flat[v]), ...otherSide[s].slice(0, -1).reverse().map((v) => flat[v])]),
+    chains.map((chain) => chain.length - 1),
     outline,
     designPaths,
     slitOptions,
   );
-  return { paths: designPaths, outline, slits, blockedSlits: blocked, mesh, flat };
+  return { paths: designPaths, outline, slits, overTarget, mesh, flat };
 }
 
 /** The design paths plus the design center, which the paper must cover for the center cross. */

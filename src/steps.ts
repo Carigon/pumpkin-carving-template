@@ -76,5 +76,6 @@ const WARNING_STEP: Record<TemplateWarning["kind"], StepId> = {
   "impossible-measurement": "measure",
   "past-front-limit": "design",
   "outside-silhouette": "design",
-  "slit-shortened": "template",
+  "slits-dont-fit": "template",
+  "slit-limit": "template",
 };

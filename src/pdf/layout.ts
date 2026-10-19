@@ -82,7 +82,7 @@ export interface TemplatePdfInput {
   surface: SurfaceParameters;
   measurements: PumpkinMeasurements;
   placement: Placement;
-  /** The slit settings the template was made with. */
+  /** The slit settings the template was made with (its slits say how many there are). */
   slits: SlitOptions;
   /**
    * The paper margin the template was made with (in the measurement units), and whether to print the solid
@@ -322,12 +322,13 @@ function drawTemplate({ template, filled, cut }: TemplatePdfInput, scale: number
  * as tall as the square, or taller when the info runs longer (many rings); the square then sits at its top.
  */
 function drawFurniture(
-  { measurements, surface, placement, slits, cut, filled, calibrationBall }: TemplatePdfInput,
+  { template, measurements, surface, placement, slits, cut, filled, calibrationBall }: TemplatePdfInput,
   x: number,
   y: number,
   pageW: number,
 ): { marks: Mark[]; height: number } {
   const infoX = x + CHECK_SQUARE + GAP;
+  const slitCount = template.slits.length;
   const u = measurements.units;
   const len = (v: number) => `${fmt(v)} ${u}`;
   const { sideToSide, frontToBack, vertical } = surface.semiAxes;
@@ -339,11 +340,11 @@ function drawFurniture(
     ["  (width x depth x height)", 8.5],
     [`Design width seen from the front: ${len(placement.width)}`, 8.5],
     [`Moved up: ${len(placement.verticalOffset)}   Rotation: ${fmt(placement.rotation)}°`, 8.5],
-    [`Slits: ${slits.count > 0 ? `${slits.count}, ${len(slits.depth)} deep` : "none"}`, 8.5],
+    [`Slits: ${slitCount > 0 ? `${slitCount}${slits.count === "auto" ? " (auto)" : ""}, up to ${len(slits.depth)} deep` : "none"}`, 8.5],
     ...(cut ? [[`Cut-out margin: ${len(cut.margin)}, cut line ${cut.line ? "printed" : "not printed"}`, 8.5] as [string, number]] : []),
     [`Carve areas: ${filled ? "filled" : "outlines"}`, 8.5],
     ["", 8.5],
-    ...cutInstructions(slits.count > 0, cut?.line !== false, cut ? len(cut.margin) : undefined).map((t): [string, number] => [t, 8.5]),
+    ...cutInstructions(slitCount > 0, cut?.line !== false, cut ? len(cut.margin) : undefined).map((t): [string, number] => [t, 8.5]),
     ["Line up the center cross with the design's center", 8.5],
     ["on the pumpkin, arrow toward the stem.", 8.5],
     ["", 8.5],

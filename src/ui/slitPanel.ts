@@ -1,4 +1,5 @@
 import { convertLength, defaultMargin, defaultSlits, type SlitOptions, type TemplateWarning, type Units } from "../core";
+import type { Settings } from "../settings";
 import { lengthFields } from "./lengthFields";
 import { renderWarnings } from "./warnings";
 
@@ -17,13 +18,18 @@ export interface SlitPanel {
   cut(): CutOptions;
   /** Convert the length fields when the measurement units change. */
   setUnits(units: Units): void;
-  /** Show slit warnings (slits shortened to stay clear of the design). */
+  /** Show slit warnings (fewer slits fit than set, or the paper still stretches too much). */
   showWarnings(warnings: TemplateWarning[]): void;
+  /** Show how many slits Auto placed in the empty count field (null: not known yet). */
+  showAutoCount(count: number | null): void;
   /** Put back saved slit and cut-out options, in the current units. Doesn't call `onChange`. */
-  restore(saved: Partial<SlitOptions>, cut?: Partial<CutOptions>): void;
+  restore(saved: Partial<Settings["slits"]>, cut?: Partial<CutOptions>): void;
 }
 
-/** The cut-out edge (margin, printed or not) and slit count and depth. Calls `onChange` whenever one changes. */
+/**
+ * The cut-out edge (margin, printed or not) and slit count and max depth. The count field is empty for Auto, which
+ * shows how many slits it placed; a typed number overrides it. Calls `onChange` whenever one changes.
+ */
 export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPanel {
   const defaults = defaultSlits("in");
   root.innerHTML = `
@@ -49,18 +55,22 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
       <div class="field">
         <label for="s-count">Number of slits</label>
         <div class="input-row">
-          <input id="s-count" type="number" inputmode="numeric" min="0" max="24" step="1" value="${defaults.count}" />
+          <input id="s-count" type="number" inputmode="numeric" min="0" max="24" step="1" placeholder="Auto"
+            aria-describedby="s-count-hint" />
         </div>
+        <div id="s-count-hint" class="hint">Leave empty for Auto, or type a number.</div>
       </div>
       <div class="field">
-        <label for="s-depth">Slit depth (in from the cut-out edge)</label>
+        <label for="s-depth">Max slit depth</label>
         <div class="input-row">
           <input id="s-depth" type="number" inputmode="decimal" min="0" step="any" value="${defaults.depth}" />
           <span class="unit-label">in</span>
         </div>
         <div class="hint">Slits let the paper bend around the pumpkin.
-          <details class="more"><summary>more</summary>They're printed dashed, run in from the cut-out edge and
-            steer around the design. More or deeper slits reduce the stretch.</details>
+          <details class="more"><summary>more</summary>They're printed dashed and run in from the cut-out edge,
+            steering around the design, as deep as the blank paper allows up to this depth. Each goes where it
+            relieves the most stretch, spaced well apart from the others. Auto adds them until the paper stretches 3 % or
+            less nearly everywhere, or more stop helping. Deeper slits reduce the stretch most.</details>
         </div>
       </div>
       <div id="s-warnings" class="warnings" role="alert"></div>
@@ -101,18 +111,19 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
       const fallback = defaultSlits(lengths.units());
       const n = Number(count.value), d = lengths.value(depth);
       return {
-        count: count.value.trim() !== "" && Number.isFinite(n) ? Math.max(0, Math.round(n)) : fallback.count,
+        count: count.value.trim() !== "" && Number.isFinite(n) ? Math.max(0, Math.round(n)) : "auto",
         depth: Number.isFinite(d) ? Math.max(0, d) : fallback.depth,
       };
     },
     cut: () => ({ margin: readMargin(), line: line.checked }),
     restore(saved, cut = {}) {
-      if (saved.count !== undefined) count.value = String(saved.count);
-      if (saved.depth !== undefined) lengths.set(depth, saved.depth);
+      if (saved.count !== undefined) count.value = saved.count === "auto" ? "" : String(saved.count);
+      if (saved.maxDepth !== undefined) lengths.set(depth, saved.maxDepth);
       if (cut.margin !== undefined) lengths.set(margin, cut.margin);
       if (cut.line !== undefined) line.checked = cut.line;
     },
     setUnits: (next: Units) => lengths.setUnits(next),
     showWarnings: (warnings: TemplateWarning[]) => renderWarnings(warningsEl, warnings, "slits"),
+    showAutoCount: (n) => (count.placeholder = n === null ? "Auto" : `Auto (${n})`),
   };
 }
