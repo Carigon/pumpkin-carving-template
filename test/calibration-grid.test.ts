@@ -64,6 +64,7 @@ describe("calibration grid on a basketball", () => {
       surface: result.surface!,
       measurements,
       placement,
+      slits: { count: 0, depth: 0 },
       calibrationBall: 29.5,
     });
     const text = layout.pages.flatMap((p) => p.marks).flatMap((m) => (m.kind === "text" ? [m.text] : []));

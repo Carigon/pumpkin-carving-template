@@ -11,7 +11,7 @@ const result = buildTemplate({
   design: { paths: [[{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 2 }, { x: 0, y: 2 }]], bbox: { minX: 0, minY: 0, maxX: 4, maxY: 2 } },
   placement,
 });
-const input = { template: result.template!, surface: result.surface!, measurements, placement };
+const input = { template: result.template!, surface: result.surface!, measurements, placement, slits: { count: 8, depth: 1 } };
 
 function bbox(mark: Mark) {
   const pts = mark.kind === "path" ? mark.subpaths.flat() : [];
@@ -49,6 +49,15 @@ describe("PDF layout", () => {
     expect(info).toContain("1000 in");
   });
 
+  it("names the slit settings in the info block and says to cut the dashed slits", () => {
+    const info = (slits: { count: number; depth: number }) =>
+      find(layoutTemplatePdf({ ...input, slits }).pages[0].marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
+
+    expect(info({ count: 8, depth: 1 })).toContain("Slits: 8, 1 in deep");
+    expect(info({ count: 0, depth: 1 })).toContain("Slits: none");
+    expect(info({ count: 8, depth: 1 })).toContain("Cut along the solid line and the dashed slits.");
+  });
+
   it("outlines carve areas by default and fills them on request", () => {
     const [outlined] = find(layoutTemplatePdf(input).pages[0].marks, "design");
     const [filled] = find(layoutTemplatePdf({ ...input, filled: true }).pages[0].marks, "design");
@@ -82,7 +91,7 @@ function bigInput(widthIn: number) {
     design: { paths: [[{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }]], bbox: { minX: 0, minY: 0, maxX: 4, maxY: 3 } },
     placement,
   });
-  return { template: big.template!, surface: big.surface!, measurements, placement };
+  return { template: big.template!, surface: big.surface!, measurements, placement, slits: { count: 8, depth: 1 } };
 }
 
 /** Where the template's origin (design center) sits on a page: the middle of its center cross. */

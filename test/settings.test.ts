@@ -15,6 +15,7 @@ function memoryStorage(initial: Record<string, string> = {}): SettingsStorage & 
 const full: Settings = {
   mode: "pumpkin",
   cells: 8,
+  gridWidth: 12,
   units: "cm",
   measurements: { circumference: 80, frontArc: 40, depth: null },
   placement: { width: 15, verticalOffset: -2, rotation: 10 },
@@ -42,6 +43,7 @@ describe("settings", () => {
     const stored = {
       mode: "teapot",
       cells: 0,
+      gridWidth: -1,
       units: "cm",
       measurements: { circumference: -5, frontArc: 40, depth: "deep" },
       placement: { width: 15, verticalOffset: "up", rotation: 90 },

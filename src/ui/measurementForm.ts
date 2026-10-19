@@ -1,6 +1,5 @@
 import type { MeasurementField, PumpkinMeasurements, TemplateWarning, Units } from "../core";
-
-const CM_PER_IN = 2.54;
+import { lengthFields } from "./lengthFields";
 
 const DEFAULTS_IN = { circumference: 30, frontArc: 15 };
 
@@ -54,29 +53,20 @@ export function mountMeasurementForm(
   const input = (f: MeasurementField) => form.querySelector<HTMLInputElement>(`#m-${f}`)!;
   const units = (): Units => (form.querySelector<HTMLInputElement>('input[name="units"]:checked')!.value as Units);
 
-  input("circumference").value = String(DEFAULTS_IN.circumference);
-  input("frontArc").value = String(DEFAULTS_IN.frontArc);
+  const lengths = lengthFields(form, FIELDS.map(({ field }) => input(field)));
+  lengths.set(input("circumference"), DEFAULTS_IN.circumference);
+  lengths.set(input("frontArc"), DEFAULTS_IN.frontArc);
 
-  const read = (): PumpkinMeasurements => {
-    const depthRaw = input("depth").value.trim();
-    return {
-      circumference: parse(input("circumference").value),
-      frontArc: parse(input("frontArc").value),
-      depth: depthRaw === "" ? undefined : parse(depthRaw),
-      units: units(),
-    };
-  };
+  const read = (): PumpkinMeasurements => ({
+    circumference: lengths.value(input("circumference")),
+    frontArc: lengths.value(input("frontArc")),
+    depth: input("depth").value.trim() === "" ? undefined : lengths.value(input("depth")),
+    units: lengths.units(),
+  });
 
   form.addEventListener("change", (e) => {
     if ((e.target as HTMLInputElement).name !== "units") return;
-    const next = units();
-    const factor = next === "cm" ? CM_PER_IN : 1 / CM_PER_IN;
-    for (const { field } of FIELDS) {
-      const el = input(field);
-      const value = parse(el.value);
-      if (Number.isFinite(value)) el.value = String(round(value * factor));
-    }
-    form.querySelectorAll(".unit-label").forEach((el) => (el.textContent = next));
+    lengths.setUnits(units());
     onChange(read());
   });
   form.addEventListener("input", () => onChange(read()));
@@ -87,11 +77,11 @@ export function mountMeasurementForm(
     restore({ units: savedUnits, values = {} }) {
       if (savedUnits) {
         form.querySelector<HTMLInputElement>(`input[name="units"][value="${savedUnits}"]`)!.checked = true;
-        form.querySelectorAll(".unit-label").forEach((el) => (el.textContent = savedUnits));
+        lengths.setUnits(savedUnits);
       }
       for (const { field } of FIELDS) {
         const v = values[field];
-        if (v !== undefined) input(field).value = v === null ? "" : String(v);
+        if (v !== undefined) lengths.set(input(field), v);
       }
     },
     showWarnings(warnings) {
@@ -106,12 +96,4 @@ export function mountMeasurementForm(
       }
     },
   };
-}
-
-function parse(raw: string): number {
-  return raw.trim() === "" ? Number.NaN : Number(raw);
-}
-
-function round(x: number): number {
-  return Math.round(x * 100) / 100;
 }

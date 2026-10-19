@@ -21,7 +21,9 @@ app.innerHTML = `
     <h2>Preview</h2>
     <canvas id="preview-canvas" aria-label="3D preview of the design on the pumpkin. Drag to orbit."></canvas>
     <small class="hint">Drag to orbit, scroll to zoom. Dark lines: design. Gold: past about 60° from the front.
-      Red dots: points that miss the pumpkin.</small>
+      Red dots: points that miss the pumpkin. Crimson tint: where the paper has to stretch or squeeze to lie on
+      the pumpkin (faint from about 3 %, solid from 15 %); lines there won't land exactly. Smaller designs or
+      more, deeper slits reduce it.</small>
   </section>
   <section id="export"></section>
   <section id="surface-info" aria-live="polite"></section>
@@ -40,12 +42,13 @@ update();
 /** Put back the last-used settings. Units go first so the length fields are read in the saved units. */
 function restore(): void {
   const saved = loadSettings(browserStorage());
-  modePanel.restore(saved);
   form.restore({ units: saved.units, values: saved.measurements });
   if (saved.units) {
+    modePanel.setUnits(saved.units);
     designPanel.setUnits(saved.units);
     slitPanel.setUnits(saved.units);
   }
+  modePanel.restore(saved);
   designPanel.restorePlacement(saved.placement ?? {});
   slitPanel.restore(saved.slits ?? {});
   exportPanel.restore(saved);
@@ -59,6 +62,7 @@ function persist(): void {
   saveSettings(browserStorage(), {
     mode: modePanel.mode(),
     cells: modePanel.cells(),
+    gridWidth: orNull(modePanel.gridWidth()),
     units: m.units,
     measurements: { circumference: orNull(m.circumference), frontArc: orNull(m.frontArc), depth: orNull(m.depth) },
     placement: { width: orNull(p.width), verticalOffset: p.verticalOffset, rotation: p.rotation },
@@ -71,11 +75,14 @@ function update(): void {
   const ball = modePanel.mode() === "test-grid";
   const read = form.read();
   const measurements = ball ? ballMeasurements(read.circumference, read.units) : read;
+  modePanel.setUnits(measurements.units);
   designPanel.setUnits(measurements.units);
   slitPanel.setUnits(measurements.units);
   const design = ball ? gridDesign(modePanel.cells()) : (designPanel.design() ?? undefined);
-  const placement = designPanel.placement();
-  const result = buildTemplate({ measurements, design, placement, slits: slitPanel.options() });
+  const placement = ball ? { ...designPanel.placement(), width: modePanel.gridWidth() } : designPanel.placement();
+  // A grid is one solid carve area: no blank paper for slits.
+  const slits = ball ? { count: 0, depth: 0 } : slitPanel.options();
+  const result = buildTemplate({ measurements, design, placement, slits });
   form.showWarnings(result.warnings);
   designPanel.showWarnings(result.warnings);
   slitPanel.showWarnings(result.warnings);
@@ -88,6 +95,7 @@ function update(): void {
           surface: result.surface,
           measurements,
           placement,
+          slits,
           ...(ball ? { calibrationBall: measurements.circumference } : {}),
         }
       : null,

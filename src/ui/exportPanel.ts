@@ -1,4 +1,5 @@
-import type { Paper, TemplatePdfInput } from "../pdf/layout";
+import type { Paper } from "../paper";
+import type { TemplatePdfInput } from "../pdf/layout";
 
 export interface ExportPanel {
   /** What to export, or null when there is no template yet. */

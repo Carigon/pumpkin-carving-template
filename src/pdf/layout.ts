@@ -1,4 +1,5 @@
-import type { FlatTemplate, Placement, Point2, PumpkinMeasurements, SurfaceParameters, Units } from "../core";
+import { convertLength, type FlatTemplate, type Placement, type Point2, type PumpkinMeasurements, type SlitOptions, type SurfaceParameters, type Units } from "../core";
+import type { Paper } from "../paper";
 
 /**
  * Pure page layout for the template PDF, in PDF points (1/72 in), origin bottom-left, y up.
@@ -6,14 +7,13 @@ import type { FlatTemplate, Placement, Point2, PumpkinMeasurements, SurfaceParam
  * only change what goes on which page, not how it is drawn.
  */
 
-export type Paper = "letter" | "a4";
-
 export const PAPER_SIZES: Record<Paper, [number, number]> = {
   letter: [612, 792],
   a4: [595.28, 841.89],
 };
 
-const PT_PER: Record<Units, number> = { in: 72, cm: 72 / 2.54 };
+/** PDF points per unit length. */
+const ptPer = (units: Units) => 72 * convertLength(1, units, "in");
 const PAGE_MARGIN = 18;
 const CHECK_SQUARE = (100 / 25.4) * 72;
 const GAP = 14;
@@ -65,6 +65,8 @@ export interface TemplatePdfInput {
   surface: SurfaceParameters;
   measurements: PumpkinMeasurements;
   placement: Placement;
+  /** The slit settings the template was made with. */
+  slits: SlitOptions;
   /** Print carve areas filled instead of outlined. */
   filled?: boolean;
   paper?: Paper;
@@ -80,7 +82,7 @@ export interface TemplatePdfInput {
 export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
   const size = PAPER_SIZES[input.paper ?? "letter"];
   const [pageW, pageH] = size;
-  const scale = PT_PER[input.template.units];
+  const scale = ptPer(input.template.units);
 
   const outline = input.template.cutOutline.map((p) => ({ x: p.x * scale, y: p.y * scale }));
   const box = bounds(outline);
@@ -273,7 +275,7 @@ function drawTemplate({ template, filled }: TemplatePdfInput, scale: number, ori
 
 /** The 10 cm check square and the info block, with the square's lower-left corner at (x, y). */
 function drawFurniture(
-  { measurements, surface, placement, filled, calibrationBall }: TemplatePdfInput,
+  { measurements, surface, placement, slits, filled, calibrationBall }: TemplatePdfInput,
   x: number,
   y: number,
 ): Mark[] {
@@ -289,9 +291,10 @@ function drawFurniture(
     ["  (width x depth x height)", 8.5],
     [`Design width seen from the front: ${len(placement.width)}`, 8.5],
     [`Moved up: ${len(placement.verticalOffset)}   Rotation: ${fmt(placement.rotation)}°`, 8.5],
+    [`Slits: ${slits.count > 0 ? `${slits.count}, ${len(slits.depth)} deep` : "none"}`, 8.5],
     [`Carve areas: ${filled ? "filled" : "outlines"}`, 8.5],
     ["", 8.5],
-    ["Cut along the solid line.", 8.5],
+    [slits.count > 0 ? "Cut along the solid line and the dashed slits." : "Cut along the solid line.", 8.5],
     ["Line up the center cross with the design's center", 8.5],
     ["on the pumpkin, arrow toward the stem.", 8.5],
     ["", 8.5],

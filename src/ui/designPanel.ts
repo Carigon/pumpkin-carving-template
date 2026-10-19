@@ -1,8 +1,9 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
 import { readSvgDesign } from "../input/svgDesign";
+import { lengthFields } from "./lengthFields";
 import { mountTracePanel } from "./tracePanel";
+import { renderWarnings } from "./warnings";
 
-const CM_PER_IN = 2.54;
 const DEFAULTS_IN = { width: 6, verticalOffset: 0 };
 const MAX_ROTATION = 30;
 
@@ -69,10 +70,10 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
   const rotationRange = $<HTMLInputElement>("d-rotation-range");
   const warningsEl = $<HTMLElement>("d-warnings");
 
-  width.value = String(DEFAULTS_IN.width);
-  offset.value = String(DEFAULTS_IN.verticalOffset);
+  const lengths = lengthFields(form, [width, offset]);
+  lengths.set(width, DEFAULTS_IN.width);
+  lengths.set(offset, DEFAULTS_IN.verticalOffset);
   let design: Design | null = null;
-  let units: Units = "in";
   const showStatus = (text: string, failed: boolean) => {
     status.textContent = text;
     status.classList.toggle("warning-text", failed);
@@ -115,37 +116,17 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void): Desig
   return {
     design: () => design,
     placement: () => ({
-      width: num(width.value),
-      verticalOffset: num(offset.value) || 0,
+      width: lengths.value(width),
+      verticalOffset: lengths.value(offset) || 0,
       rotation: num(rotation.value) || 0,
     }),
     restorePlacement(saved) {
-      if (saved.width !== undefined) width.value = saved.width === null ? "" : String(saved.width);
-      if (saved.verticalOffset !== undefined) offset.value = String(saved.verticalOffset);
+      if (saved.width !== undefined) lengths.set(width, saved.width);
+      if (saved.verticalOffset !== undefined) lengths.set(offset, saved.verticalOffset);
       if (saved.rotation !== undefined) rotation.value = rotationRange.value = String(saved.rotation);
     },
-    setUnits(next) {
-      if (next === units) return;
-      const factor = next === "cm" ? CM_PER_IN : 1 / CM_PER_IN;
-      for (const el of [width, offset]) {
-        const v = num(el.value);
-        if (Number.isFinite(v)) el.value = String(Math.round(v * factor * 100) / 100);
-      }
-      form.querySelectorAll(".unit-label").forEach((el) => (el.textContent = next));
-      units = next;
-    },
-    showWarnings(warnings) {
-      const relevant = warnings.filter((w) => w.kind === "outside-silhouette" || w.kind === "past-front-limit");
-      warningsEl.replaceChildren(
-        ...relevant.map((w) => {
-          const div = document.createElement("div");
-          div.className = "warning";
-          div.dataset.kind = w.kind;
-          div.textContent = w.message;
-          return div;
-        }),
-      );
-    },
+    setUnits: (next: Units) => lengths.setUnits(next),
+    showWarnings: (warnings: TemplateWarning[]) => renderWarnings(warningsEl, warnings, "design"),
   };
 }
 

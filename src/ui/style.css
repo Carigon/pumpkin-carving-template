@@ -188,7 +188,9 @@ h1 {
 .ball-mode .field[data-field="frontArc"],
 .ball-mode .field[data-field="depth"],
 .ball-mode #d-trace,
-.ball-mode .field:has(#d-file) {
+.ball-mode .field:has(#d-file),
+.ball-mode .field:has(#d-width),
+.ball-mode #slits {
   display: none;
 }
 

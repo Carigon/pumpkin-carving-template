@@ -1,11 +1,13 @@
 import type { Units } from "./core";
-import type { Paper } from "./pdf/layout";
+import type { Paper } from "./paper";
 
 /** The inputs a returning carver gets back on reload. Never images or designs. */
 export interface Settings {
   mode: "pumpkin" | "test-grid";
   /** Test-grid squares across. */
   cells: number;
+  /** Test-grid width seen from the front, in `units`; null when empty. */
+  gridWidth: number | null;
   units: Units;
   /** Lengths in `units`; null when the field was left empty. */
   measurements: { circumference: number | null; frontArc: number | null; depth: number | null };
@@ -21,6 +23,7 @@ export interface Settings {
 export interface RestoredSettings {
   mode?: Settings["mode"];
   cells?: number;
+  gridWidth?: number | null;
   units?: Units;
   measurements?: Partial<Settings["measurements"]>;
   placement?: Partial<Settings["placement"]>;
@@ -56,6 +59,7 @@ export function saveSettings(storage: SettingsStorage | undefined, s: Settings):
   const picked: Settings = {
     mode: s.mode,
     cells: s.cells,
+    gridWidth: s.gridWidth,
     units: s.units,
     measurements: { circumference, frontArc, depth },
     placement: { width, verticalOffset, rotation },
@@ -93,6 +97,7 @@ function validate(s: Record<string, unknown>): RestoredSettings {
   return compact({
     mode: oneOf(s.mode, ["pumpkin", "test-grid"] as const),
     cells: integerIn(s.cells, 1, MAX_CELLS),
+    gridWidth: length(emptyOr(s.gridWidth, positive)),
     units,
     measurements: group({
       circumference: length(emptyOr(m.circumference, positive)),

@@ -56,10 +56,13 @@ export interface OutsideSilhouetteWarning {
   message: string;
 }
 
-/** Some slits couldn't run their full depth without crossing the design, so they were shortened (or left out). */
+/**
+ * Some slits ran into design lines well before their set depth (under half of it), so they were cut short (or
+ * left out). Slits that only fall a little short, or are limited by the size of the paper, don't count.
+ */
 export interface SlitShortenedWarning {
   kind: "slit-shortened";
-  /** Number of slits shortened. */
+  /** Number of slits cut short. */
   count: number;
   message: string;
 }
@@ -149,7 +152,10 @@ export interface FlatTemplate {
   units: Units;
   /** Flattened design paths (carve areas), implicitly closed. Holes are nested paths: fill them even-odd. */
   designPaths: Point2[][];
-  /** The cut-out edge: the design's outline grown by about 3/4 in. Implicitly closed, counterclockwise. */
+  /**
+   * The cut-out edge: the design's outline grown by about 3/4 in, following it into concave parts. One piece:
+   * holes are filled and separate parts of the design are bridged. Implicitly closed, counterclockwise.
+   */
   cutOutline: Point2[];
   /**
    * Slits to cut, as open polylines starting and ending on the cut-out edge: in along one side of the
