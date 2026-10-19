@@ -15,9 +15,10 @@ export function buildTemplate(input: TemplateInput): TemplateResult {
   if (!fit.ok) return { surface: null, design: null, warnings: [fit.warning] };
   const surface = { kind: "ellipsoid" as const, semiAxes: fit.semiAxes, units: input.measurements.units };
 
-  if (!input.design || !input.placement) return { surface, design: null, warnings: [] };
+  const { design: source, placement } = input;
+  if (!source || !placement || !(placement.width > 0)) return { surface, design: null, warnings: [] };
 
   const projection = frontProjection(ellipsoidSurface(fit.semiAxes));
-  const design = projectDesign(placeDesign(input.design, input.placement), projection);
+  const design = projectDesign(placeDesign(source, placement), projection);
   return { surface, design, warnings: designWarnings(design) };
 }

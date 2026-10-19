@@ -83,6 +83,28 @@ h1 {
   color: var(--warn-fg);
 }
 
+.design {
+  display: grid;
+  gap: 1rem;
+}
+
+.warnings {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.warning-text {
+  color: var(--warn-fg);
+}
+
+#preview-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  touch-action: none;
+}
+
 .semi-axes {
   display: grid;
   grid-template-columns: auto 1fr;

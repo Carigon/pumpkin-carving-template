@@ -1,0 +1,129 @@
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import type { ProjectedDesign, SurfaceParameters } from "../core";
+
+const FRONT_LIMIT_DEGREES = 60;
+const COLOR_OK = new THREE.Color(0x1b1b1b);
+const COLOR_PAST_LIMIT = new THREE.Color(0xd4a017);
+
+export interface PumpkinPreview {
+  /** Show the given surface and projected design; call on every input change. */
+  update(surface: SurfaceParameters | null, design: ProjectedDesign | null): void;
+}
+
+/**
+ * Three.js preview: the ellipsoid pumpkin plus the projected design lines, orbitable.
+ * Holds no geometry logic: it only draws what the builder returned.
+ * Axes match the core: x right, y up (stem), +z toward the viewer.
+ */
+export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1e1e24);
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 1000);
+  camera.position.set(0, 0, 40);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.target.set(0, 0, 0);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+  scene.add(sun);
+
+  const pumpkin = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 128, 96),
+    new THREE.MeshStandardMaterial({
+      color: 0xff7518,
+      roughness: 0.7,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    }),
+  );
+  pumpkin.visible = false;
+  scene.add(pumpkin);
+
+  const lines = new THREE.LineSegments(
+    new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({ vertexColors: true }),
+  );
+  const missed = new THREE.Points(
+    new THREE.BufferGeometry(),
+    new THREE.PointsMaterial({ color: 0xff3030, size: 4, sizeAttenuation: false }),
+  );
+  scene.add(lines, missed);
+
+  let size = 0;
+
+  const resize = () => {
+    const { clientWidth: w, clientHeight: h } = canvas;
+    if (w === 0 || h === 0) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  };
+  new ResizeObserver(resize).observe(canvas);
+  resize();
+
+  renderer.setAnimationLoop(() => {
+    controls.update();
+    renderer.render(scene, camera);
+  });
+
+  return {
+    update(surface, design) {
+      pumpkin.visible = surface !== null;
+      lines.visible = missed.visible = surface !== null && design !== null;
+      if (!surface) return;
+
+      const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
+      pumpkin.scale.set(a, c, b);
+      const newSize = Math.max(a, b, c);
+      if (Math.abs(newSize - size) > 1e-6 * newSize) {
+        // Keep the orbit direction, refit the distance and clip planes to the pumpkin's size.
+        const dir = camera.position.clone().sub(controls.target).normalize();
+        camera.position.copy(dir.multiplyScalar(5 * newSize));
+        camera.near = 0.01 * newSize;
+        camera.far = 100 * newSize;
+        camera.updateProjectionMatrix();
+        sun.position.set(1, 1, 2).multiplyScalar(newSize);
+        size = newSize;
+      }
+
+      if (design) setDesign(design, 0.003 * newSize);
+    },
+  };
+
+  function setDesign(design: ProjectedDesign, lift: number): void {
+    const pos: number[] = [];
+    const col: number[] = [];
+    const miss: number[] = [];
+    for (const { points } of design.paths) {
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const q = points[(i + 1) % points.length];
+        if (!p.surface) miss.push(p.front.x, p.front.y, 0);
+        if (!p.surface || !q.surface) continue;
+        for (const s of [p, q]) {
+          const { point, normal } = s.surface!;
+          pos.push(point[0] + normal[0] * lift, point[1] + normal[1] * lift, point[2] + normal[2] * lift);
+          const color = s.angleFromFront! > FRONT_LIMIT_DEGREES ? COLOR_PAST_LIMIT : COLOR_OK;
+          col.push(color.r, color.g, color.b);
+        }
+      }
+    }
+    replaceGeometry(lines, { position: [pos, 3], color: [col, 3] });
+    replaceGeometry(missed, { position: [miss, 3] });
+  }
+}
+
+function replaceGeometry(obj: THREE.LineSegments | THREE.Points, attrs: Record<string, [number[], number]>): void {
+  obj.geometry.dispose();
+  const g = new THREE.BufferGeometry();
+  for (const [name, [data, itemSize]] of Object.entries(attrs)) {
+    g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(data), itemSize));
+  }
+  obj.geometry = g;
+}

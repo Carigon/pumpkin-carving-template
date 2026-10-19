@@ -114,6 +114,18 @@ describe("points missing the silhouette", () => {
 });
 
 describe("placement", () => {
+  it.each([0, -3, Number.NaN])("a front-view width of %f projects nothing", (width) => {
+    const { surface, design, warnings } = buildTemplate({
+      measurements: sphere,
+      design: designOf([[-1, -1], [1, -1], [0, 1]]),
+      placement: { width, verticalOffset: 0, rotation: 0 },
+    });
+
+    expect(surface).not.toBeNull();
+    expect(design).toBeNull();
+    expect(warnings).toEqual([]);
+  });
+
   // Design in arbitrary units: bbox 100..300 wide, 0..50 high; corner (300, 50) is +100, +25 from center.
   const design: Design = {
     paths: [[{ x: 100, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 50 }]],
