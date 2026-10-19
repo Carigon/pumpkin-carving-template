@@ -68,6 +68,8 @@ export interface TemplatePdfInput {
   /** Print carve areas filled instead of outlined. */
   filled?: boolean;
   paper?: Paper;
+  /** Set for a test-grid template: the ball's circumference, in the measurement units. */
+  calibrationBall?: number;
 }
 
 /**
@@ -267,12 +269,16 @@ function drawTemplate({ template, filled }: TemplatePdfInput, scale: number, ori
 }
 
 /** The 10 cm check square and the info block, with the square's lower-left corner at (x, y). */
-function drawFurniture({ measurements, surface, placement, filled }: TemplatePdfInput, x: number, y: number): Mark[] {
+function drawFurniture(
+  { measurements, surface, placement, filled, calibrationBall }: TemplatePdfInput,
+  x: number,
+  y: number,
+): Mark[] {
   const u = measurements.units;
   const len = (v: number) => `${fmt(v)} ${u}`;
   const { sideToSide, frontToBack, vertical } = surface.semiAxes;
   const lines: [string, number, boolean?][] = [
-    ["Pumpkin carving template", 11, true],
+    [calibrationBall ? `Calibration grid for a ${len(calibrationBall)} ball` : "Pumpkin carving template", 11, true],
     [`Circumference: ${len(measurements.circumference)}`, 8.5],
     [`Front arc (stem to base): ${len(measurements.frontArc)}`, 8.5],
     [`Depth: ${measurements.depth ? len(measurements.depth) : "not given (round)"}`, 8.5],
