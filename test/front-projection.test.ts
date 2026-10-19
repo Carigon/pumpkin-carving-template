@@ -4,7 +4,16 @@ import { buildTemplate, type Design, type Placement } from "../src/core";
 // A sphere: front arc = half the circumference.
 const CIRCUMFERENCE = 60;
 const R = CIRCUMFERENCE / (2 * Math.PI);
-const sphere = { circumference: CIRCUMFERENCE, frontArc: CIRCUMFERENCE / 2, units: "in" as const };
+const plainSphere = { circumference: CIRCUMFERENCE, frontArc: CIRCUMFERENCE / 2, units: "in" as const };
+/** The same sphere measured with tape rings: widest at the middle of the arc, plus rings a quarter of the way in. */
+const ringedSphere = {
+  ...plainSphere,
+  circumferenceAt: CIRCUMFERENCE / 4,
+  rings: [CIRCUMFERENCE / 8, (3 * CIRCUMFERENCE) / 8].map((distance) => ({
+    distance,
+    circumference: 2 * Math.PI * R * Math.sin(distance / R),
+  })),
+};
 
 /** Design whose bbox is the unit square around the origin, so width 2 maps design units 1:1 to inches. */
 function unitDesign(points: [number, number][]): Design {
@@ -21,99 +30,105 @@ function designOf(points: [number, number][]): Design {
 }
 const oneToOne: Placement = { width: 2, verticalOffset: 0, rotation: 0 };
 
-describe("front projection on a sphere", () => {
-  it.each([0, 1, 3, 5, 8])(
-    "a design point at horizontal offset %f lands at angle arcsin(x/R), R·arcsin(x/R) along the surface from the front",
-    (x) => {
-      const { design, warnings } = buildTemplate({
+describe.each([
+  ["given as one circumference", plainSphere],
+  ["given as rings", ringedSphere],
+])("sphere %s", (_name, sphere) => {
+  describe("front projection on a sphere", () => {
+    it.each([0, 1, 3, 5, 8])(
+      "a design point at horizontal offset %f lands at angle arcsin(x/R), R·arcsin(x/R) along the surface from the front",
+      (x) => {
+        const { design, warnings } = buildTemplate({
+          measurements: sphere,
+          design: unitDesign([[x, 0], [x, 0.001], [x - 0.001, 0]]),
+          placement: oneToOne,
+        });
+
+        expect(warnings.filter((w) => w.kind === "outside-silhouette")).toEqual([]);
+        const [p] = design!.paths[0].points;
+        const point = p.surface!.point;
+        const expectedAngle = Math.asin(x / R);
+
+        expect(Math.hypot(...point)).toBeCloseTo(R, 6);
+        expect(point[1]).toBeCloseTo(0, 6);
+        expect(Math.atan2(point[0], point[2])).toBeCloseTo(expectedAngle, 6);
+        // Great-circle distance from the front point (0, 0, R).
+        expect(R * Math.acos(point[2] / R)).toBeCloseTo(R * expectedAngle, 5);
+        expect(p.angleFromFront!).toBeCloseTo((expectedAngle * 180) / Math.PI, 4);
+      },
+    );
+  });
+
+  describe("limit warnings", () => {
+    // On a sphere, a point at horizontal offset x sits asin(x/R) from the front; 60° is at x = R·sin 60°.
+    const at = (deg: number) => R * Math.sin((deg * Math.PI) / 180);
+
+    it.each([10, 45, 58])("a design reaching %i° from the front raises no limit warning", (deg) => {
+      const { warnings } = buildTemplate({
         measurements: sphere,
-        design: unitDesign([[x, 0], [x, 0.001], [x - 0.001, 0]]),
-        placement: oneToOne,
+        design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [at(deg), 0.1], [-at(deg), 0.1]]),
+        placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
       });
 
-      expect(warnings.filter((w) => w.kind === "outside-silhouette")).toEqual([]);
-      const [p] = design!.paths[0].points;
-      const point = p.surface!.point;
-      const expectedAngle = Math.asin(x / R);
-
-      expect(Math.hypot(...point)).toBeCloseTo(R, 6);
-      expect(point[1]).toBeCloseTo(0, 6);
-      expect(Math.atan2(point[0], point[2])).toBeCloseTo(expectedAngle, 6);
-      // Great-circle distance from the front point (0, 0, R).
-      expect(R * Math.acos(point[2] / R)).toBeCloseTo(R * expectedAngle, 5);
-      expect(p.angleFromFront!).toBeCloseTo((expectedAngle * 180) / Math.PI, 4);
-    },
-  );
-});
-
-describe("limit warnings", () => {
-  // On a sphere, a point at horizontal offset x sits asin(x/R) from the front; 60° is at x = R·sin 60°.
-  const at = (deg: number) => R * Math.sin((deg * Math.PI) / 180);
-
-  it.each([10, 45, 58])("a design reaching %i° from the front raises no limit warning", (deg) => {
-    const { warnings } = buildTemplate({
-      measurements: sphere,
-      design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [at(deg), 0.1], [-at(deg), 0.1]]),
-      placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
+      expect(warnings).toEqual([]);
     });
 
-    expect(warnings).toEqual([]);
+    it.each([62, 75, 85])("a design reaching %i° from the front raises the limit warning", (deg) => {
+      const { warnings } = buildTemplate({
+        measurements: sphere,
+        design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [0, 0.1]]),
+        placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
+      });
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatchObject({ kind: "past-front-limit" });
+      expect(warnings[0].message).not.toBe("");
+    });
+
+    it("measures the limit by where the surface faces, so it also applies vertically", () => {
+      const { warnings } = buildTemplate({
+        measurements: sphere,
+        design: unitDesign([[0, 0], [0.01, 0], [0, 0.01]]),
+        placement: { width: 2, verticalOffset: at(70), rotation: 0 },
+      });
+
+      expect(warnings.map((w) => w.kind)).toEqual(["past-front-limit"]);
+    });
   });
 
-  it.each([62, 75, 85])("a design reaching %i° from the front raises the limit warning", (deg) => {
-    const { warnings } = buildTemplate({
-      measurements: sphere,
-      design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [0, 0.1]]),
-      placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
+  describe("points missing the silhouette", () => {
+    it("are reported, counted, and left off the surface while the rest still project", () => {
+      const { design, warnings } = buildTemplate({
+        measurements: sphere,
+        // A diamond whose left and right tips (x = ±12) fall outside the sphere's outline (radius R ≈ 9.55).
+        design: designOf([[-12, 0], [0, -1], [12, 0], [0, 1]]),
+        placement: { width: 24, verticalOffset: 0, rotation: 0 },
+      });
+
+      const silhouette = warnings.filter((w) => w.kind === "outside-silhouette");
+      expect(silhouette).toHaveLength(1);
+      expect(silhouette[0]).toMatchObject({ kind: "outside-silhouette", count: 2 });
+      expect(silhouette[0].message).not.toBe("");
+
+      const points = design!.paths[0].points;
+      expect(points.map((p) => p.surface === null)).toEqual([true, false, true, false]);
+      expect(points[0].angleFromFront).toBeNull();
     });
 
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatchObject({ kind: "past-front-limit" });
-    expect(warnings[0].message).not.toBe("");
-  });
+    it("a design inside the outline reports none", () => {
+      const { warnings } = buildTemplate({
+        measurements: sphere,
+        design: designOf([[-2, -1], [2, -1], [2, 1], [-2, 1]]),
+        placement: { width: 4, verticalOffset: 0, rotation: 0 },
+      });
 
-  it("measures the limit by where the surface faces, so it also applies vertically", () => {
-    const { warnings } = buildTemplate({
-      measurements: sphere,
-      design: unitDesign([[0, 0], [0.01, 0], [0, 0.01]]),
-      placement: { width: 2, verticalOffset: at(70), rotation: 0 },
+      expect(warnings).toEqual([]);
     });
-
-    expect(warnings.map((w) => w.kind)).toEqual(["past-front-limit"]);
-  });
-});
-
-describe("points missing the silhouette", () => {
-  it("are reported, counted, and left off the surface while the rest still project", () => {
-    const { design, warnings } = buildTemplate({
-      measurements: sphere,
-      // A diamond whose left and right tips (x = ±12) fall outside the sphere's outline (radius R ≈ 9.55).
-      design: designOf([[-12, 0], [0, -1], [12, 0], [0, 1]]),
-      placement: { width: 24, verticalOffset: 0, rotation: 0 },
-    });
-
-    const silhouette = warnings.filter((w) => w.kind === "outside-silhouette");
-    expect(silhouette).toHaveLength(1);
-    expect(silhouette[0]).toMatchObject({ kind: "outside-silhouette", count: 2 });
-    expect(silhouette[0].message).not.toBe("");
-
-    const points = design!.paths[0].points;
-    expect(points.map((p) => p.surface === null)).toEqual([true, false, true, false]);
-    expect(points[0].angleFromFront).toBeNull();
-  });
-
-  it("a design inside the outline reports none", () => {
-    const { warnings } = buildTemplate({
-      measurements: sphere,
-      design: designOf([[-2, -1], [2, -1], [2, 1], [-2, 1]]),
-      placement: { width: 4, verticalOffset: 0, rotation: 0 },
-    });
-
-    expect(warnings).toEqual([]);
   });
 });
 
 describe("placement", () => {
+  const sphere = plainSphere;
   it.each([0, -3, Number.NaN])("a front-view width of %f projects nothing", (width) => {
     const { surface, design, warnings } = buildTemplate({
       measurements: sphere,

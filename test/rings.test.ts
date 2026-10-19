@@ -44,6 +44,100 @@ function circumferenceAt(surface: SurfaceParameters, distance: number): number {
 const height = (s: SurfaceParameters) => s.profile[0].height - s.profile[s.profile.length - 1].height;
 
 describe("pumpkin profile from extra circumference rings", () => {
+  it.each([
+    ["round", undefined],
+    ["oval", 9],
+  ])("with only the widest ring (%s), the surface is the ellipsoid fit", (_name, depth) => {
+    const plain = buildTemplate({ measurements: { circumference: 30, frontArc: 17, depth, units: "in" } });
+    const ringed = buildTemplate({ measurements: { circumference: 30, frontArc: 17, depth, rings: [], units: "in" } });
+
+    expect(ringed).toEqual(plain);
+    expect(ringed.surface!.kind).toBe("ellipsoid");
+  });
+
+  // A barrel spends some of the front arc going across its flatter top and bottom, so it is less tall than the
+  // ellipsoid; what sets it apart is its sides staying wide much further up and down.
+  it("a design on a ringed pumpkin projects straight back onto it and flattens with little stretch", () => {
+    const measurements: PumpkinMeasurements = {
+      circumference: 32, frontArc: 20, circumferenceAt: 11,
+      rings: [{ distance: 4, circumference: 22 }, { distance: 16, circumference: 22 }], units: "in",
+    };
+    const square = [[-2, -2], [2, -2], [2, 2], [-2, 2]].map(([x, y]) => ({ x, y }));
+    const { surface, design, template, warnings } = buildTemplate({
+      measurements,
+      design: { paths: [square], bbox: { minX: -2, minY: -2, maxX: 2, maxY: 2 } },
+      placement: { width: 4, verticalOffset: -1, rotation: 0 },
+    });
+
+    expect(warnings).toEqual([]);
+    for (const p of design!.paths[0].points) {
+      expect(p.surface!.point[0]).toBeCloseTo(p.front.x, 9);
+      expect(p.surface!.point[1]).toBeCloseTo(p.front.y, 9);
+      // On the surface: inside the profile's radius at that height, at the cross-section ellipse.
+      const near = surface!.profile.reduce((a, b) => (Math.abs(b.height - p.front.y) < Math.abs(a.height - p.front.y) ? b : a));
+      expect(Math.hypot(p.surface!.point[0], p.surface!.point[2]) / near.radius).toBeCloseTo(1, 2);
+    }
+    expect(template).not.toBeNull();
+    expect(template!.stretch.max).toBeLessThan(0.06);
+  });
+
+  it("a sphere measured with rings comes out as that sphere", () => {
+    const C = 40, R = C / (2 * Math.PI);
+    const rings = [3, 7, 14, 17].map((distance) => ({ distance, circumference: C * Math.sin(distance / R) }));
+    const { surface, warnings } = buildTemplate({ measurements: { circumference: C, frontArc: C / 2, rings, units: "in" } });
+
+    expect(warnings).toEqual([]);
+    expect(surface!.kind).toBe("revolved");
+    expect(surface!.depthRatio).toBe(1);
+    for (const p of surface!.profile) expect(Math.hypot(p.radius, p.height)).toBeCloseTo(R, 6);
+    expect(surface!.semiAxes.vertical).toBeCloseTo(R, 6);
+  });
+
+  it("equal rings give a flatter-sided pumpkin than the ellipsoid with the same arc", () => {
+    const base = { circumference: 30, frontArc: 18, units: "in" as const };
+    const { surface: ellipsoid } = buildTemplate({ measurements: base });
+    const { surface: barrel, warnings } = buildTemplate({
+      measurements: {
+        ...base,
+        circumferenceAt: 9,
+        rings: [{ distance: 6, circumference: 30 * 0.97 }, { distance: 12, circumference: 30 * 0.97 }],
+      },
+    });
+
+    expect(warnings).toEqual([]);
+    // Three quarters of the way from the middle to the stem, as a fraction of the widest radius:
+    // cos(asin 0.75) ≈ 0.66 on the ellipsoid, much more on the barrel.
+    const sideAt = (s: SurfaceParameters, fraction: number) => {
+      const y = fraction * (height(s) / 2);
+      const near = s.profile.reduce((a, b) => (Math.abs(b.height - y) < Math.abs(a.height - y) ? b : a));
+      return near.radius / Math.max(...s.profile.map((p) => p.radius));
+    };
+    expect(sideAt(ellipsoid!, 0.75)).toBeCloseTo(Math.cos(Math.asin(0.75)), 2);
+    expect(sideAt(barrel!, 0.75)).toBeGreaterThan(sideAt(ellipsoid!, 0.75) + 0.1);
+    expect(sideAt(barrel!, -0.75)).toBeGreaterThan(sideAt(ellipsoid!, -0.75) + 0.1);
+  });
+
+  it.each<[string, Partial<PumpkinMeasurements>, { field: string; ring?: number }]>([
+    // 2 in from the stem, the radius can be at most 2 in: circumference at most 4π ≈ 12.6.
+    ["a ring too big for its place near the stem", { rings: [{ distance: 2, circumference: 16 }] }, { field: "ring", ring: 0 }],
+    ["a ring too big for its place near the base", { rings: [{ distance: 4, circumference: 20 }, { distance: 16, circumference: 16 }] }, { field: "ring", ring: 1 }],
+    // Rings 1 in apart can differ by at most 2π ≈ 6.3 in circumference.
+    ["rings changing faster than the arc allows", { rings: [{ distance: 8, circumference: 28 }, { distance: 9, circumference: 20 }] }, { field: "ring", ring: 1 }],
+    ["a ring bigger than the widest", { rings: [{ distance: 9, circumference: 31 }] }, { field: "ring", ring: 0 }],
+    ["a ring off the end of the arc", { rings: [{ distance: 18, circumference: 10 }] }, { field: "ring", ring: 0 }],
+    ["a ring with no circumference", { rings: [{ distance: 5, circumference: Number.NaN }] }, { field: "ring", ring: 0 }],
+    ["the widest ring placed too close to the stem", { circumferenceAt: 3 }, { field: "circumferenceAt" }],
+  ])("%s gives a warning on that ring instead of geometry", (_name, extra, where) => {
+    const { surface, warnings } = buildTemplate({
+      measurements: { circumference: 30, frontArc: 18, units: "in", ...extra },
+    });
+
+    expect(surface).toBeNull();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ kind: "impossible-measurement", ...where });
+    expect(warnings[0].message).not.toBe("");
+  });
+
   it.each<[string, PumpkinMeasurements]>([
     [
       "a bottom-heavy pumpkin",

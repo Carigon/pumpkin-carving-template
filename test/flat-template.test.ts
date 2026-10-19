@@ -42,10 +42,23 @@ function bboxOf(points: Point2[]) {
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
-describe("flattening on a sphere", () => {
-  const CIRCUMFERENCE = 60;
-  const R = CIRCUMFERENCE / (2 * Math.PI);
-  const sphere = { circumference: CIRCUMFERENCE, frontArc: CIRCUMFERENCE / 2, units: "in" as const };
+const CIRCUMFERENCE = 60;
+const R = CIRCUMFERENCE / (2 * Math.PI);
+const plainSphere = { circumference: CIRCUMFERENCE, frontArc: CIRCUMFERENCE / 2, units: "in" as const };
+/** The same sphere measured with tape rings: widest at the middle of the arc, plus rings a quarter of the way in. */
+const ringedSphere = {
+  ...plainSphere,
+  circumferenceAt: CIRCUMFERENCE / 4,
+  rings: [CIRCUMFERENCE / 8, (3 * CIRCUMFERENCE) / 8].map((distance) => ({
+    distance,
+    circumference: 2 * Math.PI * R * Math.sin(distance / R),
+  })),
+};
+
+describe.each([
+  ["given as one circumference", plainSphere],
+  ["given as rings", ringedSphere],
+])("flattening on a sphere %s", (_name, sphere) => {
   const deg = Math.PI / 180;
 
   /** Front-view point whose surface point is `angle` from the front point, in direction `heading`. */
