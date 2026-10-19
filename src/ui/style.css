@@ -7,6 +7,7 @@
   --warn-fg: #a3261b;
   --border: #e3d6c6;
   --desk: #e6ddd1;
+  --card: #fff;
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
 }
@@ -20,6 +21,7 @@
     --warn-fg: #ffb4a8;
     --border: #4a3c2f;
     --desk: #3a3129;
+    --card: #261e18;
   }
 }
 
@@ -61,8 +63,9 @@ body {
 
 .choice {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.25rem 0.75rem;
   margin: 0;
   padding: 0;
   border: 0;
@@ -71,6 +74,10 @@ body {
 .choice legend {
   float: left;
   color: var(--muted);
+}
+
+.choice label {
+  white-space: nowrap;
 }
 
 .viewport {
@@ -253,7 +260,7 @@ body {
 
 .step-panel {
   display: grid;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .step-panel:focus {
@@ -316,14 +323,79 @@ body {
   }
 }
 
-.measurements {
+/*
+ * Controls: each step's sections are cards, and every input follows one field pattern: label above, input and
+ * unit on one row, hint below in muted text. Number inputs share one width.
+ */
+.controls {
+  --input-width: 6.5rem;
+}
+
+.card {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.card[hidden] {
+  display: none;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.card p {
+  margin: 0;
+}
+
+/* The panels' forms only group their cards. */
+.design,
+.slits {
   display: grid;
   gap: 1rem;
 }
 
-.field label {
-  display: block;
+.field {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.field > label,
+.field > legend {
+  padding: 0;
   font-weight: 600;
+}
+
+/* A fieldset's legend isn't a grid item: space it like the other rows. */
+.field > legend {
+  margin-bottom: 0.3rem;
+}
+
+.field.checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+}
+
+.field.checkbox input {
+  margin: 0;
 }
 
 .input-row {
@@ -332,10 +404,37 @@ body {
   gap: 0.5rem;
 }
 
-.input-row input {
-  width: 8rem;
-  font-size: 1rem;
-  padding: 0.3rem;
+.controls input[type="number"] {
+  width: var(--input-width);
+  box-sizing: border-box;
+  font: inherit;
+  padding: 0.3rem 0.4rem;
+}
+
+.controls select {
+  min-width: var(--input-width);
+  font: inherit;
+  padding: 0.3rem 0.4rem;
+}
+
+.controls input[type="file"] {
+  max-width: 100%;
+  font: inherit;
+}
+
+.controls input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.controls .card button {
+  justify-self: start;
+  font: inherit;
+  padding: 0.35rem 0.9rem;
+}
+
+.controls button.primary {
+  font-weight: 600;
 }
 
 .input-row input[aria-invalid="true"] {
@@ -347,24 +446,51 @@ body {
   color: var(--muted);
 }
 
-.warning {
+.hint {
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+/* "more": the full detail behind a short hint. The link follows the short text; open, it reads "less" and the
+   detail follows on the lines below. */
+.more {
+  display: inline;
+}
+
+.more summary {
+  display: inline;
+  cursor: pointer;
+  text-decoration: underline;
+  list-style: none;
+}
+
+.more summary::-webkit-details-marker {
+  display: none;
+}
+
+.more[open] summary {
+  font-size: 0;
+}
+
+.more[open] summary::before {
+  content: "less";
+  font-size: 0.85rem;
+}
+
+.more[open]::details-content {
+  display: block;
   margin-top: 0.3rem;
+}
+
+.warning {
   padding: 0.4rem 0.6rem;
   border-radius: 4px;
   background: var(--warn-bg);
   color: var(--warn-fg);
 }
 
-.design,
-.slits,
-.slit-fields {
-  display: grid;
-  gap: 1rem;
-}
-
-.slit-fields h3 {
-  margin: 0.5rem 0 0;
-  font-size: 1rem;
+.warning[hidden] {
+  display: none;
 }
 
 /* Paper view: the flat template on its pages, as white sheets on a desk-colored background. */
@@ -474,55 +600,57 @@ body {
   display: none;
 }
 
-.export {
+/* Rings: each one a small group of two fields (height above the table, and around), under its name. */
+.ring-list {
   display: grid;
   gap: 0.75rem;
-  justify-items: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.export button {
-  font-size: 1rem;
-  padding: 0.4rem 1rem;
-}
-
-.rings {
+.ring {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 6px;
-  display: grid;
-  gap: 0.5rem;
 }
 
-.ring-list {
-  margin: 0;
-  padding-left: 1.5rem;
-  display: grid;
-  gap: 0.5rem;
+.ring-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.ring .input-row {
+.ring-fields {
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.5rem 1rem;
 }
 
-.ring .input-row input {
-  width: 5rem;
-}
-
-.ring label {
-  display: inline;
+.ring .field > label {
   font-weight: 400;
-  white-space: nowrap;
-}
-
-.rings .add-ring {
-  justify-self: start;
-}
-
-.ring-at {
-  display: contents;
+  font-size: 0.9rem;
 }
 
 .ring-name {
   font-weight: 600;
+}
+
+.controls .remove-ring {
+  padding: 0 0.5rem;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.ring-fraction:empty {
+  display: none;
+}
+
+.ball-mode .ring {
+  padding: 0;
+  border: 0;
 }
 
 /* The only ring can't be removed. */
@@ -533,6 +661,10 @@ body {
 .warnings {
   display: grid;
   gap: 0.4rem;
+}
+
+.warnings:empty {
+  display: none;
 }
 
 .warning-text {
@@ -548,6 +680,7 @@ body {
 }
 
 .semi-axes {
+  margin: 0;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.25rem 1rem;
@@ -561,9 +694,8 @@ body {
 .trace {
   display: grid;
   gap: 1rem;
-  padding: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
 }
 
 .trace[hidden] {
@@ -681,10 +813,6 @@ body {
   outline-offset: -4px;
 }
 
-.trace .field.checkbox label {
-  font-weight: 400;
-}
-
 /* Test-grid (ball) mode: one circumference, a generated grid instead of an uploaded design. */
 .grid-size {
   display: grid;
@@ -695,13 +823,12 @@ body {
 .ball-mode .field[data-field="height"],
 .ball-mode .rings .pumpkin-only,
 .ball-mode .ring:not(:first-child),
-.ball-mode .ring-name,
+.ball-mode .ring-head,
 .ball-mode .ring-at,
 .ball-mode .ring-fraction,
 .ball-mode .remove-ring,
 .ball-mode .add-ring,
-.ball-mode #d-trace,
-.ball-mode .field:has(#d-file),
+.ball-mode .design-source,
 .ball-mode .field:has(#d-width),
 .ball-mode .slit-fields {
   display: none;

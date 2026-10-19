@@ -27,8 +27,9 @@ export interface SlitPanel {
 export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPanel {
   const defaults = defaultSlits("in");
   root.innerHTML = `
-    <h2>Cut-out edge</h2>
     <form class="slits" novalidate>
+      <section class="card">
+      <h2>Cut-out edge</h2>
       <div class="field">
         <label for="s-margin">Margin around the design</label>
         <div class="input-row">
@@ -36,12 +37,15 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
             value="${defaultMargin("in")}" aria-describedby="s-margin-hint s-margin-warning" />
           <span class="unit-label">in</span>
         </div>
-        <small id="s-margin-hint" class="hint">Blank paper between the design and the cut-out edge.</small>
+        <div id="s-margin-hint" class="hint">Blank paper between the design and the cut-out edge.</div>
         <div id="s-margin-warning" class="warning" role="alert" hidden></div>
       </div>
-      <label class="check"><input id="s-line" type="checkbox" checked /> Print the cut line (solid edge)</label>
-      <div class="slit-fields">
-      <h3>Slits</h3>
+      <div class="field checkbox">
+        <label><input id="s-line" type="checkbox" checked /> Print the cut line (solid edge)</label>
+      </div>
+      </section>
+      <section class="card slit-fields">
+      <h2>Slits</h2>
       <div class="field">
         <label for="s-count">Number of slits</label>
         <div class="input-row">
@@ -54,10 +58,13 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
           <input id="s-depth" type="number" inputmode="decimal" min="0" step="any" value="${defaults.depth}" />
           <span class="unit-label">in</span>
         </div>
-        <small class="hint">Slits let the paper bend around the pumpkin. They're printed dashed and steer around the design.</small>
+        <div class="hint">Slits let the paper bend around the pumpkin.
+          <details class="more"><summary>more</summary>They're printed dashed, run in from the cut-out edge and
+            steer around the design. More or deeper slits reduce the stretch.</details>
+        </div>
       </div>
       <div id="s-warnings" class="warnings" role="alert"></div>
-      </div>
+      </section>
     </form>
   `;
   const form = root.querySelector("form")!;

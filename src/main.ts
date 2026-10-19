@@ -26,7 +26,7 @@ app.innerHTML = `
     <div id="step-tabs"></div>
     <section id="step-measure" class="step-panel">
       <div id="measurements"></div>
-      <div id="surface-info" aria-live="polite"></div>
+      <div id="surface-info" class="card" aria-live="polite"></div>
     </section>
     <section id="step-design" class="step-panel">
       <div id="grid" class="ball-only"></div>

@@ -22,17 +22,24 @@ export interface ExportPanel {
  */
 export function mountExportPanel(root: HTMLElement, onChange: () => void = () => {}): ExportPanel {
   root.innerHTML = `
-    <h2>Paper and PDF</h2>
-    <form class="export" novalidate>
-      <label>Paper
-        <select id="x-paper">
-          <option value="letter">Letter (8.5 x 11 in)</option>
-          <option value="a4">A4 (210 x 297 mm)</option>
-        </select>
-      </label>
-      <label class="check"><input id="x-filled" type="checkbox" /> Print carve areas filled (default: outlines)</label>
-      <button id="x-download" type="submit" disabled>Download PDF</button>
-      <small class="hint" id="x-status">Load a design to make a template.</small>
+    <form class="export card" novalidate>
+      <h2>Paper and PDF</h2>
+      <div class="field">
+        <label for="x-paper">Paper</label>
+        <div class="input-row">
+          <select id="x-paper">
+            <option value="letter">Letter (8.5 x 11 in)</option>
+            <option value="a4">A4 (210 x 297 mm)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field checkbox">
+        <label><input id="x-filled" type="checkbox" /> Print carve areas filled (default: outlines)</label>
+      </div>
+      <div class="field">
+        <div class="input-row"><button id="x-download" type="submit" class="primary" disabled>Download PDF</button></div>
+        <div class="hint" id="x-status" aria-live="polite">Load a design to make a template.</div>
+      </div>
     </form>
   `;
   const form = root.querySelector("form")!;

@@ -42,6 +42,7 @@ export function mountTracePanel(
     </figure>
   `;
   root.innerHTML = `
+    <h3>Tracing</h3>
     <div class="trace-settings">
     <div class="field">
       <label for="t-threshold">Threshold</label>
@@ -49,7 +50,7 @@ export function mountTracePanel(
         <input id="t-threshold" type="range" min="1" max="254" step="1" value="${DEFAULTS.threshold}" />
         <output for="t-threshold">${DEFAULTS.threshold}</output>
       </div>
-      <small class="hint">Higher carves more of the lighter grays.</small>
+      <div class="hint">Higher carves more of the lighter grays.</div>
     </div>
     <div class="field checkbox">
       <label><input id="t-invert" type="checkbox" /> Invert (white-on-black stencil)</label>
@@ -59,12 +60,12 @@ export function mountTracePanel(
       <div class="input-row">
         <input id="t-speckle" type="number" min="0" max="1000" step="1" value="${DEFAULTS.speckle}" />
       </div>
-      <small class="hint">Specks up to this many pixels are ignored.</small>
+      <div class="hint">Specks up to this many pixels are ignored.</div>
     </div>
     </div>
     <div class="trace-accept-row">
       <button type="button" class="trace-accept">Done tracing</button>
-      <small class="hint trace-accepted-note" hidden>Trace accepted. Pick Trace above the preview to see it again.</small>
+      <div class="hint trace-accepted-note" hidden>Trace accepted. Pick Trace above the preview to see it again.</div>
     </div>
   `;
 
