@@ -2,6 +2,7 @@ import "./ui/style.css";
 import { buildTemplate } from "./core";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountDesignPanel } from "./ui/designPanel";
+import { mountExportPanel } from "./ui/exportPanel";
 import { mountMeasurementForm } from "./ui/measurementForm";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 
@@ -16,6 +17,7 @@ app.innerHTML = `
     <small class="hint">Drag to orbit, scroll to zoom. Dark lines: design. Gold: past about 60° from the front.
       Red dots: points that miss the pumpkin.</small>
   </section>
+  <section id="export"></section>
   <section id="surface-info" aria-live="polite"></section>
 `;
 
@@ -23,15 +25,20 @@ const infoEl = app.querySelector<HTMLElement>("#surface-info")!;
 const preview = mountPumpkinPreview(app.querySelector<HTMLCanvasElement>("#preview-canvas")!);
 const form = mountMeasurementForm(app.querySelector<HTMLElement>("#measurements")!, update);
 const designPanel = mountDesignPanel(app.querySelector<HTMLElement>("#design")!, update);
+const exportPanel = mountExportPanel(app.querySelector<HTMLElement>("#export")!);
 update();
 
 function update(): void {
   const measurements = form.read();
   designPanel.setUnits(measurements.units);
   const design = designPanel.design() ?? undefined;
-  const result = buildTemplate({ measurements, design, placement: designPanel.placement() });
+  const placement = designPanel.placement();
+  const result = buildTemplate({ measurements, design, placement });
   form.showWarnings(result.warnings);
   designPanel.showWarnings(result.warnings);
   renderSurfaceInfo(infoEl, result.surface);
   preview.update(result.surface, result.design);
+  exportPanel.setSource(
+    result.template && result.surface ? { template: result.template, surface: result.surface, measurements, placement } : null,
+  );
 }

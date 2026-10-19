@@ -88,6 +88,17 @@ h1 {
   gap: 1rem;
 }
 
+.export {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+
+.export button {
+  font-size: 1rem;
+  padding: 0.4rem 1rem;
+}
+
 .warnings {
   display: grid;
   gap: 0.4rem;
