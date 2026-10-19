@@ -56,7 +56,23 @@ export interface OutsideSilhouetteWarning {
   message: string;
 }
 
-export type TemplateWarning = MeasurementWarning | FrontLimitWarning | OutsideSilhouetteWarning;
+/** Some slits couldn't run their full depth without crossing the design, so they were shortened (or left out). */
+export interface SlitShortenedWarning {
+  kind: "slit-shortened";
+  /** Number of slits shortened. */
+  count: number;
+  message: string;
+}
+
+export type TemplateWarning = MeasurementWarning | FrontLimitWarning | OutsideSilhouetteWarning | SlitShortenedWarning;
+
+/** Slits let the paper bend around the pumpkin. They're spaced evenly in angle around the design center. */
+export interface SlitOptions {
+  /** Number of slits (0 = none). */
+  count: number;
+  /** How far each slit runs in from the cut-out edge, in the measurement units. */
+  depth: number;
+}
 
 /** A 2D point. Design points are in design units, y up (toward the stem). */
 export interface Point2 {
@@ -92,6 +108,8 @@ export interface TemplateInput {
   /** The design to place. Projection happens only when both design and placement are given. */
   design?: Design;
   placement?: Placement;
+  /** Slit count and depth; defaults to `defaultSlits(units)`. */
+  slits?: SlitOptions;
 }
 
 /** One design point after projection. */
@@ -133,4 +151,31 @@ export interface FlatTemplate {
   designPaths: Point2[][];
   /** The cut-out edge: the design's outline grown by about 3/4 in. Implicitly closed, counterclockwise. */
   cutOutline: Point2[];
+  /**
+   * Slits to cut, as open polylines starting and ending on the cut-out edge: in along one side of the
+   * slit to its tip and back out along the other. The sides part slightly where the paper opens up.
+   */
+  slits: Point2[][];
+  /** How much the paper is stretched, per triangle of the flattened patch. */
+  stretch: StretchMap;
+}
+
+/**
+ * Stretch per area of the flattened patch, on both the 3D surface and the paper. The two share
+ * triangle indices: `triangles[t]` indexes into `surface` (3D, same axes as the preview) and into
+ * `flat` (paper, same frame as the template), and `values[t]` is that triangle's stretch.
+ */
+export interface StretchMap {
+  triangles: [number, number, number][];
+  surface: Vec3[];
+  flat: Point2[];
+  /**
+   * Per triangle: max(σ1, 1/σ2) − 1, with σ the singular values of the surface → paper map.
+   * 0 = the paper matches the surface exactly; 0.05 = some direction is off by 5 %.
+   */
+  values: number[];
+  /** Largest per-triangle value. */
+  max: number;
+  /** Area-weighted root mean square over the patch. */
+  rms: number;
 }

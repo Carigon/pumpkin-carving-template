@@ -2,7 +2,7 @@ import type { Projection } from "../projection/projection";
 import type { Surface, SurfaceCoords, SurfaceSample, Vec3 } from "../surface/surface";
 import type { Point2 } from "../types";
 import { arapFlatten } from "./arap";
-import { gridMesh, meshLocator, trimMesh, type TriangleMesh } from "./mesh";
+import { cutSlits, gridMesh, meshLocator, trimMesh, type TriangleMesh } from "./mesh";
 import { convexHull, distanceToConvex } from "../geometry/polygon";
 
 /** Cells across the longer side of the meshed patch: a few thousand triangles. */
@@ -16,7 +16,18 @@ export interface FlatDesign {
   /** The flattened mesh, for stretch and slits. `flat[i]` is the paper position of `mesh.vertices[i]`. */
   mesh: TriangleMesh;
   flat: Point2[];
+  /**
+   * Each slit on paper as an open polyline: in along one side of the cut to the tip and back out along
+   * the other side (the sides part where the paper opens up). Runs out to the edge of the mesh.
+   */
+  slits: Point2[][];
 }
+
+/**
+ * Chooses where to cut slits, given the uncut mesh and the design paths in the meshing domain.
+ * Returns chains of edge-adjacent vertices from the mesh boundary to each slit's tip (see `cutSlits`).
+ */
+export type SlitPlanner = (mesh: TriangleMesh, design: Point2[][]) => number[][];
 
 /**
  * Flatten the part of the surface the design covers. Meshes the surface around the design
@@ -32,6 +43,7 @@ export function flattenDesign(
   center: Point2,
   paths: Point2[][],
   padding: number,
+  planSlits?: SlitPlanner,
 ): FlatDesign | null {
   const centerHit = projection.project(center);
   if (!centerHit) return null;
@@ -55,10 +67,13 @@ export function flattenDesign(
   // Mesh only the covered part: the design's outline (with the center) grown by the padding.
   const covered = convexHull([{ x: 0, y: 0 }, ...coarse]);
   const grid = gridMesh(region, (p) => surface.sample(chart.toCoords(p)).point);
-  const mesh = trimMesh(grid, (tri) => {
+  const uncut = trimMesh(grid, (tri) => {
     const [a, b, c] = tri.map((i) => grid.domain[i]);
     return distanceToConvex({ x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3 }, covered) <= padding;
   });
+  const domainPaths = toDomain(densify(paths, region.spacing / 2), projection, chart);
+  const chains = planSlits ? planSlits(uncut, domainPaths) : [];
+  const { mesh, otherSide } = cutSlits(uncut, chains);
   const samples = mesh.domain.map((p) => surface.sample(chart.toCoords(p)));
   const raw = arapFlatten(mesh, { initial: azimuthalLayout(samples, surface, centerHit.coords) });
   const locate = meshLocator(mesh);
@@ -82,11 +97,14 @@ export function flattenDesign(
   };
   const flat = raw.map(align);
 
-  const dense = densify(paths, region.spacing / 2);
-  const flatPaths = toDomain(dense, projection, chart)
+  const flatPaths = domainPaths
     .map((path) => path.map(mapRaw).filter((p): p is Point2 => p !== null).map(align))
     .filter((path) => path.length >= 2);
-  return { paths: flatPaths, mesh, flat };
+  const slits = chains.map((chain, s) => [
+    ...chain.map((v) => flat[v]),
+    ...otherSide[s].slice(0, -1).reverse().map((v) => flat[v]),
+  ]);
+  return { paths: flatPaths, mesh, flat, slits };
 }
 
 /**

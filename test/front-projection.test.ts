@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type Design, type Placement } from "../src/core";
+import { buildTemplate, type Design, type Placement, type TemplateWarning } from "../src/core";
 
 // A sphere: front arc = half the circumference.
 const CIRCUMFERENCE = 60;
@@ -20,6 +20,8 @@ function designOf(points: [number, number][]): Design {
   };
 }
 const oneToOne: Placement = { width: 2, verticalOffset: 0, rotation: 0 };
+/** The warnings about where the design lands (slit warnings are tested in slits.test.ts). */
+const designOnly = (warnings: TemplateWarning[]) => warnings.filter((w) => w.kind !== "slit-shortened");
 
 describe("front projection on a sphere", () => {
   it.each([0, 1, 3, 5, 8])(
@@ -51,21 +53,23 @@ describe("limit warnings", () => {
   const at = (deg: number) => R * Math.sin((deg * Math.PI) / 180);
 
   it.each([10, 45, 58])("a design reaching %i° from the front raises no limit warning", (deg) => {
-    const { warnings } = buildTemplate({
+    const { warnings: all } = buildTemplate({
       measurements: sphere,
       design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [at(deg), 0.1], [-at(deg), 0.1]]),
       placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
     });
+    const warnings = designOnly(all);
 
     expect(warnings).toEqual([]);
   });
 
   it.each([62, 75, 85])("a design reaching %i° from the front raises the limit warning", (deg) => {
-    const { warnings } = buildTemplate({
+    const { warnings: all } = buildTemplate({
       measurements: sphere,
       design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [0, 0.1]]),
       placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
     });
+    const warnings = designOnly(all);
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatchObject({ kind: "past-front-limit" });
@@ -73,11 +77,12 @@ describe("limit warnings", () => {
   });
 
   it("measures the limit by where the surface faces, so it also applies vertically", () => {
-    const { warnings } = buildTemplate({
+    const { warnings: all } = buildTemplate({
       measurements: sphere,
       design: unitDesign([[0, 0], [0.01, 0], [0, 0.01]]),
       placement: { width: 2, verticalOffset: at(70), rotation: 0 },
     });
+    const warnings = designOnly(all);
 
     expect(warnings.map((w) => w.kind)).toEqual(["past-front-limit"]);
   });
@@ -103,11 +108,12 @@ describe("points missing the silhouette", () => {
   });
 
   it("a design inside the outline reports none", () => {
-    const { warnings } = buildTemplate({
+    const { warnings: all } = buildTemplate({
       measurements: sphere,
       design: designOf([[-2, -1], [2, -1], [2, 1], [-2, 1]]),
       placement: { width: 4, verticalOffset: 0, rotation: 0 },
     });
+    const warnings = designOnly(all);
 
     expect(warnings).toEqual([]);
   });
