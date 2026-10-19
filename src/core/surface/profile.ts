@@ -1,361 +1,145 @@
 /**
- * Smooth side profile through tape rings, as a front meridian parameterized by arc length s ∈ [0, L]
- * from the stem (s = 0) to the base (s = L).
+ * Smooth side profile through tape rings at known heights. The meridian runs from the stem to the base as an
+ * angle φ ∈ [0, π], the parametric latitude of an ellipsoid measured from the stem:
  *
- * The meridian's direction is an angle θ(s) turning from 0 at the stem (heading straight out, away from the
- * axis) to π at the base (heading straight back in): dρ/ds = cos θ, dy/ds = −sin θ. So |dρ/ds| ≤ 1 holds by
- * construction, the arc length is exactly L, and the surface meets the axis smoothly at both ends.
+ *   y(φ) = (H/2) cos φ,   ρ(φ) = sin φ · q(φ),   q(φ) = Σ_k a_k cos kφ   (k = 0 … K)
  *
- *   θ(s) = π s / L + Σ_j c_j sin(j π s / L)
+ * A ring at position p (0 = table, 1 = top) sits at cos φ = 2p − 1, whatever the shape. Height falls all the
+ * way down the meridian, so the profile can't fold back up, and q is even about both poles, so the surface
+ * closes smoothly there with a level top and bottom. With q constant this is the ellipsoid with semi-axes
+ * (q, q, H/2).
  *
- * With every c_j = 0 this is a sphere of circumference 2L. The c_j are the smoothest (least Σ j⁴ c_j²) that
- * close the profile at the base (ρ(L) = 0) and pass through every ring, found by Gauss–Newton with each step
- * a small quadratic program. θ is linear in the c_j, so two shape rules are exact linear inequalities:
+ * The a_k are the smoothest (least Σ_{k≥1} k⁴ a_k², so the ellipsoid costs nothing) that pass through every
+ * ring and are level (dρ/dφ = 0) at the widest ring. ρ is linear in the a_k, so that is one quadratic program,
+ * and the one-widest-point rule is exact linear inequalities in it: dρ/dφ ≥ 0 above the widest ring and ≤ 0
+ * below it, so the widest ring is a true maximum and nothing bulges past it. Rings that narrow and widen again
+ * on one side of the widest can't meet that; they get the smoothest profile that stays between the axis and the
+ * widest radius instead.
  *
- * - No fold: 0 ≤ θ ≤ π everywhere, so the profile keeps heading down (no overhang).
- * - One widest point: θ ≤ π/2 above the widest point and θ ≥ π/2 below it, so the radius only grows down to
- *   the widest ring and only shrinks after it. The widest ring is then a true maximum, where it was measured.
- *   Without these, the smoothest θ overshoots: a barrel bulges out past the widest ring on either side of it.
- *
- * When the widest point's place isn't given, it goes wherever the profile is smoothest. Smoothest-first gives a
- * sphere back exactly from sphere rings. (Rings that rise and fall more than once can't have one widest point;
- * they get the smoothest profile that is widest at its own widest point, as wide as the widest ring.)
+ * The program is convex, so a ring read off the fitted shape and added to the others changes nothing.
  */
 
-/** A point the profile must pass through: front-to-back radius `rho` at arc length `s` from the stem. */
-export interface ProfileKnot {
-  s: number;
-  rho: number;
+/** A ring the profile must pass through: radius at a position (0 = bottom, 1 = top). */
+export interface ProfileRing {
+  position: number;
+  radius: number;
 }
 
-export interface ProfileTable {
-  /** Front arc length L. */
-  length: number;
-  /** Node arc lengths, 0 … L, evenly spaced. */
-  s: Float64Array;
-  /** Front-to-back radius ρ at each node. */
-  rho: Float64Array;
-  /** Height y at each node, 0 at mid-height (stem up). */
-  y: Float64Array;
-  /** dρ/ds = cos θ and dy/ds = −sin θ at each node, for cubic Hermite interpolation between nodes. */
-  drho: Float64Array;
-  dy: Float64Array;
+export interface Profile {
+  /** Overall height H. */
+  height: number;
+  /** a_k, k = 0 … K: q(φ) = Σ a_k cos kφ. */
+  coefficients: Float64Array;
 }
 
 export type ProfileFit =
-  | { ok: true; table: ProfileTable }
-  /** `at`: arc length where the fit went wrong (fold or no convergence), to blame the nearest ring. */
-  | { ok: false; at: number };
+  /** `ellipsoid`: the fitted shape is the ellipsoid through the widest ring. */
+  | { ok: true; profile: Profile; ellipsoid: boolean }
+  /** `ring`: the ring to blame (the widest). */
+  | { ok: false; ring: number };
 
-const INTERVALS = 256;
-const MIN_MODES = 16;
-const MAX_ITERATIONS = 60;
-/** Places tried for the widest point, when it isn't given, between each pair of neighbouring rings (odd). */
-const WIDEST_SAMPLES = 11;
-/** How much less smooth than the best a place for the widest point can be and still count as nearly as good. */
-const NEARLY_SMOOTHEST = 5e-3;
-// Gauss–Legendre, 3 points on [0, 1].
-const GL_X = [0.5 - Math.sqrt(0.15), 0.5, 0.5 + Math.sqrt(0.15)];
-const GL_W = [5 / 18, 8 / 18, 5 / 18];
-
+/** Places down the meridian where the shape rules are enforced. */
+const NODES = 256;
 /**
- * Fit the profile. `knots` are rings at known places. `widest` is the front-to-back radius at the profile's
- * widest point: at `widest.s` if given, otherwise wherever it turns out to be.
+ * Terms of q after a_0. Fixed rather than growing with the rings, so a ring read off the fit and added leaves the
+ * fit unchanged however many there are.
  */
-export function fitProfile(length: number, knots: ProfileKnot[], widest: { rho: number; s?: number }): ProfileFit {
-  const L = length;
-  const R = widest.rho;
-  const constraints = 1 + knots.length + (widest.s === undefined ? 1 : 2);
-  const model = profileModel(L, Math.max(MIN_MODES, constraints + 8));
-  const sorted = [...knots].sort((a, b) => a.s - b.s);
+const MODES = 32;
 
-  if (widest.s !== undefined) {
-    const fit = unimodal(sorted, R, widest.s) ? model.fit(knots, R, widest.s, true) : model.fit(knots, R, widest.s, false);
-    return fit.ok ? model.table(fit.c) : fit;
-  }
-
-  // The smoothest profile with its widest point wherever it lands: if that already has a single widest point,
-  // the rule changes nothing.
-  const free = model.fit(knots, R, undefined, false);
-  if (free.ok && model.single(free.c)) return model.table(free.c);
-
-  // Otherwise search for the widest point's place. It can go between two neighbouring knots (poles included),
-  // far enough from each for the radius to reach R, with the rings rising before it and falling after it.
-  // Smoothness often barely changes across a wide stretch (a barrel's flat side), with shallow dips here and
-  // there, so rather than its exact minimum, take the middle of the places that are nearly as smooth as the best:
-  // symmetric rings then give a symmetric shape, and a small change to a ring moves the widest point only a little.
-  const poles = [{ s: 0, rho: 0 }, ...sorted, { s: L, rho: 0 }];
-  let best: { s: number; energy: number; samples: { s: number; energy: number }[]; from: Float64Array } | null = null;
-  for (let i = 0; i + 1 < poles.length; i++) {
-    const lo = poles[i].s + (R - poles[i].rho), hi = poles[i + 1].s - (R - poles[i + 1].rho);
-    if (!(hi > lo) || !unimodal(sorted, R, (poles[i].s + poles[i + 1].s) / 2)) continue;
-    // Keep clear of the ends, where the profile would have to run straight out (|dρ/ds| = 1). Every fit starts
-    // from the one in the middle, so mirror-image places get mirror-image fits.
-    const a = lo + 0.02 * (hi - lo), b = hi - 0.02 * (hi - lo);
-    const middle = model.fit(knots, R, (a + b) / 2, true);
-    const from = middle.ok ? middle.c : undefined;
-    const samples = Array.from({ length: WIDEST_SAMPLES }, (_, k) => {
-      const s = a + ((b - a) * k) / (WIDEST_SAMPLES - 1);
-      let fit = k === (WIDEST_SAMPLES - 1) / 2 ? middle : model.fit(knots, R, s, true, from);
-      if (!fit.ok && from) fit = model.fit(knots, R, s, true);
-      return { s, energy: fit.ok ? fit.energy : Infinity };
-    });
-    const top = samples.reduce((p, q) => (q.energy < p.energy ? q : p));
-    if (top.energy < Infinity && (!best || top.energy < best.energy) && from) best = { ...top, samples, from };
-  }
-  if (best) {
-    const { samples, energy } = best as { samples: { s: number; energy: number }[]; energy: number };
-    const limit = energy * (1 + NEARLY_SMOOTHEST) + 1e-12;
-    // Ends of the nearly-smoothest places (the first and last sample within the limit), interpolated outward
-    // to where the smoothness crosses the limit.
-    const first = samples.findIndex((x) => x.energy <= limit);
-    const last = samples.length - 1 - [...samples].reverse().findIndex((x) => x.energy <= limit);
-    const edge = (j: number, dir: 1 | -1) => {
-      const inside = samples[j], outside = samples[j + dir];
-      if (!outside || !Number.isFinite(outside.energy)) return inside.s;
-      return inside.s + ((outside.s - inside.s) * (limit - inside.energy)) / (outside.energy - inside.energy);
-    };
-    const at = (edge(first, -1) + edge(last, 1)) / 2;
-    const from = (best as { from: Float64Array }).from;
-    let fit = model.fit(knots, R, at, true, from);
-    if (!fit.ok) fit = model.fit(knots, R, (best as { s: number }).s, true, from);
-    if (fit.ok) return model.table(fit.c);
-  }
-  // Rings that go up and down: keep the profile that is widest where it is widest.
-  return free.ok ? model.table(free.c) : free;
+/** The angle φ from the stem of a ring at `position`. */
+export function angleAt(position: number): number {
+  return Math.acos(Math.min(1, Math.max(-1, 2 * position - 1)));
 }
 
-/** Whether the rings rise strictly to below R before `at` and fall strictly after it. */
-function unimodal(sorted: ProfileKnot[], R: number, at: number): boolean {
-  for (let i = 0; i < sorted.length; i++) {
-    if (!(sorted[i].rho < R) || sorted[i].s === at) return false;
-    if (i > 0 && sorted[i].s <= at && !(sorted[i].rho > sorted[i - 1].rho)) return false;
-    if (i > 0 && sorted[i - 1].s >= at && !(sorted[i].rho < sorted[i - 1].rho)) return false;
+/** Radius ρ, height y and their φ-derivatives at angle φ from the stem. */
+export function profileAt({ height, coefficients: a }: Profile, phi: number) {
+  let q = 0, dq = 0;
+  for (let k = 0; k < a.length; k++) {
+    q += a[k] * Math.cos(k * phi);
+    dq -= k * a[k] * Math.sin(k * phi);
   }
-  return true;
+  const sin = Math.sin(phi), cos = Math.cos(phi);
+  return { radius: sin * q, dRadius: cos * q + sin * dq, y: (height / 2) * cos, dy: -(height / 2) * sin };
 }
 
-type Fit = { ok: true; c: Float64Array; energy: number } | { ok: false; at: number };
+/** Fit the profile through `rings` (distinct positions strictly between 0 and 1, positive radii). */
+export function fitProfile(height: number, rings: ProfileRing[]): ProfileFit {
+  const w = rings.reduce((best, r, i) => (r.radius > rings[best].radius ? i : best), 0);
+  const R = rings[w].radius;
+  const K = MODES;
+  const weight = Float64Array.from({ length: K }, (_, j) => (j + 1) ** 4);
 
-/** The θ(s) series with J modes on [0, L], and fitting it. */
-function profileModel(L: number, J: number) {
-  const M = INTERVALS;
-  const h = L / M;
-  const weight = Float64Array.from({ length: J }, (_, j) => (j + 1) ** 4);
-
-  // Quadrature nodes and the basis there.
-  const nq = 3 * M;
-  const qs = new Float64Array(nq);
-  for (let m = 0; m < M; m++) for (let k = 0; k < 3; k++) qs[3 * m + k] = (m + GL_X[k]) * h;
-  const basis = Array.from({ length: J }, (_, j) => qs.map((s) => Math.sin(((j + 1) * Math.PI * s) / L)));
-  const modesAt = (s: number) => Float64Array.from({ length: J }, (_, j) => Math.sin(((j + 1) * Math.PI * s) / L));
-  /** θ − π s / L = nodeModes[m] · c at the interior table nodes. */
-  const nodeModes = Array.from({ length: M + 1 }, (_, m) => modesAt(m * h));
-
-  const thetaAt = (c: Float64Array, s: number) => {
-    let t = (Math.PI * s) / L;
-    for (let j = 0; j < J; j++) t += c[j] * Math.sin(((j + 1) * Math.PI * s) / L);
-    return t;
-  };
-
-  /** ρ(s) and its gradient in c, from the tables at interval ends plus a partial interval. */
-  interface State {
-    c: Float64Array;
-    sin: Float64Array;
-    /** ρ at interval ends (M + 1). */
-    F: Float64Array;
-    /** ∂ρ/∂c_j at interval ends: G[j][m]. */
-    G: Float64Array[];
-  }
-  const state = (c: Float64Array): State => {
-    const cos = new Float64Array(nq), sin = new Float64Array(nq);
-    for (let q = 0; q < nq; q++) {
-      let t = (Math.PI * qs[q]) / L;
-      for (let j = 0; j < J; j++) t += c[j] * basis[j][q];
-      cos[q] = Math.cos(t);
-      sin[q] = Math.sin(t);
-    }
-    const F = new Float64Array(M + 1);
-    for (let m = 0; m < M; m++) {
-      let sum = 0;
-      for (let k = 0; k < 3; k++) sum += GL_W[k] * cos[3 * m + k];
-      F[m + 1] = F[m] + sum * h;
-    }
-    const G = basis.map((phi) => {
-      const g = new Float64Array(M + 1);
-      for (let m = 0; m < M; m++) {
-        let sum = 0;
-        for (let k = 0; k < 3; k++) sum += GL_W[k] * sin[3 * m + k] * phi[3 * m + k];
-        g[m + 1] = g[m] - sum * h;
-      }
-      return g;
-    });
-    return { c, sin, F, G };
-  };
-  /** ρ(s) and ∂ρ/∂c at any s. */
-  const evaluate = (st: State, s: number): { value: number; grad: Float64Array } => {
-    const m = Math.min(M - 1, Math.max(0, Math.floor(s / h)));
-    const a = m * h, w = s - a;
-    let value = st.F[m];
-    const grad = new Float64Array(J);
-    for (let j = 0; j < J; j++) grad[j] = st.G[j][m];
-    if (w !== 0) {
-      for (let k = 0; k < 3; k++) {
-        const x = a + GL_X[k] * w;
-        const t = thetaAt(st.c, x);
-        value += GL_W[k] * w * Math.cos(t);
-        for (let j = 0; j < J; j++) grad[j] -= GL_W[k] * w * Math.sin(t) * Math.sin(((j + 1) * Math.PI * x) / L);
-      }
-    }
-    return { value, grad };
-  };
-  /** Where the profile is widest: θ = π/2, in the interval with the largest ρ where cos θ turns negative. */
-  const widestPoint = (st: State): number => {
-    let best = -1, bestRho = -Infinity;
-    for (let m = 0; m < M; m++) {
-      const c0 = Math.cos(thetaAt(st.c, m * h)), c1 = Math.cos(thetaAt(st.c, (m + 1) * h));
-      if (c0 >= 0 && c1 < 0 && Math.max(st.F[m], st.F[m + 1]) > bestRho) {
-        best = m;
-        bestRho = Math.max(st.F[m], st.F[m + 1]);
-      }
-    }
-    if (best < 0) return L / 2;
-    let lo = best * h, hi = (best + 1) * h;
-    for (let i = 0; i < 50; i++) {
-      const mid = (lo + hi) / 2;
-      if (Math.cos(thetaAt(st.c, mid)) >= 0) lo = mid;
-      else hi = mid;
-    }
-    return (lo + hi) / 2;
-  };
-
-  /** Bounds active in the last quadratic program, to start the next one from. */
-  let lastActive: number[] = [];
-
-  /**
-   * The smoothest profile through the knots with widest radius R, at `at` if given (level there), otherwise
-   * at the profile's own widest point. `single`: one widest point at `at`, rising before it and falling after.
-   */
-  const fit = (knots: ProfileKnot[], R: number, at: number | undefined, single: boolean, from?: Float64Array): Fit => {
-    const constraints = 1 + knots.length + (at === undefined ? 1 : 2);
-    // Bounds on θ − π s / L at the interior table nodes.
-    const lo = new Float64Array(M + 1).fill(-Infinity), hi = new Float64Array(M + 1).fill(Infinity);
-    for (let m = 1; m < M; m++) {
-      const s = m * h, sphere = (Math.PI * s) / L;
-      const below = single && at !== undefined && s > at, above = single && at !== undefined && s < at;
-      const skip = single && at !== undefined && Math.abs(s - at) < 1e-9 * L;
-      lo[m] = skip ? -Infinity : (below ? Math.PI / 2 : 0) - sphere;
-      hi[m] = skip ? Infinity : (above ? Math.PI / 2 : Math.PI) - sphere;
-    }
-    const bounds = { rows: nodeModes, lo, hi };
-    // Level at the widest point: θ = π/2 (scaled by L/π to a length, like the other residuals). Linear in c.
-    const levelRow = at === undefined ? null : modesAt(at).map((x) => (x * L) / Math.PI);
-    const levelTarget = at === undefined ? 0 : L / 2 - at;
-
-    const residuals = (st: State): { r: Float64Array; A: Float64Array[] } => {
-      const r = new Float64Array(constraints);
-      const A: Float64Array[] = [];
-      r[0] = st.F[M];
-      A.push(Float64Array.from(st.G, (g) => g[M]));
-      knots.forEach((knot, i) => {
-        const { value, grad } = evaluate(st, knot.s);
-        r[1 + i] = value - knot.rho;
-        A.push(grad);
-      });
-      if (at === undefined) {
-        // Envelope: at the widest point dρ/ds = 0, so moving it doesn't change ρ there to first order.
-        const { value, grad } = evaluate(st, widestPoint(st));
-        r[constraints - 1] = value - R;
-        A.push(grad);
-      } else {
-        const { value, grad } = evaluate(st, at);
-        r[constraints - 2] = value - R;
-        A.push(grad);
-        r[constraints - 1] = dot(levelRow!, st.c) - levelTarget;
-        A.push(levelRow!);
-      }
-      return { r, A };
+  // Unknowns x_k = a_k / R for k = 1 … K; a_0 follows from passing through the widest ring:
+  // q(φ)/R = Q0 + Σ x_k (cos kφ − cos kφw), with Q0 = 1 / sin φw. Each quantity below is constant + row · x.
+  const fw = angleAt(rings[w].position);
+  const Q0 = 1 / Math.sin(fw);
+  const shift = (phi: number) => Float64Array.from({ length: K }, (_, j) => Math.cos((j + 1) * phi) - Math.cos((j + 1) * fw));
+  /** ρ / R. */
+  const radiusRow = (phi: number) => ({ row: shift(phi).map((x) => Math.sin(phi) * x), constant: Math.sin(phi) * Q0 });
+  /** (dρ/dφ) / R. */
+  const slopeRow = (phi: number) => {
+    const s = shift(phi);
+    return {
+      row: s.map((x, j) => Math.cos(phi) * x - Math.sin(phi) * (j + 1) * Math.sin((j + 1) * phi)),
+      constant: Math.cos(phi) * Q0,
     };
-    const norm = (r: Float64Array) => Math.max(...r.map(Math.abs));
-
-    // Start where the shape rules hold, so every step (a blend of two such points) keeps them: the smoothest
-    // such θ, or, from a nearby fit `from`, the least change to it that keeps them (c = from + δ).
-    const c0 = from ?? new Float64Array(J);
-    const shifted = { rows: nodeModes, lo: lo.map((x, m) => x - dot(nodeModes[m], c0)), hi: hi.map((x, m) => x - dot(nodeModes[m], c0)) };
-    const start = levelRow ? minimumNorm(weight, [{ n: levelRow, t: levelTarget - dot(levelRow, c0) }], shifted, from ? [] : lastActive) : null;
-    if (levelRow && !start) return { ok: false, at: at ?? L / 2 };
-    if (start && !from) lastActive = start.active;
-    let st = state(start ? c0.map((x, j) => x + start.c[j]) : c0);
-    let { r, A } = residuals(st);
-    const tolerance = 1e-10 * L;
-    for (let it = 0; it < MAX_ITERATIONS && norm(r) > tolerance; it++) {
-      // Smoothest c with the linearized constraints met: A c = A c_k − r.
-      const qp = minimumNorm(weight, A.map((n, p) => ({ n, t: dot(n, st.c) - r[p] })), bounds, lastActive);
-      if (!qp) return { ok: false, at: at ?? L / 2 };
-      const target = qp.c;
-      lastActive = qp.active;
-      // Damped: halve the step until the residual drops.
-      let step = 1;
-      let next = st, nextRes = { r, A };
-      for (let tries = 0; tries < 12; tries++, step /= 2) {
-        const c = st.c.map((cj, j) => cj + step * (target[j] - cj));
-        next = state(c);
-        nextRes = residuals(next);
-        if (norm(nextRes.r) < norm(r)) break;
-      }
-      if (!(norm(nextRes.r) < norm(r))) break;
-      st = next;
-      ({ r, A } = nextRes);
-    }
-    if (!(norm(r) <= 1e-7 * L)) {
-      // Blame the constraint that is furthest off.
-      let worst = 0;
-      r.forEach((x, i) => (Math.abs(x) > Math.abs(r[worst]) ? (worst = i) : 0));
-      return { ok: false, at: worst === 0 ? L : worst <= knots.length ? knots[worst - 1].s : (at ?? widestPoint(st)) };
-    }
-    // The profile must keep heading down (no overhang folding back up) and stay off the axis in between.
-    for (let m = 0; m <= M; m++) {
-      if (-Math.sin(thetaAt(st.c, m * h)) > 1e-9 || (m > 0 && m < M && !(st.F[m] > 0))) return { ok: false, at: m * h };
-    }
-    let energy = 0;
-    for (let j = 0; j < J; j++) energy += weight[j] * st.c[j] ** 2;
-    return { ok: true, c: st.c, energy };
   };
 
-  /** Tables at the interval ends. */
-  const table = (c: Float64Array): ProfileFit => {
-    const st = state(c);
-    const s = new Float64Array(M + 1), drho = new Float64Array(M + 1), dy = new Float64Array(M + 1), y = new Float64Array(M + 1);
-    for (let m = 0; m <= M; m++) {
-      s[m] = m * h;
-      const t = thetaAt(c, s[m]);
-      drho[m] = Math.cos(t);
-      dy[m] = -Math.sin(t);
-      if (m > 0) {
-        let sum = 0;
-        for (let k = 0; k < 3; k++) sum += GL_W[k] * st.sin[3 * (m - 1) + k];
-        y[m] = y[m - 1] - sum * h;
-      }
-    }
-    const half = -y[M] / 2;
-    for (let m = 0; m <= M; m++) y[m] += half;
-    const rho = st.F.slice();
-    rho[0] = 0;
-    rho[M] = 0;
-    return { ok: true, table: { length: L, s, rho, y, drho, dy } };
-  };
+  const level = slopeRow(fw);
+  const equalities = [
+    ...rings.flatMap((r, i) => {
+      if (i === w) return [];
+      const { row, constant } = radiusRow(angleAt(r.position));
+      return [{ n: row, t: r.radius / R - constant }];
+    }),
+    { n: level.row, t: -level.constant },
+  ];
 
-  /** Whether the profile rises to its widest point and falls after it, with nothing else as wide. */
-  const single = (c: Float64Array): boolean => {
-    const at = widestPoint(state(c));
-    for (let m = 1; m < M; m++) {
-      const t = thetaAt(c, m * h);
-      if (m * h < at ? t > Math.PI / 2 + 1e-9 : t < Math.PI / 2 - 1e-9) return false;
-    }
-    return true;
-  };
+  const nodes = Array.from({ length: NODES + 1 }, (_, m) => (Math.PI * m) / NODES);
+  // One widest point: rising (dρ/dφ ≥ 0) above the widest ring, falling below it. At the poles that keeps q ≥ 0.
+  const slopes = nodes.map(slopeRow);
+  const rising = bounds(nodes.map((phi, m) => ({
+    row: slopes[m].row,
+    lo: phi < fw ? -slopes[m].constant : -Infinity,
+    hi: phi > fw ? -slopes[m].constant : Infinity,
+  })));
+  // Otherwise: between the axis and the widest radius (0 ≤ ρ/R ≤ 1), still with q ≥ 0 at the poles.
+  const capped = bounds(nodes.map((phi, m) => {
+    if (m === 0) return { row: slopes[m].row, lo: -slopes[m].constant, hi: Infinity };
+    if (m === NODES) return { row: slopes[m].row, lo: -Infinity, hi: -slopes[m].constant };
+    const { row, constant } = radiusRow(phi);
+    return { row, lo: -constant, hi: 1 - constant };
+  }));
 
-  return { fit, table, single };
+  const x = (unimodal(rings, w) ? minimumNorm(weight, equalities, rising) : null) ?? minimumNorm(weight, equalities, capped);
+  if (!x) return { ok: false, ring: w };
+  const coefficients = new Float64Array(K + 1);
+  coefficients[0] = R * x.reduce((sum, xj, j) => sum - xj * Math.cos((j + 1) * fw), Q0);
+  for (let j = 0; j < K; j++) coefficients[j + 1] = R * x[j];
+  const profile = { height, coefficients };
+
+  // Off the axis between the poles, and not pointed at them.
+  const q0 = profileAt(profile, 0).dRadius, qPi = -profileAt(profile, Math.PI).dRadius;
+  if (!(q0 > 0 && qPi > 0) || nodes.some((phi, m) => m > 0 && m < NODES && !(profileAt(profile, phi).radius > 0))) {
+    return { ok: false, ring: w };
+  }
+  return { ok: true, profile, ellipsoid: x.every((xj) => Math.abs(xj) < 1e-9) };
+}
+
+/** One lo ≤ row · x ≤ hi per node, in the form `minimumNorm` takes. */
+function bounds(perNode: { row: Float64Array; lo: number; hi: number }[]) {
+  return {
+    rows: perNode.map((b) => b.row),
+    lo: Float64Array.from(perNode, (b) => b.lo),
+    hi: Float64Array.from(perNode, (b) => b.hi),
+  };
+}
+
+/** Whether the radii rise strictly from the top down to the widest ring and fall strictly after it. */
+function unimodal(rings: ProfileRing[], w: number): boolean {
+  const down = [...rings].sort((a, b) => b.position - a.position);
+  const at = down.indexOf(rings[w]);
+  return down.every((r, i) => i === 0 || (i <= at ? r.radius > down[i - 1].radius : r.radius < down[i - 1].radius));
 }
 
 function dot(a: ArrayLike<number>, b: ArrayLike<number>): number {
@@ -364,12 +148,6 @@ function dot(a: ArrayLike<number>, b: ArrayLike<number>): number {
   return sum;
 }
 
-/** Σ a_j b_j / w_j. */
-function dotOver(a: ArrayLike<number>, b: ArrayLike<number>, w: ArrayLike<number>): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += (a[i] * b[i]) / w[i];
-  return sum;
-}
 
 /**
  * The c with least Σ w_j c_j² such that n·c = t for each equality and lo_m ≤ rows_m·c ≤ hi_m for each bound;
@@ -377,16 +155,12 @@ function dotOver(a: ArrayLike<number>, b: ArrayLike<number>, w: ArrayLike<number
  * time, each by a step that keeps the added ones met and their multipliers of the right sign, dropping one
  * that would go wrong. The active normals stay linearly independent, so a flat stretch of the profile with
  * many touching bounds doesn't make it degenerate.
- *
- * `warm`: bounds that were active last time (as returned in `active`). Starting from them, minus any whose
- * multipliers come out wrong, saves re-adding them one by one when the problem has barely changed.
  */
 function minimumNorm(
   w: Float64Array,
   equalities: { n: Float64Array; t: number }[],
   bounds: { rows: Float64Array[]; lo: Float64Array; hi: Float64Array },
-  warm: number[] = [],
-): { c: Float64Array; active: number[] } | null {
+): Float64Array | null {
   const n = w.length;
   const j0 = w.map((x) => 1 / Math.sqrt(x));
   const c = new Float64Array(n);
@@ -453,30 +227,9 @@ function minimumNorm(
     const t = upper ? -bounds.hi[m] : bounds.lo[m];
     return Number.isFinite(t) ? { a: upper ? bounds.rows[m].map((x) => -x) : bounds.rows[m], t, eq: false, key } : null;
   };
-  // Warm start: the least c meeting the equalities and the warm bounds exactly, dropping the bound with the
-  // most negative multiplier until none is negative. That is a valid starting point for the dual method.
-  let start = [...equalities.map((e) => ({ a: e.n, t: e.t, eq: true, key: -1 })), ...warm.flatMap((k) => boundRow(k) ?? [])];
-  while (start.length > equalities.length) {
-    const H = start.map((p) => start.map((q) => dotOver(p.a, q.a, w)));
-    const lambda = solve(H, start.map((p) => p.t));
-    if (!lambda) break;
-    let worst = -1;
-    lambda.forEach((l, i) => (!start[i].eq && l < 0 && (worst < 0 || l < lambda[worst]) ? (worst = i) : 0));
-    if (worst < 0) {
-      start.forEach((p, i) => {
-        for (let j = 0; j < n; j++) c[j] += (lambda[i] * p.a[j]) / w[j];
-      });
-      active.push(...start);
-      u = lambda;
-      break;
-    }
-    start.splice(worst, 1);
-  }
-  if (active.length === 0) {
-    for (const e of equalities) {
-      const flip = dot(e.n, c) > e.t;
-      if (!add(flip ? e.n.map((x) => -x) : e.n, flip ? -e.t : e.t, true, -1)) return null;
-    }
+  for (const e of equalities) {
+    const flip = dot(e.n, c) > e.t;
+    if (!add(flip ? e.n.map((x) => -x) : e.n, flip ? -e.t : e.t, true, -1)) return null;
   }
   const tolerance = 1e-10;
   for (let round = 0; round < 4 * bounds.rows.length; round++) {
@@ -488,7 +241,7 @@ function minimumNorm(
       if (bounds.lo[m] - v > worstBy && !isActive.has(2 * m)) [worst, worstBy, upper] = [m, bounds.lo[m] - v, false];
       if (v - bounds.hi[m] > worstBy && !isActive.has(2 * m + 1)) [worst, worstBy, upper] = [m, v - bounds.hi[m], true];
     }
-    if (worst < 0) return { c, active: active.filter((r) => !r.eq).map((r) => r.key) };
+    if (worst < 0) return c;
     const row = boundRow(2 * worst + (upper ? 1 : 0))!;
     if (!add(row.a, row.t, false, row.key)) return null;
   }
@@ -536,27 +289,4 @@ function householder(columns: Float64Array[], n: number): { Q: Float64Array; R: 
   const R = new Float64Array(q * q);
   for (let i = 0; i < q; i++) for (let k = i; k < q; k++) R[i * q + k] = A[i * q + k];
   return { Q, R };
-}
-
-/** Gaussian elimination with partial pivoting; null if singular. */
-function solve(matrix: number[][], rhs: number[]): number[] | null {
-  const n = rhs.length;
-  const a = matrix.map((row, i) => [...row, rhs[i]]);
-  for (let col = 0; col < n; col++) {
-    let pivot = col;
-    for (let row = col + 1; row < n; row++) if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
-    if (Math.abs(a[pivot][col]) < 1e-300) return null;
-    [a[col], a[pivot]] = [a[pivot], a[col]];
-    for (let row = col + 1; row < n; row++) {
-      const f = a[row][col] / a[col][col];
-      for (let k = col; k <= n; k++) a[row][k] -= f * a[col][k];
-    }
-  }
-  const x = new Array<number>(n).fill(0);
-  for (let row = n - 1; row >= 0; row--) {
-    let sum = a[row][n];
-    for (let k = row + 1; k < n; k++) sum -= a[row][k] * x[k];
-    x[row] = sum / a[row][row];
-  }
-  return x;
 }

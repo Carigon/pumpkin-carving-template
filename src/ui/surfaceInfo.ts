@@ -6,19 +6,18 @@ export function renderSurfaceInfo(root: HTMLElement, surface: SurfaceParameters 
     root.innerHTML = `<h2>Pumpkin model</h2><p class="muted">Fix the measurements above to build the model.</p>`;
     return;
   }
-  const { sideToSide, frontToBack, vertical } = surface.semiAxes;
+  const { sideToSide, vertical } = surface.semiAxes;
   const fmt = (x: number) => `${x.toFixed(2)} ${surface.units}`;
   const intro =
     surface.kind === "ellipsoid"
-      ? "Ellipsoid semi-axes (center to surface):"
-      : "Side profile through your rings, spun around the stem. Center to surface at the widest:";
+      ? "An ellipsoid, round seen from above. Center to surface:"
+      : "Side profile through your rings, spun around the stem; round seen from above. Center to surface:";
   root.innerHTML = `
     <h2>Pumpkin model</h2>
     <p class="muted">${intro}</p>
     <dl class="semi-axes">
-      <dt>Side to side</dt><dd>${fmt(sideToSide)}</dd>
-      <dt>Front to back</dt><dd>${fmt(frontToBack)}</dd>
-      <dt>Center to stem</dt><dd>${fmt(vertical)}</dd>
+      <dt>At the widest</dt><dd>${fmt(sideToSide)}</dd>
+      <dt>To the top</dt><dd>${fmt(vertical)}</dd>
     </dl>
   `;
 }

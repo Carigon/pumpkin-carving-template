@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { buildTemplate, type Design, type Placement } from "../src/core";
 
-// A sphere: front arc = half the circumference.
+// A sphere: height = circumference / π, widest at mid-height.
 const CIRCUMFERENCE = 60;
 const R = CIRCUMFERENCE / (2 * Math.PI);
-const plainSphere = { circumference: CIRCUMFERENCE, frontArc: CIRCUMFERENCE / 2, units: "in" as const };
-/** The same sphere measured with tape rings: widest at the middle of the arc, plus rings a quarter of the way in. */
+const plainSphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }], units: "in" as const };
+/** The same sphere measured with more tape rings, a quarter and three quarters of the way up. */
 const ringedSphere = {
   ...plainSphere,
-  circumferenceAt: CIRCUMFERENCE / 4,
-  rings: [CIRCUMFERENCE / 8, (3 * CIRCUMFERENCE) / 8].map((distance) => ({
-    distance,
-    circumference: 2 * Math.PI * R * Math.sin(distance / R),
+  rings: [0.5, 0.25, 0.75].map((position) => ({
+    position,
+    circumference: 2 * Math.PI * Math.sqrt(R ** 2 - (2 * R * (position - 0.5)) ** 2),
   })),
 };
 

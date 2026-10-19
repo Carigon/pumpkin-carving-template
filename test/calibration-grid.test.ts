@@ -31,8 +31,8 @@ describe("calibration grid design", () => {
 });
 
 describe("ball measurements", () => {
-  it("model a sphere from a single circumference: the front arc is half the circumference", () => {
-    expect(ballMeasurements(29.5, "in")).toEqual({ circumference: 29.5, frontArc: 14.75, units: "in" });
+  it("model a sphere from a single circumference: as tall as it is wide, widest at mid-height", () => {
+    expect(ballMeasurements(29.5, "in")).toEqual({ height: 29.5 / Math.PI, rings: [{ circumference: 29.5, position: 0.5 }], units: "in" });
   });
 });
 

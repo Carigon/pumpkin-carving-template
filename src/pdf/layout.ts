@@ -1,4 +1,4 @@
-import { convertLength, type FlatTemplate, type Placement, type Point2, type PumpkinMeasurements, type SlitOptions, type SurfaceParameters, type Units } from "../core";
+import { convertLength, type FlatTemplate, type Placement, type Point2, type PumpkinMeasurements, type Ring, type SlitOptions, type SurfaceParameters, type Units } from "../core";
 import type { Paper } from "../paper";
 
 /**
@@ -297,10 +297,8 @@ function drawFurniture(
   const { sideToSide, frontToBack, vertical } = surface.semiAxes;
   const lines: [string, number, boolean?][] = [
     [calibrationBall ? `Calibration grid for a ${len(calibrationBall)} ball` : "Pumpkin carving template", 11, true],
-    [`Circumference: ${len(measurements.circumference)}${measurements.circumferenceAt !== undefined ? `, ${len(measurements.circumferenceAt)} from the stem` : ""}`, 8.5],
+    [`Height: ${len(measurements.height)}`, 8.5],
     ...ringLines(measurements, len, pageW - PAGE_MARGIN - infoX),
-    [`Front arc (stem to base): ${len(measurements.frontArc)}`, 8.5],
-    [`Depth: ${measurements.depth ? len(measurements.depth) : "not given (round)"}`, 8.5],
     [`Fitted shape: ${fmt(2 * sideToSide)} x ${fmt(2 * frontToBack)} x ${fmt(2 * vertical)} ${u}`, 8.5],
     ["  (width x depth x height)", 8.5],
     [`Design width seen from the front: ${len(placement.width)}`, 8.5],
@@ -340,20 +338,20 @@ function drawFurniture(
 }
 
 /**
- * Extra rings, down the arc: one per line when there are few, otherwise packed as many to a line as fit in
- * `width` pt (the info block grows taller if it must).
+ * The rings, top down, as circumference @ height above the table: one per line when there are few, otherwise
+ * packed as many to a line as fit in `width` pt (the info block grows taller if it must).
  */
-function ringLines({ rings = [] }: PumpkinMeasurements, len: (v: number) => string, width: number): [string, number][] {
-  const sorted = [...rings].sort((a, b) => a.distance - b.distance);
-  if (sorted.length <= 3) return sorted.map((r) => [`Ring: ${len(r.circumference)} around, ${len(r.distance)} from the stem`, 8.5]);
-  const lines: [string, number][] = [["Rings (around @ from the stem):", 8.5]];
+function ringLines({ height, rings }: PumpkinMeasurements, len: (v: number) => string, width: number): [string, number][] {
+  const sorted = [...rings].sort((a, b) => b.position - a.position);
+  const item = (r: Ring) => `${len(r.circumference)} @ ${len(r.position * height)}`;
+  if (sorted.length <= 3) return sorted.map((r) => [`Ring: ${item(r)} above the table`, 8.5]);
+  const lines: [string, number][] = [["Rings (around @ above the table):", 8.5]];
   let line = "";
   for (const r of sorted) {
-    const item = `${len(r.circumference)} @ ${len(r.distance)}`;
-    const joined = line ? `${line}; ${item}` : `  ${item}`;
+    const joined = line ? `${line}; ${item(r)}` : `  ${item(r)}`;
     if (line && textWidth(joined, 8.5) > width) {
       lines.push([`${line};`, 8.5]);
-      line = `  ${item}`;
+      line = `  ${item(r)}`;
     } else line = joined;
   }
   lines.push([line, 8.5]);

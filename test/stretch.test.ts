@@ -11,7 +11,7 @@ function disc(): Design {
 }
 
 function sphere(circumference: number) {
-  return { circumference, frontArc: circumference / 2, units: "in" as const };
+  return { height: circumference / Math.PI, rings: [{ circumference, position: 0.5 }], units: "in" as const };
 }
 
 describe("stretch", () => {

@@ -21,8 +21,8 @@ A browser-based tool. I load my design (an SVG, or a scan/photo of line art that
 7. As a pumpkin carver, I want to crop the uploaded image, so that page borders and scan edges aren't traced as part of the design.
 8. As a pumpkin carver, I want to see the traced result before continuing, so that I can adjust the cleanup settings until the trace looks right.
 9. As a pumpkin carver, I want to enter my pumpkin's widest circumference from a tape measure, so that the model matches my pumpkin's real size.
-10. As a pumpkin carver, I want to enter the stem-to-base arc measured over the front, so that the model matches how squat or tall my pumpkin is.
-11. As a pumpkin carver with an oval pumpkin, I want an optional depth measurement, so that the model can be narrower front-to-back than side-to-side.
+10. As a pumpkin carver, I want to enter my pumpkin's height (from the table to a book laid flat on its shoulders, stem left out) and add more tape rings at heights I choose, so that the model matches how squat, tall or lopsided my pumpkin is.
+11. As a pumpkin carver with an oval pumpkin, I want an optional depth measurement, so that the model can be narrower front-to-back than side-to-side. (Deferred: every horizontal cross-section is round for now.)
 12. As a pumpkin carver, I want to switch between inches and centimeters, so that I can work in whichever units my tape measure uses.
 13. As a pumpkin carver, I want inches as the default unit, so that the common case needs no setup.
 14. As a pumpkin carver, I want to set the design's width as seen from the front, so that I control how big the face looks on the pumpkin.
@@ -54,7 +54,7 @@ A browser-based tool. I load my design (an SVG, or a scan/photo of line art that
 40. As a returning user, I want my last measurements, units and slit settings remembered, so that I don't have to re-enter them every time.
 41. As a privacy-conscious user, I want everything processed in my browser, so that my images never get uploaded anywhere.
 42. As a pumpkin carver, I want to print a grid test template for a ball of known size, so that I can check the tool is accurate before using it on a real pumpkin.
-43. As a pumpkin carver, I want clear feedback when my measurements are impossible (for example, an arc too short for the circumference), so that I can fix typos instead of getting a broken template.
+43. As a pumpkin carver, I want clear feedback when my measurements are impossible (for example, a ring above the top of the pumpkin, or two rings at the same height), so that I can fix typos instead of getting a broken template.
 
 ## Implementation Decisions
 
@@ -72,7 +72,7 @@ A browser-based tool. I load my design (an SVG, or a scan/photo of line art that
 
 Inputs:
 - **Design:** closed paths (polylines, or curves broken into segments by the input layer) in arbitrary design units, plus their bounding box.
-- **Pumpkin measurements:** widest circumference, the stem-to-base arc over the front, optional depth, and units.
+- **Pumpkin measurements:** the height, one or more tape rings (each a circumference at a fraction of the height), and units.
 - **Placement:** the design's width as seen from the front (physical units), vertical offset, and rotation.
 - **Slit options:** count and depth.
 
@@ -82,16 +82,17 @@ Outputs:
 - The slit paths.
 - Stretch values per area, available both on the 3D surface (for the preview) and on the flat template.
 - Warnings: parts past about 60° from the front, impossible measurements, and slits that couldn't avoid design lines.
-- The derived surface parameters (the ellipsoid's semi-axes), for the preview and the PDF info block.
+- The derived surface parameters (the fitted shape's size and side profile), for the preview and the PDF info block.
 
 ### Surface model
 
 - The surface is described through a narrow interface: from 2D coordinates on the surface, get a 3D point and the direction the surface faces there; and find where a ray along the viewing direction first hits the surface. This keeps the projection and flattening independent of the shape, so later shapes (a side profile spun around the vertical axis, ribs) can be added without changing the rest.
-- v1 implementation: an ellipsoid that is round seen from above, with optional separate depth.
-  - Horizontal radius = circumference ÷ 2π.
-  - Height is solved numerically so that the meridian arc from stem to base (along the front) matches the measured arc.
-  - With depth given, the front-to-back semi-axis is set from it. The circumference is then read as the circumference of the resulting ellipse, and the side-to-side semi-axis is solved from it.
-- The stem dimple is ignored.
+- Implementation: a side profile spun around the vertical axis, round seen from above.
+  - The height is measured directly: from the table to the underside of a book laid flat on the pumpkin's shoulders. Nothing about it is solved for.
+  - Each ring is a circumference (radius = circumference ÷ 2π) at a position along the height, 0 at the table and 1 at the top. The form takes it as a height above the table and stores the fraction, so changing the height keeps the rings in proportion. One ring by default, at mid-height.
+  - The profile is the smoothest one through every ring at its height. The ring with the largest circumference is the widest part of the pumpkin: the profile only grows down to it and only shrinks after it, so nothing bulges past it, and it never folds back up. With one ring at mid-height it is the ellipsoid with semi-axes C/2π, C/2π, H/2.
+  - A new ring goes in the middle of the largest gap between rings (the bottom and top count as edges), with the circumference the fitted shape already has there, so adding it changes nothing until it is measured.
+- The stem and its dimple are ignored: the model's top is a smooth pole.
 
 ### Projection
 
@@ -136,7 +137,7 @@ Outputs:
 - A good test checks behavior you can see from outside, against known formulas or physical properties. It doesn't check intermediate data structures.
 - The template builder is built test-first (red-green-refactor).
 - Planned tests:
-  - **Fitting the shape to measurements:** the ellipsoid worked out from a circumference and arc reproduces those measurements within tolerance. A sphere (arc = half the circumference) gives equal semi-axes. Impossible measurements produce a warning instead of bad geometry.
+  - **Fitting the shape to measurements:** one ring at mid-height gives the ellipsoid with semi-axes C/2π, C/2π, H/2. A sphere (height = circumference ÷ π, one ring at mid-height) gives equal semi-axes. Several rings are each passed through at their heights, the largest ring is the profile's maximum, and adding a ring read off the fitted shape doesn't change it. Impossible measurements produce a warning instead of bad geometry.
   - **Front projection on a sphere:** a design point at horizontal offset x lands on the surface at the angle arcsin(x/R), and is the expected distance along the surface from the front.
   - **Flattening on a sphere:** distances along lines out from the design center on the template match the true distances along the surface within tolerance. Stretch stays under a set limit for a design spanning 90° with the default slits.
   - **Slit avoidance:** for designs with paths placed in known spots, no slit crosses a design path. When avoidance is impossible, a warning is raised.
@@ -147,7 +148,7 @@ Outputs:
 
 ## Out of Scope
 
-- Pumpkin shapes beyond the ellipsoid: side-profile shapes and ribs (the surface interface allows them later).
+- Pumpkin shapes that aren't round seen from above: oval cross-sections (depth) and ribs (the surface interface allows them later).
 - Perspective projection from a set viewing distance.
 - Correcting photos taken at an angle.
 - Dragging slits by hand.
@@ -159,5 +160,5 @@ Outputs:
 ## Further Notes
 
 - The core physical limit: paper can't lie flat on a doubly curved surface without stretching. ARAP spreads the unavoidable stretch evenly, and slits relieve most of it. Small designs (under about 90° across) fit well. Very large wraparound designs will still show some stretch; the tint and warnings make this visible.
-- Ribs matter less than you'd expect for v1: taped paper sits across the tops of the ribs rather than following each groove, so a smooth ellipsoid is a reasonable model.
+- Ribs matter less than you'd expect for v1: taped paper sits across the tops of the ribs rather than following each groove, so a smooth surface of revolution is a reasonable model.
 - Published to GitHub Issues as Carigon/sphereprojection#1.

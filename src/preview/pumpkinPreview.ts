@@ -92,11 +92,10 @@ export function mountPumpkinPreview(canvas: HTMLCanvasElement): PumpkinPreview {
 
       const { sideToSide: a, vertical: c, frontToBack: b } = surface.semiAxes;
       if (surface.profile !== shownProfile) {
-        // Lathe points go base → stem so the faces point outward; cross-sections are stretched front to back.
+        // Lathe points go base → stem so the faces point outward.
         const points = surface.profile.map((p) => new THREE.Vector2(p.radius, p.height)).reverse();
         pumpkin.geometry.dispose();
         pumpkin.geometry = new THREE.LatheGeometry(points, 128);
-        pumpkin.scale.set(1, 1, surface.depthRatio);
         shownProfile = surface.profile;
       }
       const newSize = Math.max(a, b, c);

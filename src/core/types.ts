@@ -5,34 +5,27 @@ export type Units = "in" | "cm";
 
 /** Tape-measure measurements of the pumpkin. */
 export interface PumpkinMeasurements {
-  /** Widest horizontal circumference. */
-  circumference: number;
-  /** Stem-to-base arc measured over the front. */
-  frontArc: number;
   /**
-   * Optional front-to-back depth: the straight-line distance through the pumpkin (full diameter, not radius).
-   * Every horizontal cross-section then gets the same front-to-back : side-to-side ratio as the widest one.
+   * Straight vertical height from the table to the underside of a book laid flat on the pumpkin's shoulders.
+   * The stem and its dimple are left out: the model's top is a smooth pole.
    */
-  depth?: number;
-  /** Optional: where the widest circumference was taken, as the distance from the stem along the front arc. */
-  circumferenceAt?: number;
+  height: number;
   /**
-   * Optional extra tape rings along the front arc. With none (and no `circumferenceAt`) the pumpkin is the
-   * v1 ellipsoid; with any, it is a surface of revolution whose side profile passes through every ring.
+   * Horizontal tape rings, at least one. The one with the largest circumference is the widest part of the
+   * pumpkin. Every horizontal cross-section is a circle.
    */
-  rings?: Ring[];
+  rings: Ring[];
   units: Units;
 }
 
-/** A horizontal tape ring, taken at a mark on the front arc. */
+/** A horizontal tape ring around the pumpkin. */
 export interface Ring {
-  /** Distance of the mark from the stem, along the front arc. */
-  distance: number;
-  /** Circumference of the pumpkin at that mark. */
   circumference: number;
+  /** Where the ring was taken, as a fraction of the height: 0 = bottom (the table), 1 = top. */
+  position: number;
 }
 
-/** Semi-axes of the fitted ellipsoid, in the measurement units. */
+/** Half the fitted shape's size along each axis, in the measurement units. */
 export interface SemiAxes {
   /** Side-to-side (x). */
   sideToSide: number;
@@ -50,7 +43,7 @@ export interface ProfilePoint {
 
 /** Derived surface parameters, for the preview and the PDF info block. */
 export interface SurfaceParameters {
-  /** "ellipsoid" (widest ring only) or "revolved" (a side profile through extra rings). */
+  /** "ellipsoid" when the smoothest shape through the rings is one (e.g. a single ring at mid-height), else "revolved". */
   kind: "ellipsoid" | "revolved";
   /**
    * Half the overall size: largest side-to-side and front-to-back radius and half the height.
@@ -59,18 +52,16 @@ export interface SurfaceParameters {
   semiAxes: SemiAxes;
   /** Side profile from stem to base (finely sampled); the surface is this profile spun around the y axis. */
   profile: ProfilePoint[];
-  /** Front-to-back : side-to-side ratio of every horizontal cross-section (1 = round from above). */
-  depthRatio: number;
   units: Units;
 }
 
 /** Which input a measurement warning refers to, so the UI can show it next to that field. */
-export type MeasurementField = "circumference" | "circumferenceAt" | "frontArc" | "depth" | "ring";
+export type MeasurementField = "height" | "ring";
 
 export interface MeasurementWarning {
   kind: "impossible-measurement";
   field: MeasurementField;
-  /** For field "ring": the index of the offending ring in `PumpkinMeasurements.rings`. */
+  /** For field "ring": the index of the offending ring in `PumpkinMeasurements.rings` (none: the rings as a whole). */
   ring?: number;
   message: string;
 }

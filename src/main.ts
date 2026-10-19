@@ -42,8 +42,7 @@ update();
 /** Put back the last-used settings. Units go first so the length fields are read in the saved units. */
 function restore(): void {
   const saved = loadSettings(browserStorage());
-  const { rings, ...values } = saved.measurements ?? {};
-  form.restore({ units: saved.units, values, rings });
+  form.restore({ units: saved.units, ...saved.measurements });
   if (saved.units) {
     modePanel.setUnits(saved.units);
     designPanel.setUnits(saved.units);
@@ -66,11 +65,8 @@ function persist(): void {
     gridWidth: orNull(modePanel.gridWidth()),
     units: m.units,
     measurements: {
-      circumference: orNull(m.circumference),
-      frontArc: orNull(m.frontArc),
-      depth: orNull(m.depth),
-      circumferenceAt: orNull(m.circumferenceAt),
-      rings: (m.rings ?? []).map((r) => ({ distance: orNull(r.distance), circumference: orNull(r.circumference) })),
+      height: orNull(m.height),
+      rings: m.rings.map((r) => ({ position: orNull(r.position), circumference: orNull(r.circumference) })),
     },
     placement: { width: orNull(p.width), verticalOffset: p.verticalOffset, rotation: p.rotation },
     slits: slitPanel.options(),
@@ -82,7 +78,9 @@ function persist(): void {
 function update(): void {
   const ball = modePanel.mode() === "test-grid";
   const read = form.read();
-  const measurements = ball ? ballMeasurements(read.circumference, read.units) : read;
+  // A ball is measured by its first ring alone.
+  const ballCircumference = read.rings[0]?.circumference ?? Number.NaN;
+  const measurements = ball ? ballMeasurements(ballCircumference, read.units) : read;
   modePanel.setUnits(measurements.units);
   designPanel.setUnits(measurements.units);
   slitPanel.setUnits(measurements.units);
@@ -106,7 +104,7 @@ function update(): void {
           placement,
           slits,
           cut,
-          ...(ball ? { calibrationBall: measurements.circumference } : {}),
+          ...(ball ? { calibrationBall: ballCircumference } : {}),
         }
       : null,
   );

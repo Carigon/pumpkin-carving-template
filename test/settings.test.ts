@@ -18,13 +18,10 @@ const full: Settings = {
   gridWidth: 12,
   units: "cm",
   measurements: {
-    circumference: 80,
-    frontArc: 40,
-    depth: null,
-    circumferenceAt: 22,
+    height: 25,
     rings: [
-      { distance: 10, circumference: 60 },
-      { distance: 30, circumference: null },
+      { position: 0.5, circumference: 80 },
+      { position: 0.25, circumference: null },
     ],
   },
   placement: { width: 15, verticalOffset: -2, rotation: 10 },
@@ -56,11 +53,8 @@ describe("settings", () => {
       gridWidth: -1,
       units: "cm",
       measurements: {
-        circumference: -5,
-        frontArc: 40,
-        depth: "deep",
-        circumferenceAt: 0,
-        rings: [{ distance: 5, circumference: -2 }, 7, { distance: 3, circumference: 20 }],
+        height: -5,
+        rings: [{ position: 0.3, circumference: -2 }, 7, { position: 1.5, circumference: 20 }, { position: 0.6, circumference: 20 }],
       },
       placement: { width: 15, verticalOffset: "up", rotation: 90 },
       slits: { count: 2.5, depth: 4 },
@@ -71,10 +65,21 @@ describe("settings", () => {
     const storage = memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) });
     expect(loadSettings(storage)).toEqual({
       units: "cm",
-      measurements: { frontArc: 40, rings: [{ distance: 3, circumference: 20 }] },
+      measurements: { rings: [{ position: 0.6, circumference: 20 }] },
       placement: { width: 15 },
       slits: { depth: 4 },
     });
+  });
+
+  it("drops measurements saved with a front arc and rings along it, so the form starts from its defaults", () => {
+    const stored = {
+      ...full,
+      measurements: { circumference: 80, frontArc: 40, depth: null, circumferenceAt: 22, rings: [{ distance: 10, circumference: 60 }] },
+    };
+    const restored = loadSettings(memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) }));
+
+    expect(restored.measurements).toBeUndefined();
+    expect(restored.units).toBe("cm");
   });
 
   it("keeps working when storage is unavailable", () => {

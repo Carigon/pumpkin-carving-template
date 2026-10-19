@@ -19,7 +19,9 @@ corrupt saved settings, unit drift).
 ## Decision
 
 - Core geometry is tested only through `buildTemplate`. No test imports from `src/core/` other than
-  its public index.
+  its public index. `nextRing` (the ring the form adds, read off the current fit) is part of that public
+  index and is tested there: where it puts the ring, and that `buildTemplate`'s shape doesn't change when it is
+  added.
 - Thin, pure helpers in the layers around the core (input, PDF layout, settings, small UI helpers)
   may have direct unit tests at their own public functions, as long as those tests check behaviour
   you can see from outside the helper (page marks, stored values, field values) and not its internals.

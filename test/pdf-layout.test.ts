@@ -4,7 +4,7 @@ import { buildTemplate, type Placement, type PumpkinMeasurements } from "../src/
 import { layoutTemplatePdf, type Mark } from "../src/pdf/layout";
 import { renderPdf } from "../src/pdf/render";
 
-const measurements: PumpkinMeasurements = { circumference: 2000, frontArc: 1000, units: "in" };
+const measurements: PumpkinMeasurements = { height: 1000, rings: [{ circumference: 2000, position: 0.5 }], units: "in" };
 const placement: Placement = { width: 4, verticalOffset: 0, rotation: 0 };
 const result = buildTemplate({
   measurements,
@@ -49,24 +49,25 @@ describe("PDF layout", () => {
     expect(info).toContain("1000 in");
   });
 
-  it("lists where the widest ring was taken and every extra ring in the info block", () => {
+  it("lists the height and every ring, with its height above the table, in the info block", () => {
     const ringed: PumpkinMeasurements = {
       ...measurements,
-      circumferenceAt: 500,
-      rings: [{ distance: 250, circumference: 1400 }, { distance: 750, circumference: 1500 }],
+      rings: [{ position: 0.5, circumference: 2000 }, { position: 0.75, circumference: 1400 }, { position: 0.25, circumference: 1500 }],
     };
     const info = find(layoutTemplatePdf({ ...input, measurements: ringed }).pages[0].marks, "info")
       .map((m) => (m.kind === "text" ? m.text : ""))
       .join("\n");
 
-    expect(info).toContain("Circumference: 2000 in, 500 in from the stem");
-    expect(info).toContain("Ring: 1400 in around, 250 in from the stem");
-    expect(info).toContain("Ring: 1500 in around, 750 in from the stem");
+    expect(info).toContain("Height: 1000 in");
+    expect(info).toContain("Ring: 2000 in @ 500 in above the table");
+    expect(info).toContain("Ring: 1400 in @ 750 in above the table");
+    expect(info).toContain("Ring: 1500 in @ 250 in above the table");
+    expect(info).not.toMatch(/arc|depth:/i);
   });
 
   it("with many rings, the info block stays on the page, clear of the check square and the template", () => {
-    const rings = Array.from({ length: 10 }, (_, i) => ({ distance: 50 + 90 * i, circumference: 1500 + 10.25 * i }));
-    const ringed: PumpkinMeasurements = { ...measurements, circumferenceAt: 500, rings };
+    const rings = Array.from({ length: 10 }, (_, i) => ({ position: 0.05 + 0.09 * i, circumference: 1500 + 10.25 * i }));
+    const ringed: PumpkinMeasurements = { ...measurements, rings };
     for (const paper of ["letter", "a4"] as const) {
       const layout = layoutTemplatePdf({ ...input, measurements: ringed, paper });
       const [pageW] = layout.pages[0].size;

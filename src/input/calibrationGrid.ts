@@ -19,9 +19,9 @@ export function gridDesign(cells: number): Design {
   return { paths, bbox: { minX: 0, minY: 0, maxX: size, maxY: size } };
 }
 
-/** Ball mode: a sphere from a single circumference (the front arc over a sphere is half the circumference). */
+/** Ball mode: a sphere from a single circumference, as tall as it is wide (circumference ÷ π) and widest at mid-height. */
 export function ballMeasurements(circumference: number, units: Units): PumpkinMeasurements {
-  return { circumference, frontArc: circumference / 2, units };
+  return { height: circumference / Math.PI, rings: [{ circumference, position: 0.5 }], units };
 }
 
 function square(x: number, y: number, size: number): Point2[] {

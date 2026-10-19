@@ -52,7 +52,7 @@ const depthIn = (slit: Point2[], outline: Point2[]) => Math.max(...slit.map((p) 
 describe("slits", () => {
   const CIRCUMFERENCE = 60;
   const R = CIRCUMFERENCE / (2 * Math.PI);
-  const sphere = { circumference: CIRCUMFERENCE, frontArc: CIRCUMFERENCE / 2, units: "in" as const };
+  const sphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }], units: "in" as const };
   const deg = Math.PI / 180;
   const at = (angle: number, heading: number): [number, number] => [
     R * Math.sin(angle) * Math.cos(heading),

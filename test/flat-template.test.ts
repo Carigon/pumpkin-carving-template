@@ -44,14 +44,13 @@ function bboxOf(points: Point2[]) {
 
 const CIRCUMFERENCE = 60;
 const R = CIRCUMFERENCE / (2 * Math.PI);
-const plainSphere = { circumference: CIRCUMFERENCE, frontArc: CIRCUMFERENCE / 2, units: "in" as const };
-/** The same sphere measured with tape rings: widest at the middle of the arc, plus rings a quarter of the way in. */
+const plainSphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }], units: "in" as const };
+/** The same sphere measured with more tape rings, a quarter and three quarters of the way up. */
 const ringedSphere = {
   ...plainSphere,
-  circumferenceAt: CIRCUMFERENCE / 4,
-  rings: [CIRCUMFERENCE / 8, (3 * CIRCUMFERENCE) / 8].map((distance) => ({
-    distance,
-    circumference: 2 * Math.PI * R * Math.sin(distance / R),
+  rings: [0.5, 0.25, 0.75].map((position) => ({
+    position,
+    circumference: 2 * Math.PI * Math.sqrt(R ** 2 - (2 * R * (position - 0.5)) ** 2),
   })),
 };
 
@@ -114,7 +113,7 @@ describe.each([
 
 describe("scale of the flat template", () => {
   // A huge sphere is almost flat over a few inches, so the template should match the front view 1:1.
-  const huge = { circumference: 2000, frontArc: 1000, units: "in" as const };
+  const huge = { height: 2000 / Math.PI, rings: [{ circumference: 2000, position: 0.5 }], units: "in" as const };
 
   it("a design 4 in wide seen from the front comes out 4 in wide on paper", () => {
     const { template } = buildTemplate({
@@ -205,7 +204,7 @@ describe("scale of the flat template", () => {
 
   it("a design that misses the pumpkin entirely gives no template", () => {
     const { template } = buildTemplate({
-      measurements: { circumference: 20, frontArc: 10, units: "in" },
+      measurements: { height: 20 / Math.PI, rings: [{ circumference: 20, position: 0.5 }], units: "in" },
       design: designOf([[0, 0], [1, 0], [1, 1]]),
       placement: { width: 1, verticalOffset: 50, rotation: 0 },
     });

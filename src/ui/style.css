@@ -132,6 +132,19 @@ h1 {
   justify-self: start;
 }
 
+.ring-at {
+  display: contents;
+}
+
+.ring-name {
+  font-weight: 600;
+}
+
+/* The only ring can't be removed. */
+.ring:only-child .remove-ring {
+  visibility: hidden;
+}
+
 .warnings {
   display: grid;
   gap: 0.4rem;
@@ -217,10 +230,14 @@ h1 {
 }
 
 .ball-only,
-.ball-mode .field[data-field="frontArc"],
-.ball-mode .field[data-field="circumferenceAt"],
-.ball-mode .rings,
-.ball-mode .field[data-field="depth"],
+.ball-mode .field[data-field="height"],
+.ball-mode .rings .pumpkin-only,
+.ball-mode .ring:not(:first-child),
+.ball-mode .ring-name,
+.ball-mode .ring-at,
+.ball-mode .ring-fraction,
+.ball-mode .remove-ring,
+.ball-mode .add-ring,
 .ball-mode #d-trace,
 .ball-mode .field:has(#d-file),
 .ball-mode .field:has(#d-width),
