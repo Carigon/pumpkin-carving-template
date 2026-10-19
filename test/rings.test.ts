@@ -151,6 +151,27 @@ describe("pumpkin profile from extra circumference rings", () => {
       "an oval pumpkin with depth",
       { circumference: 70, frontArc: 40, depth: 20, circumferenceAt: 20, rings: [{ distance: 8, circumference: 50 }, { distance: 30, circumference: 60 }], units: "cm" },
     ],
+    // Barrels and bulges that fit easily within the hard limit (issue #13).
+    [
+      "a symmetric barrel, widest point not given",
+      { circumference: 30, frontArc: 17.5, rings: [{ distance: 5, circumference: 28 }, { distance: 12.5, circumference: 28 }], units: "in" },
+    ],
+    [
+      "a barrel with four rings",
+      {
+        circumference: 30, frontArc: 17.5, circumferenceAt: 8.75,
+        rings: [{ distance: 5, circumference: 28 }, { distance: 6.5, circumference: 29.5 }, { distance: 11, circumference: 29.5 }, { distance: 12.5, circumference: 28 }],
+        units: "in",
+      },
+    ],
+    [
+      "a bottom-heavy bulge",
+      { circumference: 30, frontArc: 18, circumferenceAt: 10.5, rings: [{ distance: 5, circumference: 25 }, { distance: 13, circumference: 28.5 }], units: "in" },
+    ],
+    [
+      "a bottom-heavy bulge, widest point not given",
+      { circumference: 30, frontArc: 18, rings: [{ distance: 5, circumference: 24 }, { distance: 13, circumference: 28.5 }], units: "in" },
+    ],
   ])("%s: the surface reproduces every ring and the front arc", (_name, measurements) => {
     const { surface, warnings } = buildTemplate({ measurements });
 
@@ -169,6 +190,43 @@ describe("pumpkin profile from extra circumference rings", () => {
     if (measurements.depth !== undefined) {
       const widest = Math.max(...surface!.profile.map((p) => p.radius));
       expect(2 * widest * surface!.depthRatio).toBeCloseTo(measurements.depth, 3);
+    }
+  });
+
+  it.each<[string, PumpkinMeasurements]>([
+    [
+      "a barrel",
+      { circumference: 30, frontArc: 17.5, circumferenceAt: 8.75, rings: [{ distance: 5, circumference: 28 }, { distance: 12.5, circumference: 28 }], units: "in" },
+    ],
+    [
+      "a fuller barrel",
+      { circumference: 30, frontArc: 17.5, circumferenceAt: 8.75, rings: [{ distance: 5, circumference: 28.5 }, { distance: 12.5, circumference: 28.5 }], units: "in" },
+    ],
+    [
+      "a barrel in cm",
+      { circumference: 80, frontArc: 48, circumferenceAt: 24, rings: [{ distance: 14, circumference: 76 }, { distance: 34, circumference: 76 }], units: "cm" },
+    ],
+    [
+      "a bottom-heavy bulge",
+      { circumference: 30, frontArc: 18, circumferenceAt: 10.5, rings: [{ distance: 5, circumference: 25 }, { distance: 13, circumference: 28.5 }], units: "in" },
+    ],
+    [
+      "a bottom-heavy bulge, widest point not given",
+      { circumference: 30, frontArc: 18, rings: [{ distance: 5, circumference: 24 }, { distance: 13, circumference: 28.5 }], units: "in" },
+    ],
+  ])("%s: the widest circumference is the largest anywhere on the pumpkin, where it was taken", (_name, measurements) => {
+    const { surface, warnings } = buildTemplate({ measurements });
+
+    expect(warnings).toEqual([]);
+    const m = frontMeridian(surface!);
+    let walked = 0, widestAt = 0, widest = 0;
+    m.forEach((p, i) => {
+      if (i > 0) walked += Math.hypot(p.rho - m[i - 1].rho, p.y - m[i - 1].y);
+      if (p.r > widest) [widest, widestAt] = [p.r, walked];
+    });
+    expect(ellipsePerimeter(widest, widest * surface!.depthRatio) / measurements.circumference).toBeCloseTo(1, 3);
+    if (measurements.circumferenceAt !== undefined) {
+      expect(Math.abs(widestAt - measurements.circumferenceAt)).toBeLessThan(0.02 * measurements.frontArc);
     }
   });
 });
