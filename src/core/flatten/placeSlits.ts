@@ -25,10 +25,7 @@ export interface SlitPlacement extends SlitMesh {
   chains: number[][];
   /** The flattened layout of the cut mesh. */
   flat: Point2[];
-  /**
-   * Auto stopped with the paper still stretching more than `AUTO_TARGET`, because it placed `MAX_SLITS` slits or no
-   * more fit (not because the next slit would barely help).
-   */
+  /** Auto stopped (for whatever reason) with the paper still stretching more than `AUTO_TARGET`. */
   overTarget: boolean;
 }
 
@@ -60,13 +57,8 @@ export function* placeSlits(
   let current: StrainSummary = strain(uncut, flat);
   const planner = wanted > 0 && options.depth > 0 ? slitPlanner(uncut, layout, region, options) : null;
 
-  /** Whether placing stopped because no more slits may or can go in, rather than because they stopped paying. */
-  let limited = true;
   for (let round = 0; planner && chains.length < wanted; round++) {
-    if (auto && current.p95 <= AUTO_TARGET) {
-      limited = false;
-      break;
-    }
+    if (auto && current.p95 <= AUTO_TARGET) break;
     let best: { chain: number[]; cut: SlitMesh; flat: Point2[]; rms: number } | null = null;
     for (const chain of planner.candidates(round)) {
       const trial = cutSlits(uncut, [...chains, chain]);
@@ -81,10 +73,7 @@ export function* placeSlits(
     if (!best) break;
     const solved = arapFlatten(best.cut.mesh, { initial: best.flat });
     const next = strain(best.cut.mesh, solved);
-    if (auto && current.rms - next.rms < AUTO_MIN_GAIN * current.rms) {
-      limited = false;
-      break;
-    }
+    if (auto && current.rms - next.rms < AUTO_MIN_GAIN * current.rms) break;
     chains.push(best.chain);
     planner.take(best.chain);
     cut = best.cut;
@@ -92,6 +81,6 @@ export function* placeSlits(
     current = next;
     yield chains.length;
   }
-  const overTarget = auto && limited && current.p95 > AUTO_TARGET;
+  const overTarget = auto && current.p95 > AUTO_TARGET;
   return { ...cut, chains, flat, overTarget };
 }

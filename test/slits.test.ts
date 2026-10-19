@@ -189,21 +189,25 @@ describe("slits", () => {
           expect(depthIn(slit, template!.cutOutline)).toBeLessThan(0.75);
         }
         expect(paperStrain(template!).rms).toBeLessThan(0.75 * paperStrain(plain!).rms);
-        expect(warnings).toEqual([]);
+        // A set count that fits says nothing; Auto, stopping short of 3 % (about 3.4 % here), says so.
+        expect(warnings).toMatchObject(slits ? [] : [{ kind: "slit-limit" }]);
       },
       SLOW,
     );
 
     it(
-      "a set count is placed even where it barely helps; Auto then places none",
+      "a set count is placed even where it barely helps; Auto then places none and says the paper still stretches more than 3 %",
       () => {
         const { template: set, warnings } = buildTemplate({ ...solidDisc, slits: { count: 8, depth: 2 } });
-        const { template: auto } = buildTemplate(solidDisc);
+        const { template: auto, warnings: autoWarnings } = buildTemplate(solidDisc);
 
         expect(set!.slits).toHaveLength(8);
         expect(warnings).toEqual([]);
         expect(paperStrain(set!).rms).toBeLessThan(paperStrain(auto!).rms);
         expect(auto!.slits).toEqual([]);
+        expect(paperStrain(auto!).p95).toBeGreaterThan(0.03);
+        expect(autoWarnings).toMatchObject([{ kind: "slit-limit" }]);
+        expect(autoWarnings[0].message).toMatch(/smaller design|wider margin/);
       },
       SLOW,
     );

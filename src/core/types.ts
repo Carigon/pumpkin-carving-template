@@ -103,8 +103,8 @@ export interface SlitsDontFitWarning {
 }
 
 /**
- * Auto placed as many slits as it may (24) or as fit, and parts of the paper still stretch more than its target
- * (3 %, at the 95th percentile).
+ * Auto stopped with parts of the paper still stretching more than its target (3 %, at the 95th percentile): it
+ * placed as many slits as it may (24), no more fit, or more would barely help.
  */
 export interface SlitLimitWarning {
   kind: "slit-limit";

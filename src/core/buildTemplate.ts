@@ -1,5 +1,4 @@
 import { flattenDesign } from "./flatten/flattenDesign";
-import { MAX_SLITS } from "./flatten/placeSlits";
 import { stretchMap } from "./flatten/stretch";
 import { designWarnings } from "./projection/designWarnings";
 import { placeDesign } from "./projection/placement";
@@ -156,9 +155,10 @@ function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean):
   }
   if (template && flat?.overTarget) {
     const n = template.slits.length;
+    const slits = n === 0 ? "No slits help enough here" : n === 1 ? "Even with its slit" : `Even with ${n} slits`;
     warnings.push({
       kind: "slit-limit",
-      message: `${n === 0 ? "No slit fits, so parts" : n === MAX_SLITS ? `Even ${n} slits leave parts` : `Only ${n === 1 ? "one slit fits" : `${n} slits fit`}, leaving parts`} of the paper stretched more than 3 %. Expect some wrinkles, or try a smaller margin or design.`,
+      message: `${slits}: parts of the template will still stretch more than 3 %, so expect some wrinkles there. A smaller design helps, or a wider margin, which leaves room for deeper slits.`,
     });
   }
   return { surface: surfaceParameters, design: projected, template, warnings };
