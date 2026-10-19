@@ -30,12 +30,17 @@ export interface DesignPanel {
 export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceView: HTMLElement): DesignPanel {
   root.innerHTML = `
     <form class="design" novalidate>
+      <section class="card design-source">
+      <h2>Design</h2>
       <div class="field">
         <label for="d-file">SVG file or scanned stencil</label>
         <input id="d-file" type="file" accept=".svg,image/svg+xml,image/*" />
-        <small class="hint" id="d-file-status">Closed shapes become the carve areas. Images are traced in your browser.</small>
+        <div class="hint" id="d-file-status">Closed shapes become the carve areas. Images are traced in your browser.</div>
       </div>
       <div id="d-trace"></div>
+      </section>
+      <section class="card">
+      <h2>Placement</h2>
       <div class="field">
         <label for="d-width">Width seen from the front</label>
         <div class="input-row">
@@ -58,9 +63,10 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
           <input id="d-rotation" type="number" step="0.5" value="0" />
           <span>°</span>
         </div>
-        <small class="hint">Counterclockwise as seen from the front.</small>
+        <div class="hint">Counterclockwise as seen from the front.</div>
       </div>
       <div id="d-warnings" class="warnings" role="alert"></div>
+      </section>
     </form>
   `;
 

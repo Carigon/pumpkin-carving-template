@@ -45,7 +45,8 @@ interface RingRow {
  */
 export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMeasurements) => void): MeasurementForm {
   root.innerHTML = `
-    <form class="measurements" novalidate>
+    <form class="measurements card" novalidate>
+      <h2>Measurements</h2>
       <div class="field" data-field="height">
         <label for="m-height">Height</label>
         <div class="input-row">
@@ -53,19 +54,24 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
             aria-describedby="m-height-hint m-height-warning" />
           <span class="unit-label">in</span>
         </div>
-        <small id="m-height-hint" class="hint">Lay a book flat on the pumpkin's shoulders and measure straight up from
-          the table to its underside. Leave the stem out.</small>
+        <div id="m-height-hint" class="hint">From the table to a book laid flat on top, stem left out.
+          <details class="more"><summary>more</summary>Lay the book across the pumpkin's shoulders so it rests
+            level, then measure straight up from the table to the book's underside. The stem doesn't count.</details>
+        </div>
         <div id="m-height-warning" class="warning" role="alert" hidden></div>
       </div>
       <fieldset class="rings field" data-field="rings">
-        <legend>Rings around the pumpkin</legend>
-        <small class="hint pumpkin-only">Wrap the tape level around the pumpkin and note how high above the table it
-          is. Start with the widest part. For tall, squat, lopsided or barrel-shaped pumpkins, add more rings higher
-          and lower.</small>
-        <small class="hint ball-only">The ball's circumference:</small>
+        <legend><span class="pumpkin-only">Rings around the pumpkin</span><span class="ball-only">Ball</span></legend>
+        <div class="hint pumpkin-only">Wrap the tape level around the widest part and note its height.
+          <details class="more"><summary>more</summary>Keep the tape level all the way round and measure how high
+            above the table it sits. Start with the widest part. For tall, squat, lopsided or barrel-shaped
+            pumpkins, add more rings higher and lower: each one makes the model follow the pumpkin more
+            closely.</details>
+        </div>
+        <div class="hint ball-only">The ball's circumference.</div>
         <ol class="ring-list"></ol>
         <div class="warning rings-warning" role="alert" hidden></div>
-        <button type="button" class="add-ring">+ add ring</button>
+        <button type="button" class="add-ring">+ Add ring</button>
       </fieldset>
     </form>
   `;
@@ -100,19 +106,27 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
     const el = document.createElement("li");
     el.className = "ring";
     el.innerHTML = `
-      <div class="ring-name"></div>
-      <div class="input-row">
-        <span class="ring-at">
-          <label for="r-${id}-h">Height above the table</label>
-          <input id="r-${id}-h" type="number" inputmode="decimal" min="0" step="any" />
-          <span class="unit-label">${lengths.units()}</span>
-        </span>
-        <label for="r-${id}-c">around</label>
-        <input id="r-${id}-c" type="number" inputmode="decimal" min="0" step="any" />
-        <span class="unit-label">${lengths.units()}</span>
+      <div class="ring-head">
+        <span class="ring-name"></span>
         <button type="button" class="remove-ring" aria-label="Remove this ring">×</button>
       </div>
-      <small class="hint ring-fraction" id="r-${id}-fraction"></small>
+      <div class="ring-fields">
+        <div class="field ring-at">
+          <label for="r-${id}-h">Above the table</label>
+          <div class="input-row">
+            <input id="r-${id}-h" type="number" inputmode="decimal" min="0" step="any" />
+            <span class="unit-label">${lengths.units()}</span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="r-${id}-c">Around</label>
+          <div class="input-row">
+            <input id="r-${id}-c" type="number" inputmode="decimal" min="0" step="any" />
+            <span class="unit-label">${lengths.units()}</span>
+          </div>
+        </div>
+      </div>
+      <div class="hint ring-fraction" id="r-${id}-fraction"></div>
       <div class="warning" id="r-${id}-warning" role="alert" hidden></div>
     `;
     const row: RingRow = {

@@ -22,7 +22,8 @@ export interface GridPanel {
  */
 export function mountGridPanel(root: HTMLElement, onChange: () => void): GridPanel {
   root.innerHTML = `
-    <form class="grid-size" novalidate>
+    <form class="grid-size card" novalidate>
+      <h2>Grid</h2>
       <div class="field">
         <label for="g-cells">Grid squares across</label>
         <div class="input-row">
@@ -35,8 +36,10 @@ export function mountGridPanel(root: HTMLElement, onChange: () => void): GridPan
           <input id="g-width" type="number" inputmode="decimal" min="0" step="any" />
           <span class="unit-label">in</span>
         </div>
-        <small class="hint">Enter the ball's circumference in Measure (a basketball is about 29.5 in).
-          Print, tape the grid to the ball and check from the front that the squares look square and even.</small>
+        <div class="hint">Enter the ball's circumference in Measure (a basketball is about 29.5 in).
+          <details class="more"><summary>more</summary>Print the template, tape the grid to the ball and check
+            from the front that the squares look square and even.</details>
+        </div>
       </div>
     </form>
   `;

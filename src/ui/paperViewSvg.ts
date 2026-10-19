@@ -72,7 +72,7 @@ function drawing(view: PaperView, filled: boolean): SVGSVGElement {
   // Page names in each sheet's top-left corner, inside the printable area (as the PDF prints its tile names).
   for (const page of view.pages) {
     const { printable, sheet } = page;
-    const size = 0.07 * Math.min(sheet.width, sheet.height);
+    const size = 0.045 * Math.min(sheet.width, sheet.height);
     const label = el("text", {
       class: "paper-page-label",
       x: round(printable.x + 0.3 * size),
