@@ -64,3 +64,114 @@ describe("PDF layout", () => {
     expect(doc.getPageCount()).toBe(1);
   });
 });
+
+function bigInput(widthIn: number) {
+  const placement: Placement = { width: widthIn, verticalOffset: 0, rotation: 0 };
+  const big = buildTemplate({
+    measurements,
+    design: { paths: [[{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }]], bbox: { minX: 0, minY: 0, maxX: 4, maxY: 3 } },
+    placement,
+  });
+  return { template: big.template!, surface: big.surface!, measurements, placement };
+}
+
+/** Where the template's origin (design center) sits on a page: the middle of its center cross. */
+function originOn(marks: Mark[]) {
+  const [cross] = find(marks, "center-cross");
+  if (!cross || cross.kind !== "path") return null;
+  const [h, v] = cross.subpaths;
+  return { x: (h[0].x + h[1].x) / 2, y: (v[0].y + v[1].y) / 2 };
+}
+const clipOf = (marks: Mark[]) => find(marks, "cut-outline")[0]?.clip;
+
+describe("PDF tiling", () => {
+  const big = bigInput(16); // ~17.5 x 13 in: too big for one Letter page
+
+  it("splits a template bigger than a page across several pages of the chosen paper", () => {
+    const layout = layoutTemplatePdf({ ...big, paper: "a4" });
+    const tiles = layout.pages.filter((p) => find(p.marks, "cut-outline").length > 0);
+
+    expect(tiles.length).toBeGreaterThan(1);
+    for (const page of layout.pages) expect(page.size).toEqual([595.28, 841.89]);
+  });
+
+  it("keeps true scale on every tile and clips each tile to the printable area", () => {
+    const layout = layoutTemplatePdf(big);
+    const tiles = layout.pages.filter((p) => find(p.marks, "cut-outline").length > 0);
+
+    for (const page of tiles) {
+      const [design] = find(page.marks, "design");
+      expect(bbox(design).width).toBeCloseTo(16 * 72, 0);
+      const clip = clipOf(page.marks)!;
+      expect(clip.x).toBeGreaterThanOrEqual(0);
+      expect(clip.y).toBeGreaterThanOrEqual(0);
+      expect(clip.x + clip.width).toBeLessThanOrEqual(612);
+      expect(clip.y + clip.height).toBeLessThanOrEqual(792);
+    }
+  });
+
+  it("covers the whole template, with neighbouring tiles overlapping by at least a quarter inch", () => {
+    const layout = layoutTemplatePdf(big);
+    const tiles = layout.pages.filter((p) => find(p.marks, "cut-outline").length > 0);
+    // Each tile's printable area, in template coordinates (pt from the design center).
+    const regions = tiles.map((p) => {
+      const o = originOn(p.marks)!;
+      const c = clipOf(p.marks)!;
+      return { minX: c.x - o.x, maxX: c.x + c.width - o.x, minY: c.y - o.y, maxY: c.y + c.height - o.y };
+    });
+    const [cut] = find(tiles[0].marks, "cut-outline");
+    const o0 = originOn(tiles[0].marks)!;
+    const pts = cut.kind === "path" ? cut.subpaths[0].map((p) => ({ x: p.x - o0.x, y: p.y - o0.y })) : [];
+
+    for (const p of pts) {
+      expect(regions.some((r) => p.x >= r.minX && p.x <= r.maxX && p.y >= r.minY && p.y <= r.maxY)).toBe(true);
+    }
+    // Horizontal neighbours share a band at least 18 pt wide.
+    const sameRow = regions.filter((r) => Math.abs(r.maxY - regions[0].maxY) < 1e-6).sort((a, b) => a.minX - b.minX);
+    expect(sameRow.length).toBeGreaterThan(1);
+    expect(sameRow[0].maxX - sameRow[1].minX).toBeGreaterThanOrEqual(18);
+  });
+});
+
+describe("PDF tiling join marks", () => {
+  const big = bigInput(16);
+  const layout = layoutTemplatePdf(big);
+  const tiles = layout.pages.filter((p) => find(p.marks, "cut-outline").length > 0);
+
+  /** Centers of a page's solid join-mark strokes inside its printable area, in template coordinates. */
+  function joinPoints(marks: Mark[]) {
+    const o = originOn(marks)!;
+    const c = clipOf(marks)!;
+    return find(marks, "join")
+      .flatMap((m) => (m.kind === "path" && !m.stroke?.dash ? m.subpaths : []))
+      .map((sub) => ({ x: (sub[0].x + sub[1].x) / 2, y: (sub[0].y + sub[1].y) / 2 }))
+      .filter((p) => p.x >= c.x && p.x <= c.x + c.width && p.y >= c.y && p.y <= c.y + c.height)
+      .map((p) => `${Math.round(p.x - o.x)},${Math.round(p.y - o.y)}`);
+  }
+
+  it("prints alignment crosses that land on the same template spot on both neighbouring pages", () => {
+    const [a, b] = tiles; // first row: A1 and B1
+    const shared = joinPoints(a.marks).filter((p) => joinPoints(b.marks).includes(p));
+
+    expect(shared.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("labels each tile and the neighbours it joins", () => {
+    const text = (marks: Mark[]) => find(marks, "join").map((m) => (m.kind === "text" ? m.text : "")).join("\n");
+
+    expect(text(tiles[0].marks)).toContain("A1");
+    expect(text(tiles[0].marks)).toContain("joins B1");
+    expect(text(tiles[1].marks)).toContain("joins A1");
+    expect(layout.tiles.rows * layout.tiles.cols).toBe(tiles.length);
+  });
+
+  it("still includes the 10 cm check square and info block, and renders every page", async () => {
+    const marks = layout.pages.flatMap((p) => p.marks);
+    const [square] = find(marks, "check-square");
+    expect(bbox(square).width).toBeCloseTo((100 / 25.4) * 72, 3);
+    expect(find(marks, "info")).not.toHaveLength(0);
+
+    const doc = await PDFDocument.load(await renderPdf(layout));
+    expect(doc.getPageCount()).toBe(layout.pages.length);
+  });
+});
