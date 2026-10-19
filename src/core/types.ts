@@ -113,6 +113,8 @@ export interface TemplateInput {
   placement?: Placement;
   /** Slit count and depth; defaults to `defaultSlits(units)`. */
   slits?: SlitOptions;
+  /** Paper margin between the design and the cut-out edge, in the measurement units; defaults to `defaultMargin(units)`. */
+  margin?: number;
 }
 
 /** One design point after projection. */
@@ -153,7 +155,7 @@ export interface FlatTemplate {
   /** Flattened design paths (carve areas), implicitly closed. Holes are nested paths: fill them even-odd. */
   designPaths: Point2[][];
   /**
-   * The cut-out edge: the design's outline grown by about 3/4 in, following it into concave parts. One piece:
+   * The cut-out edge: the design's outline grown by the margin (3/4 in unless set), following it into concave parts. One piece:
    * holes are filled and separate parts of the design are bridged. Implicitly closed, counterclockwise.
    */
   cutOutline: Point2[];

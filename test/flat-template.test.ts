@@ -155,6 +155,26 @@ describe("scale of the flat template", () => {
     expect(insidePolygon({ x: 1.5, y: 1.5 }, outline)).toBe(false);
   });
 
+  it.each([
+    ["in", 0.4],
+    ["in", 2],
+    ["cm", 5],
+  ] as const)("the cut-out edge stays the chosen margin from the design (%s, margin %s)", (units, margin) => {
+    // The same L as above, measured in the chosen units; its notch is 2 in (5.08 cm) across.
+    const k = units === "cm" ? 2.54 : 1;
+    const { template } = buildTemplate({
+      measurements: { ...huge, units },
+      design: designOf([[0, 0], [4, 0], [4, 2], [2, 2], [2, 4], [0, 4]]),
+      placement: { width: 4 * k, verticalOffset: 0, rotation: 0 },
+      margin,
+    });
+
+    const outline = template!.cutOutline;
+    const design = template!.designPaths;
+    for (const p of outline) expect(Math.abs(distanceToPaths(p, design) / margin - 1)).toBeLessThan(0.05);
+    for (const p of design.flat()) expect(insidePolygon(p, outline)).toBe(true);
+  });
+
   it("a design in separate pieces still gets one cut-out edge around all of them", () => {
     // Two 1 in squares 3 in apart.
     const { template } = buildTemplate({
