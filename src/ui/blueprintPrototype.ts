@@ -12,20 +12,20 @@
 import type { PumpkinMeasurements, Units } from "../core";
 import { angleAt, fitProfile, profileAt, type Profile } from "../core/surface/profile";
 
-type VariantKey = "A" | "B" | "C";
+type VariantKey = "A" | "B" | "C" | "D";
 
 interface Look {
   name: string;
   /** Overhang of the ring line past the outline, as px = a·radiusPx + b. */
   overhang: { a: number; b: number };
-  handle: "dot" | "tab" | "pill";
+  handle: "dot" | "tab" | "pill" | "move";
   /** Visible handle size and hit radius, px. */
   handleSize: number;
   hit: number;
-  label: "line" | "ruler" | "chip";
+  label: "line" | "ruler" | "chip" | "rulerPair";
   gap: "band" | "hatch" | "wide";
   zoomUi: "stack" | "pill" | "slider";
-  heightHandle: "bar" | "ruler" | "cap";
+  heightHandle: "bar" | "ruler" | "cap" | "rulerPill";
   /** Default for "freeze scale while dragging the height". */
   freeze: boolean;
   /** Drag locks to the dominant axis after a few px. */
@@ -76,7 +76,31 @@ const LOOKS: Record<VariantKey, Look> = {
     axisLock: true,
     warn: "toast",
   },
+  // The picks from A–C: A as the base, B's labels by the ruler with dotted leaders, C-style pill handles.
+  D: {
+    name: "Combined",
+    overhang: { a: 0, b: 14 },
+    handle: "move",
+    handleSize: 22,
+    hit: 22,
+    label: "rulerPair",
+    gap: "band",
+    zoomUi: "stack",
+    heightHandle: "rulerPill",
+    freeze: true,
+    axisLock: false,
+    warn: "banner",
+  },
 };
+
+/** A four-way move glyph (the usual "move" cross with arrowheads) centred on (x, y). */
+const moveIcon = (x: number, y: number, k = 7) =>
+  `M${x - k},${y}H${x + k}M${x},${y - k}V${y + k}` +
+  `M${x - k + 3},${y - 3}L${x - k},${y}L${x - k + 3},${y + 3}M${x + k - 3},${y - 3}L${x + k},${y}L${x + k - 3},${y + 3}` +
+  `M${x - 3},${y - k + 3}L${x},${y - k}L${x + 3},${y - k + 3}M${x - 3},${y + k - 3}L${x},${y + k}L${x + 3},${y + k - 3}`;
+/** An up/down arrow glyph centred on (x, y). */
+const upDownIcon = (x: number, y: number, k = 7) =>
+  `M${x},${y - k}V${y + k}M${x - 3},${y - k + 3}L${x},${y - k}L${x + 3},${y - k + 3}M${x - 3},${y + k - 3}L${x},${y + k}L${x + 3},${y + k - 3}`;
 
 const CM_PER: Record<Units, number> = { in: 2.54, cm: 1 };
 const MIN_ZOOM = 0.25;
@@ -100,7 +124,7 @@ export function mountBlueprintPrototype(
 ): BlueprintPrototype {
   injectStyle();
   const params = new URLSearchParams(location.search);
-  let variant: VariantKey = (["A", "B", "C"] as const).find((v) => v === params.get("variant")) ?? "A";
+  let variant: VariantKey = (["A", "B", "C", "D"] as const).find((v) => v === params.get("variant")) ?? "A";
   let freeze = LOOKS[variant].freeze;
 
   root.innerHTML = `
@@ -314,7 +338,10 @@ export function mountBlueprintPrototype(
       if (look.gap === "band") {
         el("circle", { cx: cx(), cy: y, r: 9, class: "bp-plus-bg" }, g);
         text(cx(), y + 1, "+", "bp-plus", "middle", g);
-        text(cx() - rPx - oh - 8, y, circLabel(c, false), "bp-ghost-label", "end", g);
+        if (look.label === "rulerPair") {
+          text(RULER_X + 8, y - 9, `${fmtSnapped(c)}   at ${fmtSnapped(mid * height)}`, "bp-ghost-label", "start", g);
+          el("line", { x1: RULER_X, y1: y, x2: cx() - rPx - oh, y2: y, class: "bp-leader" }, g);
+        } else text(cx() - rPx - oh - 8, y, circLabel(c, false), "bp-ghost-label", "end", g);
       } else if (look.gap === "hatch") {
         text(RULER_X + 8, y - 9, `+ add ring · ${fmtSnapped(c)}`, "bp-ghost-label", "start", g);
       } else {
@@ -340,6 +367,15 @@ export function mountBlueprintPrototype(
       el("path", { d: `M${RULER_X + 1},${yTop} l12,-8 v16 Z`, class: "bp-handle-shape" }, hg);
       el("rect", { x: RULER_X - 30, y: yTop - 14, width: 60, height: 28, class: "bp-hit", "data-hit": "height" }, hg);
       text(RULER_X + 18, yTop - 12, drag?.kind === "height" ? fmt(height) : fmtSnapped(height), "bp-height-label", "start", hg);
+    } else if (look.heightHandle === "rulerPill") {
+      // B's placement (label by the ruler, dotted line) with a C-style pill at the line's right end, in line with
+      // the ring handles of the widest ring.
+      const w = widest() * s, hx = cx() + w + overhangPx(w);
+      el("line", { x1: RULER_X, y1: yTop, x2: hx, y2: yTop, class: "bp-height-line" }, hg);
+      text(RULER_X + 8, yTop - 10, `height ${drag?.kind === "height" ? fmt(height) : fmtSnapped(height)}`, "bp-height-label", "start", hg);
+      el("rect", { x: hx, y: yTop - 11, width: 28, height: 22, rx: 11, class: "bp-handle-shape" }, hg);
+      el("path", { d: upDownIcon(hx + 14, yTop), class: "bp-icon" }, hg);
+      el("circle", { cx: hx + 14, cy: yTop, r: 20, class: "bp-hit", "data-hit": "height" }, hg);
     } else {
       const half = (fit?.ok || failed ? widest() : 1) * s * 0.6 + 20;
       el("line", { x1: cx() - half, y1: yTop, x2: cx() + half, y2: yTop, class: "bp-height-line" }, hg);
@@ -368,6 +404,15 @@ export function mountBlueprintPrototype(
         text(RULER_X + 8, y - 8, label, "bp-ring-label", "start", g).setAttribute("data-hit", "select");
         el("line", { x1: RULER_X, y1: y, x2: x1, y2: y, class: "bp-leader" }, g);
         if (dragging) text(RULER_X + 8, y + 9, `at ${fmt(r.position * height)}`, "bp-ring-sub", "start", g);
+      } else if (look.label === "rulerPair") {
+        // Circumference and height side by side by the ruler, a dotted leader to the ring.
+        const t = text(RULER_X + 8, y - 9, label, "bp-ring-label", "start", g);
+        t.setAttribute("data-hit", "select");
+        const at = document.createElementNS(SVGNS, "tspan");
+        at.setAttribute("class", "bp-ring-at");
+        at.textContent = `   at ${dragging ? fmt(r.position * height) : fmtSnapped(r.position * height)}`;
+        t.appendChild(at);
+        el("line", { x1: RULER_X, y1: y, x2: x1, y2: y, class: "bp-leader" }, g);
       } else {
         const w = label.length * 7 + 14;
         el("rect", { x: x1 - w - 6, y: y - 11, width: w, height: 22, rx: 4, class: "bp-chip", "data-hit": "select" }, g);
@@ -378,14 +423,17 @@ export function mountBlueprintPrototype(
         el("circle", { cx: x2, cy: y, r: look.handleSize / 2, class: "bp-handle-shape" }, g);
       } else if (look.handle === "tab") {
         el("path", { d: `M${x2},${y} l${look.handleSize},-${look.handleSize * 0.7} v${look.handleSize * 1.4} Z`, class: "bp-handle-shape" }, g);
+      } else if (look.handle === "move") {
+        el("rect", { x: x2, y: y - 11, width: 28, height: 22, rx: 11, class: "bp-handle-shape" }, g);
+        el("path", { d: moveIcon(x2 + 14, y), class: "bp-icon" }, g);
       } else {
         const readout = dragging ? `${fmt(r.position * height)} ↑` : "⇔ ⇕";
         el("rect", { x: x2, y: y - 11, width: 64, height: 22, rx: 11, class: "bp-handle-shape" }, g);
         text(x2 + 32, y, readout, "bp-pill-label", "middle", g);
       }
-      const hitX = look.handle === "pill" ? x2 + 32 : look.handle === "tab" ? x2 + look.handleSize / 2 : x2;
+      const hitX = look.handle === "pill" ? x2 + 32 : look.handle === "move" ? x2 + 14 : look.handle === "tab" ? x2 + look.handleSize / 2 : x2;
       el("circle", { cx: hitX, cy: y, r: look.handle === "pill" ? 32 : look.hit, class: "bp-hit", "data-hit": "handle" }, g);
-      if (dragging && look.handle !== "pill") {
+      if (dragging && look.handle !== "pill" && look.label !== "rulerPair") {
         text(x2 + look.handleSize + 8, y - 12, `at ${fmt(r.position * height)}`, "bp-drag-readout", "start", g);
       }
       if (isSel && rings.length > 1) {
@@ -695,7 +743,7 @@ export function mountBlueprintPrototype(
     render();
   };
   const cycle = (d: number) => {
-    const keys: VariantKey[] = ["A", "B", "C"];
+    const keys: VariantKey[] = ["A", "B", "C", "D"];
     setVariant(keys[(keys.indexOf(variant) + d + keys.length) % keys.length]);
   };
   bar.querySelector(".proto-prev")!.addEventListener("click", () => cycle(-1));
@@ -792,6 +840,16 @@ function injectStyle() {
   .bp-hatch-line { stroke: var(--bp-accent); stroke-opacity: 0.35; stroke-width: 2; }
   .bp-ghost { stroke: var(--bp-accent); stroke-dasharray: 5 4; stroke-width: 1.5; }
   .bp-plus-bg { fill: var(--bp-accent); } .bp-plus { fill: #fff; font-weight: 700; font-size: 14px; pointer-events: none; }
+  .bp-icon { fill: none; stroke: var(--bp-line); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  .bp-selected .bp-icon, .bp-active .bp-icon { stroke: var(--bp-bg); }
+  .bp-ring-at { fill: var(--bp-muted); font-weight: 400; }
+  .bp-D { --bp-bg: #123a63; --bp-line: #e6f1ff; --bp-muted: #8fb3d9; --bp-accent: #ffd166; --bp-outline: #7fd3ff;
+    --bp-gap: rgb(255 209 102 / 0.14); --bp-panel: #0e2f50; }
+  .bp-D .bp-svg { background-image: linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px); background-size: 24px 24px; }
+  .bp-D .bp-x { fill: #123a63; } .bp-D .bp-plus { fill: #123a63; }
+  .bp-D .bp-handle-shape { fill: #0e2f50; }
+  .bp-D .bp-selected .bp-handle-shape, .bp-D .bp-active .bp-handle-shape { fill: var(--bp-accent); }
   .bp-leader { stroke: var(--bp-muted); stroke-dasharray: 1 3; }
   .bp-chip { fill: var(--bp-panel); stroke: var(--bp-muted); cursor: pointer; }
   .bp-selected .bp-chip { stroke: var(--bp-accent); stroke-dasharray: 3 2; stroke-width: 1.5; }
