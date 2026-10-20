@@ -2,6 +2,7 @@ import "./ui/style.css";
 import { createTemplateBuilder, type SurfaceParameters, type TemplateWarning } from "./core";
 import { ballMeasurements, gridDesign } from "./input/calibrationGrid";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
+import { mountBlueprintView } from "./ui/blueprintViewSvg";
 import { mountDesignPanel } from "./ui/designPanel";
 import { mountExportPanel, type ExportSource } from "./ui/exportPanel";
 import { mountGridPanel } from "./ui/gridPanel";
@@ -46,6 +47,7 @@ const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
 const form = mountMeasurementForm($("measurements"), update);
+const blueprint = mountBlueprintView(viewport.blueprintView);
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
@@ -170,7 +172,7 @@ function changeMode(): void {
 /** Show every length in the header's display units. Nothing is measured differently, so nothing is rebuilt. */
 function showUnits(): void {
   const units = header.units();
-  for (const panel of [form, gridPanel, designPanel, slitPanel]) panel.setUnits(units);
+  for (const panel of [form, gridPanel, designPanel, slitPanel, blueprint]) panel.setUnits(units);
   renderSurfaceInfo(infoEl, surface, units);
 }
 
@@ -187,6 +189,8 @@ function update(): void {
   // A ball is measured by its first ring alone.
   const ballCircumference = read.rings[0]?.circumference ?? Number.NaN;
   const measurements = ball ? ballMeasurements(ballCircumference) : read;
+  // The Blueprint view refits on every edit; it has its own empty and failed states.
+  blueprint.show(measurements, ball);
   const design = ball ? gridDesign(gridPanel.cells()) : (designPanel.design() ?? undefined);
   const placement = ball ? { ...designPanel.placement(), width: gridPanel.gridWidth() } : designPanel.placement();
   // A grid is one solid carve area: no blank paper for slits.
