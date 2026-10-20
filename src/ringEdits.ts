@@ -1,4 +1,4 @@
-import type { PumpkinMeasurements, Ring, Units } from "./core";
+import { ringAt, type PumpkinMeasurements, type Ring, type Units } from "./core";
 import { formatLength } from "./displayUnits";
 
 /**
@@ -20,7 +20,7 @@ export interface RingMeasurements extends PumpkinMeasurements {
 }
 
 /** Which rule held a value back. */
-export type ClampLimit = "ring-size" | "height" | "margin" | "shape-ratio";
+export type ClampLimit = "ring-size" | "height" | "margin" | "shape-ratio" | "ring-count" | "gap";
 
 /** Why an edit didn't land where it was asked to, for the carver. */
 export interface ClampNote {
@@ -154,6 +154,47 @@ export function dragHeight(start: RingMeasurements, target: number, options: Edi
   const highs: Bound[] = [{ value: HEIGHT.max, note: heightNote }, ...(widest > 0 ? [{ value: widest * SHAPE_RATIO.max, note: ratio }] : [])];
   const { value: height, note } = clampTo(snapLength(target, options), lows, highs);
   return { measurements: { height, rings: start.rings }, note };
+}
+
+/** The most rings a pumpkin has (the saved settings' cap). */
+const MAX_RINGS = 20;
+
+/** A gap between two neighbouring rings in top-to-bottom order.
+ *  above: null means the gap reaches the top (the height).
+ *  below: null means it reaches the table (0). */
+export interface Gap {
+  above: RingId | null;
+  below: RingId | null;
+}
+
+/** Insert at the gap's midpoint with ringAt's circumference. Refused (measurements
+ *  unchanged, id null, note says why) for a gap narrower than 2·MARGIN or a 21st ring.
+ *  The new ring's id is (largest existing id) + 1. Result is sorted. */
+export function insertRing(m: RingMeasurements, gap: Gap): RingEdit & { id: RingId | null } {
+  const at = (id: RingId | null, edge: number) => (id === null ? edge : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
+  const top = at(gap.above, 1);
+  const bottom = at(gap.below, 0);
+  if (m.rings.length >= MAX_RINGS) {
+    return { measurements: m, id: null, note: { limit: "ring-count", message: `A pumpkin has at most ${MAX_RINGS} rings.` } };
+  }
+  if (!((top - bottom) * m.height >= 2 * MARGIN)) {
+    return { measurements: m, id: null, note: { limit: "gap", message: "This gap is too narrow for another ring." } };
+  }
+  const position = (top + bottom) / 2;
+  const id = Math.max(-1, ...m.rings.map((r) => r.id)) + 1;
+  const rings = [...m.rings, { id, position, circumference: ringAt(m, position) }];
+  return { measurements: sortRings({ height: m.height, rings }), id, note: null };
+}
+
+/** Delete any ring but the last. Refused (unchanged, note says why) for the last
+ *  ring or when the shape ratio would leave 0.2–5. */
+export function deleteRing(m: RingMeasurements, id: RingId): RingEdit {
+  const rings = m.rings.filter((r) => r.id !== id);
+  if (rings.length === 0) return { measurements: m, note: { limit: "ring-count", message: "The last ring can't be removed." } };
+  const widest = Math.max(0, ...rings.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
+  const ratio = m.height / widest;
+  if (widest > 0 && (ratio < SHAPE_RATIO.min || ratio > SHAPE_RATIO.max)) return { measurements: m, note: shapeNote() };
+  return { measurements: { height: m.height, rings }, note: null };
 }
 
 /** A limit on a value, with the note to give when it holds the value back. */
