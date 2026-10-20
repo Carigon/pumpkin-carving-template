@@ -49,6 +49,16 @@ describe("Blueprint view geometry", () => {
     }
   });
 
+  it("in a narrow view still draws the pumpkin a usable size, letting the labels run over it", () => {
+    const narrow = { width: 375, height: 281 };
+    const drawing = draw(pumpkin, { size: narrow });
+    const box = bbox([...drawing.profile!.right, ...drawing.profile!.left]);
+    expect(box.maxX - box.minX).toBeGreaterThan(narrow.width / 4);
+    const widest = drawing.rings.find((r) => r.index === 0)!;
+    expect(widest.handle.x + 14).toBeLessThan(narrow.width);
+    expect(widest.x1).toBeGreaterThan(drawing.ruler.x);
+  });
+
   it("zooms out to a quarter at most and never in past the fit", () => {
     const fit = draw().scale;
     expect(draw(pumpkin, { zoom: 0.5 }).scale).toBeCloseTo(fit / 2, 9);

@@ -247,7 +247,11 @@ export function fitScale(input: Pick<BlueprintInput, "measurements" | "fit" | "s
     ...validRings(measurements).map((r) => r.radius),
     ...(fit.ok ? fit.profile.map((p) => p.radius) : []),
   );
-  const side = size.width / 2 - RULER_X - LABEL_GAP - LABEL_WIDTH - OVERHANG - HANDLE_WIDTH;
+  // Room each side of the middle for the radius, past the overhang and handle on the right and the ruler on the
+  // left. The ring labels get their own column left of the pumpkin while that leaves the pumpkin at least half
+  // of it; in a narrower view they run over the pumpkin instead.
+  const room = size.width / 2 - RULER_X - OVERHANG - HANDLE_WIDTH;
+  const side = Math.max(room - LABEL_GAP - LABEL_WIDTH, room / 2);
   const byWidth = widest > 0 && hasHeight(measurements) ? side / widest : Infinity;
   // However small the view, something to draw at (and a ruler with a finite number of ticks).
   return Math.max(MIN_SCALE, Math.min(byHeight, byWidth)) || MIN_SCALE;
