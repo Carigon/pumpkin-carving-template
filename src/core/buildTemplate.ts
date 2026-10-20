@@ -15,21 +15,21 @@ import type {
   TemplateWarning,
 } from "./types";
 
-/** Paper margin between the design and the cut-out edge, unless the carver changes it (3/4 in). */
-const DEFAULT_CUT_MARGIN_MM = 19.05;
-/** Least blank paper between a slit and the design (0.1 in). */
-const SLIT_CLEARANCE_MM = 2.54;
-/** Least distance between two slits, so they don't crowd one gap and leave thin strips of paper (1 in). */
-const SLIT_SPACING_MM = 25.4;
+/** Paper margin between the design and the cut-out edge, unless the carver changes it. */
+const DEFAULT_CUT_MARGIN_MM = 20;
+/** Least blank paper between a slit and the design. */
+const SLIT_CLEARANCE_MM = 2.5;
+/** Least distance between two slits, so they don't crowd one gap and leave thin strips of paper. */
+const SLIT_SPACING_MM = 25;
 /**
  * Short stubs on open paper barely relieve any stretch, so slits shorter than this aren't placed, unless the margin
  * is narrower: a slit that runs through most of the margin band (`MIN_MARGIN_SHARE` of the paper between the edge
- * and the design's clearance) still helps a lot on solid designs, where nothing deeper fits (3/4 in).
+ * and the design's clearance) still helps a lot on solid designs, where nothing deeper fits.
  */
-const MIN_SLIT_DEPTH_MM = 19.05;
+const MIN_SLIT_DEPTH_MM = 20;
 const MIN_MARGIN_SHARE = 0.8;
-/** Deeper than the margin, so slits reach in between parts of the design where there is room (2 in). */
-const DEFAULT_SLIT_DEPTH_MM = 50.8;
+/** Deeper than the margin, so slits reach in between parts of the design where there is room. */
+const DEFAULT_SLIT_DEPTH_MM = 50;
 
 /** The paper margin between the design and the cut-out edge a template gets unless the carver changes it, in mm. */
 export function defaultMargin(): number {

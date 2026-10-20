@@ -117,7 +117,7 @@ export type TemplateWarning = MeasurementWarning | FrontLimitWarning | OutsideSi
 
 /**
  * Slits let the paper bend around the pumpkin. They're placed one at a time where they relieve the most stretch,
- * at least about 25 mm (1 in) apart.
+ * at least about 25 mm apart.
  */
 export interface SlitOptions {
   /**
@@ -127,7 +127,7 @@ export interface SlitOptions {
   count: number | "auto";
   /**
    * The deepest a slit may run in from the cut-out edge, in mm. Each goes this deep unless the
-   * design is in the way; one that can't get about 19 mm (3/4 in) deep (or through most of a narrower margin) isn't placed.
+   * design is in the way; one that can't get about 20 mm deep (or through most of a narrower margin) isn't placed.
    */
   depth: number;
 }
@@ -215,7 +215,7 @@ export interface FlatTemplate {
   /** Flattened design paths (carve areas), implicitly closed. Holes are nested paths: fill them even-odd. */
   designPaths: Point2[][];
   /**
-   * The cut-out edge: the design's outline grown by the margin (19.05 mm, 3/4 in, unless set), following it into concave parts. One piece:
+   * The cut-out edge: the design's outline grown by the margin (20 mm unless set), following it into concave parts. One piece:
    * holes are filled and separate parts of the design are bridged. Implicitly closed, counterclockwise.
    */
   cutOutline: Point2[];

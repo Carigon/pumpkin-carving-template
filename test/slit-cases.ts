@@ -92,9 +92,9 @@ export const tapering: PumpkinMeasurements = {
 
 /**
  * Designs whose paper stretch with evenly spaced slits (the old placement: slit k at 90° + k·360°/count around the
- * design center, up to 2 in deep) is recorded in `even-spacing.json`, by slit count.
+ * design center, up to 2 in deep, with a 3/4 in margin) is recorded in `even-spacing.json`, by slit count.
  */
 export const evenSpacingCases: [string, TemplateInput][] = [
   // Dots where the evenly spaced slits start, so those have to steer around them.
-  ["dots at 90°, 135°, ... on a squat pumpkin", { measurements: squat, ...placed(dots(90), 5.8 * IN) }],
+  ["dots at 90°, 135°, ... on a squat pumpkin", { measurements: squat, ...placed(dots(90), 5.8 * IN), margin: 0.75 * IN }],
 ];

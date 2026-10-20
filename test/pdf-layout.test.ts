@@ -1,6 +1,6 @@
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type Placement, type PumpkinMeasurements, type SlitOptions } from "../src/core";
+import { buildTemplate, defaultMargin, type Placement, type PumpkinMeasurements, type SlitOptions } from "../src/core";
 import { layoutTemplatePdf, type Mark } from "../src/pdf/layout";
 import { renderPdf } from "../src/pdf/render";
 
@@ -47,7 +47,8 @@ describe("PDF layout", () => {
     const [design] = find(layout.pages[0].marks, "design");
     expect(bbox(design).width).toBeCloseTo(4 * 72, 0);
     const [cut] = find(layout.pages[0].marks, "cut-outline");
-    expect(bbox(cut).width).toBeCloseTo(5.5 * 72, 0);
+    // The design and the default margin either side.
+    expect(bbox(cut).width).toBeCloseTo(((4 * IN + 2 * defaultMargin()) / IN) * 72, 0);
     // Solid: stroked, without a dash pattern.
     expect(cut).toHaveProperty("stroke");
     expect(cut).not.toHaveProperty("stroke.dash");
