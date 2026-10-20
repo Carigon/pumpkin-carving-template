@@ -43,7 +43,8 @@ export interface SlitPlanner {
  * Slits on a mesh whose vertices sit at `positions` (a layout close to the paper), inside `region` (design lines
  * and cut-out edge in the same layout). The edge is split into `CANDIDATES` equal stretches; the candidate for each
  * starts on the edge in it (preferring its middle) and runs inward along the shortest path through blank paper,
- * bending around design lines, until it is `depth` in from the edge or its path is `MAX_PATH` times the depth.
+ * bending around design lines, until it is `depth` in from the edge or its path is `MAX_PATH` times the depth (then
+ * re-routed between the same ends to run as straight as the mesh allows).
  * Where blank paper runs out first, it stops at the deepest point it could reach; under `minDepth`, there's no
  * candidate there. Each slit also runs outward to the mesh boundary so cutting it really opens the mesh.
  */
@@ -146,7 +147,64 @@ export function slitPlanner(mesh: TriangleMesh, positions: Point2[], region: Cut
     const tip = reached.find((v) => -edge[v] >= goal) ?? -1;
     const path: number[] = [];
     for (let v = tip; v >= 0; v = from[v]) path.push(v);
-    return path.length >= 2 ? path.reverse() : null;
+    return path.length >= 2 ? alongTautLine(path.reverse()) : null;
+  };
+
+  /** Can a straight cut run from vertex `a` to vertex `b`: clear of the design and on (or just past) the paper? */
+  const sees = (a: number, b: number): boolean => {
+    if (!edgeClear(a, b)) return false;
+    const p = positions[a], q = positions[b];
+    const pieces = Math.ceil((2 * distance(p, q)) / spacing);
+    for (let i = 1; i < pieces; i++) {
+      const t = i / pieces;
+      if (region.edgeDistance({ x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) }) > slack) return false;
+    }
+    return true;
+  };
+
+  /**
+   * The same slit as `path`, re-routed to hug its taut line. Many chains of mesh edges between two vertices are
+   * about as short (on a grid, every order of the same axis and diagonal steps), and the shortest path finds any of
+   * them: often all the diagonal steps first, then the straight ones, a bend too wide for `pullTaut` to straighten.
+   * So pull the path taut (from its start, on to the furthest vertex it `sees`), then find the chain between the
+   * same ends that strays least from that line: each step costs its length, plus more the further from the line it ends.
+   */
+  const alongTautLine = (path: number[]): number[] => {
+    const line = [path[0]];
+    for (let i = 0; i < path.length - 1; ) {
+      let j = path.length - 1;
+      while (j > i + 1 && !sees(path[i], path[j])) j--;
+      line.push(path[j]);
+      i = j;
+    }
+    const guide = line.map((v) => positions[v]);
+    const offLine = (p: Point2) => Math.min(...guide.slice(1).map((q, i) => distanceToSegment(p, guide[i], q))) / spacing;
+    const [start, tip] = [path[0], path[path.length - 1]];
+    cost.fill(Infinity);
+    from.fill(-1);
+    done.fill(0);
+    const heap = new MinHeap();
+    cost[start] = 0;
+    heap.push(start, 0);
+    while (heap.size) {
+      const v = heap.pop();
+      if (done[v]) continue;
+      done[v] = 1;
+      if (v === tip) break;
+      for (const w of neighbors[v]) {
+        if (done[w] || !inside[w] || crowded[w] || !clear[w] || !edgeClear(v, w)) continue;
+        const c = cost[v] + distance(positions[v], positions[w]) * (1 + offLine(positions[w]) ** 2);
+        if (c < cost[w]) {
+          cost[w] = c;
+          from[w] = v;
+          heap.push(w, c);
+        }
+      }
+    }
+    // The path itself is one way through, so the tip is always reached.
+    const hugging: number[] = [];
+    for (let v = tip; v >= 0; v = from[v]) hugging.push(v);
+    return hugging.reverse();
   };
 
   /** From an edge vertex, step outward (away from the paper) to the mesh boundary. */

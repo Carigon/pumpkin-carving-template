@@ -156,10 +156,13 @@ describe("slits", () => {
     SLOW,
   );
 
-  it(
-    "slits with blank paper ahead run straight in and back out, not staircased along the mesh",
-    () => {
-      const { template } = buildTemplate({ measurements: sphere, ...ring(30, [90, 135, 180, 225, 270, 315, 0, 45]), slits: { count: 8, depth: 2 * IN } });
+  it.each([0.99, 0.995, 0.9975, 1, 1.0025, 1.005, 1.01])(
+    "slits with blank paper ahead run straight in and back out, not staircased along the mesh (pumpkin %s times the size)",
+    (size) => {
+      // The mesh offers many equally short chains of edges from the edge to a slit's tip; at some sizes the slit
+      // used to take all its diagonal steps first, leaving a bend of about 26° that straightening couldn't remove.
+      const input = { measurements: sphere, ...ring(30, [90, 135, 180, 225, 270, 315, 0, 45]), slits: { count: 8, depth: 2 * IN } };
+      const { template } = buildTemplate(scaledBy(input, size));
 
       for (const [i, slit] of template!.slits.entries()) {
         const tip = slit.reduce((deepest, p, k) => (distanceToOutline(p, template!.cutOutline) > distanceToOutline(slit[deepest], template!.cutOutline) ? k : deepest), 0);
