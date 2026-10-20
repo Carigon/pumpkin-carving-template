@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dragBall, dragHeight, dragRing, sortRings, withRingIds, type RingMeasurements } from "../src/ringEdits";
+import { fitProfile, ringAt } from "../src/core";
+import { deleteRing, dragBall, dragHeight, dragRing, insertRing, sortRings, withRingIds, type RingMeasurements } from "../src/ringEdits";
 
 /** mm per inch. */
 const IN = 25.4;
@@ -193,5 +194,84 @@ describe("ring edits", () => {
     expect(sorted.rings.map((r) => r.id)).toEqual([2, 9, 4, 7]);
     expect(sorted.rings.find((r) => r.id === 9)).toEqual({ id: 9, position: 0.5, circumference: 600 });
     expect(sorted.height).toBe(200);
+  });
+
+  it("insert a ring at the middle of the gap picked, with the circumference the shape already has there", () => {
+    // Between the 22 in ring (0.8) and the 32 in ring (0.4): at 0.6 of the height.
+    const between = insertRing(pumpkin, { above: 1, below: 0 });
+    expect(between.note).toBeNull();
+    expect(between.id).toBe(2);
+    const added = between.measurements.rings.find((r) => r.id === 2)!;
+    expect(added.position).toBeCloseTo(0.6, 12);
+    expect(added.circumference).toBeCloseTo(ringAt(pumpkin, 0.6), 9);
+    // Sorted top to bottom, the others untouched.
+    expect(between.measurements.rings.map((r) => r.id)).toEqual([1, 2, 0]);
+    expect(between.measurements.height).toBe(pumpkin.height);
+    // Adding it leaves the shape as it was.
+    const before = fitProfile(pumpkin);
+    const after = fitProfile(between.measurements);
+    if (!before.ok || !after.ok) throw new Error("expected a fit");
+    for (const t of [0.1, 0.3, 0.5, 0.7, 0.9]) expect(after.radiusAt(t)).toBeCloseTo(before.radiusAt(t), 3);
+
+    // Against the top and the table.
+    const top = insertRing(pumpkin, { above: null, below: 1 });
+    expect(top.measurements.rings.find((r) => r.id === top.id)!.position).toBeCloseTo(0.9, 12);
+    const bottom = insertRing(pumpkin, { above: 0, below: null });
+    expect(bottom.measurements.rings.find((r) => r.id === bottom.id)!.position).toBeCloseTo(0.2, 12);
+  });
+
+  it("give an inserted ring the next id after the largest", () => {
+    const m: RingMeasurements = { height: 200, rings: [{ id: 7, position: 0.5, circumference: 500 }, { id: 3, position: 0.2, circumference: 400 }] };
+    expect(insertRing(m, { above: null, below: 7 }).id).toBe(8);
+  });
+
+  it("refuse a ring in a gap narrower than twice the margin, and say so", () => {
+    // 200 mm tall: the rings are 9 mm apart, and 10 mm would take a ring.
+    const m = withRingIds({ height: 200, rings: [{ position: 0.5, circumference: 500 }, { position: 0.545, circumference: 480 }] });
+    const refused = insertRing(m, { above: 1, below: 0 });
+    expect(refused.id).toBeNull();
+    expect(refused.measurements).toBe(m);
+    expect(refused.note?.limit).toBe("gap");
+    expect(refused.note?.message).toMatch(/narrow/);
+
+    const wider = withRingIds({ height: 200, rings: [{ position: 0.5, circumference: 500 }, { position: 0.55, circumference: 480 }] });
+    expect(insertRing(wider, { above: 1, below: 0 }).id).toBe(2);
+  });
+
+  it("refuse a 21st ring, and say so", () => {
+    const rings = Array.from({ length: 20 }, (_, i) => ({ position: (i + 1) / 21, circumference: 500 }));
+    const full = withRingIds({ height: 600, rings });
+    const refused = insertRing(full, { above: null, below: 19 });
+    expect(refused.id).toBeNull();
+    expect(refused.measurements).toBe(full);
+    expect(refused.note?.limit).toBe("ring-count");
+    expect(refused.note?.message).toMatch(/20/);
+    const nineteen = withRingIds({ height: 600, rings: rings.slice(0, 19) });
+    expect(insertRing(nineteen, { above: null, below: 18 }).id).toBe(19);
+  });
+
+  it("delete any ring but the last", () => {
+    const deleted = deleteRing(pumpkin, 1);
+    expect(deleted.note).toBeNull();
+    expect(deleted.measurements).toEqual({ height: pumpkin.height, rings: [pumpkin.rings[0]] });
+
+    const last = deleteRing(deleted.measurements, 0);
+    expect(last.measurements).toBe(deleted.measurements);
+    expect(last.note?.limit).toBe("ring-count");
+    expect(last.note?.message).toMatch(/last ring/);
+  });
+
+  it("refuse a delete that leaves the pumpkin too tall for its width, and say so", () => {
+    // 500 mm tall, 120 and 90 mm across: deleting the widest leaves it 5.6 times as tall as it is wide.
+    const tall = withRingIds({ height: 500, rings: [{ position: 0.5, circumference: 120 * Math.PI }, { position: 0.7, circumference: 90 * Math.PI }] });
+    const refused = deleteRing(tall, 0);
+    expect(refused.measurements).toBe(tall);
+    expect(refused.note?.limit).toBe("shape-ratio");
+    expect(refused.note?.message).toMatch(/tall/);
+    // The narrower ring goes.
+    expect(deleteRing(tall, 1).note).toBeNull();
+    // As does the widest, while another ring is as wide.
+    const twin = withRingIds({ height: 500, rings: [{ position: 0.5, circumference: 120 * Math.PI }, { position: 0.7, circumference: 120 * Math.PI }] });
+    expect(deleteRing(twin, 0).measurements.rings.map((r) => r.id)).toEqual([1]);
   });
 });

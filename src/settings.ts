@@ -1,5 +1,6 @@
 import type { Units } from "./core";
 import type { Paper } from "./paper";
+import { MAX_RINGS } from "./ringEdits";
 import { STEP_IDS, stepInMode, type Mode, type StepId } from "./steps";
 
 /** The inputs a returning carver gets back on reload. Never images or designs. Every length is in mm. */
@@ -56,7 +57,6 @@ const KEY = "pumpkin-template-v2";
 const MAX_ROTATION = 30;
 const MAX_SLITS = 24;
 const MAX_CELLS = 20;
-const MAX_RINGS = 20;
 
 /** The browser's localStorage, or undefined where it can't be reached (e.g. blocked by privacy settings). */
 export function browserStorage(): SettingsStorage | undefined {
