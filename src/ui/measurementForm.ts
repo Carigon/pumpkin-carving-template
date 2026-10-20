@@ -497,8 +497,10 @@ export function mountMeasurementForm(
   table.addEventListener("focusin", (e) => {
     if (e.target instanceof Element && e.target.closest(".insert-ring")) hover(pointAt(e.target));
   });
+  // Leaving it clears the gap it showed, wherever the pointer is; moving the pointer over something shows that.
   table.addEventListener("focusout", (e) => {
-    if (e.target instanceof Element && e.target.closest(".insert-ring") && !table.matches(":hover")) hover(null);
+    if (!(e.target instanceof Element) || !e.target.closest(".insert-ring")) return;
+    if (sameHoverTarget(hovered, pointAt(e.target))) hover(null);
   });
   form.addEventListener("input", (e) => {
     if (e.target instanceof HTMLInputElement) typed(e.target);
