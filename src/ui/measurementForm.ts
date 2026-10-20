@@ -8,6 +8,7 @@ import {
   typeCircumference,
   typeHeight,
   typeRingHeight,
+  withRing,
   type ClampNote,
   type Gap,
   type RingId,
@@ -407,11 +408,6 @@ export function mountMeasurementForm(
     return null;
   };
 
-  const withRing = (id: RingId, patch: { position?: number; circumference?: number }): RingMeasurements => ({
-    height: current.height,
-    rings: current.rings.map((r) => (r.id === id ? { ...r, ...patch } : r)),
-  });
-
   /** A keystroke: the value goes out as typed, unclamped and unsorted. */
   const typed = (input: HTMLInputElement) => {
     dirty.add(input);
@@ -434,13 +430,13 @@ export function mountMeasurementForm(
     if (!field) return;
     const { row, column } = field;
     if (column === "above") {
-      current = withRing(row.id, { position: heightOk() ? lengths.value(row.above) / height() : Number.NaN });
+      current = withRing(current, row.id, { position: heightOk() ? lengths.value(row.above) / height() : Number.NaN });
     } else {
       const c = column === "around" ? lengths.value(row.around) : lengths.value(row.across) * Math.PI;
       // The other field follows exactly, so going back and forth never drifts.
       if (column === "around") lengths.set(row.across, Number.isFinite(c) ? c / Math.PI : null);
       else lengths.set(row.around, Number.isFinite(c) ? c : null);
-      current = withRing(row.id, { circumference: c });
+      current = withRing(current, row.id, { circumference: c });
     }
     if (note?.on === row.id) note = null;
     relabel();

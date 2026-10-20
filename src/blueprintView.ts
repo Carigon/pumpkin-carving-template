@@ -1,7 +1,8 @@
 import { ringAt, type Point2, type ProfileFit, type PumpkinMeasurements, type Units } from "./core";
 import { fromMm, tapeLength, toMm } from "./displayUnits";
 import type { HoverTarget, Selection } from "./measureState";
-import { canInsert, type Gap, type RingId, type RingMeasurements } from "./ringEdits";
+import { blamedFitMessage } from "./measureWarnings";
+import { canInsert, widestCircumference, type Gap, type RingId, type RingMeasurements } from "./ringEdits";
 
 /** What the Blueprint view is drawn from. Lengths in mm, sizes in px. */
 export interface BlueprintInput {
@@ -220,7 +221,7 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
     : [at(0, H), ...valid.map((r) => at(r.radius, r.position * H)), at(0, 0)];
   const profile = { right, left: right.map((p) => ({ x: 2 * origin.x - p.x, y: p.y })), rough: !fit.ok };
 
-  const widestRing = Math.max(0, ...valid.map((r) => r.radius));
+  const widestRing = widestCircumference(valid) / (2 * Math.PI);
   const yTop = at(0, H).y;
   const hx = origin.x + widestRing * scale + OVERHANG;
   const height = {
@@ -233,7 +234,7 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
   };
 
   // Each gap down the pumpkin wide enough for a ring, its area spanning the pumpkin at its widest.
-  const widest = Math.max(widestRing, ...(fit.ok ? fit.profile.map((p) => p.radius) : []));
+  const widest = widestRadius(valid, fit);
   const stops = [{ id: null, position: 1 }, ...valid, { id: null, position: 0 }];
   const open = stops.slice(1).flatMap((below, i) => {
     const above = stops[i];
@@ -283,7 +284,7 @@ function banner(fit: ProfileFit, blamed: string | undefined): string | null {
   const later = "(Edits still apply; a later edit may fix it.)";
   if (shape && fit.warnings.length === 1) {
     return blamed
-      ? `No smooth pumpkin shape passes through the ring at ${blamed}. Check its height and circumference. ${later}`
+      ? `${blamedFitMessage(`the ring at ${blamed}`)} ${later}`
       : `${shape.message} ${later}`;
   }
   return "Some rings aren't measured yet. Fix the rings marked in the form to see the shape.";
@@ -355,11 +356,7 @@ export function fitScale(input: Pick<BlueprintInput, "measurements" | "fit" | "s
   // With no height yet, a ruler a foot (or 30 cm) tall.
   const extent = hasHeight(measurements) ? measurements.height : toMm(input.units === "in" ? 12 : 30, input.units);
   const byHeight = (size.height - TOP - BOTTOM) / extent;
-  const widest = Math.max(
-    0,
-    ...validRings(measurements).map((r) => r.radius),
-    ...(fit.ok ? fit.profile.map((p) => p.radius) : []),
-  );
+  const widest = widestRadius(validRings(measurements), fit);
   // Room each side of the middle for the radius, past the overhang and handle on the right and the ruler on the
   // left. The ring labels get their own column left of the pumpkin while that leaves the pumpkin at least half
   // of it; in a narrower view they run over the pumpkin instead.
@@ -378,11 +375,16 @@ function hasHeight({ height }: PumpkinMeasurements): boolean {
   return Number.isFinite(height) && height > 0;
 }
 
-/** The rings that can be drawn (on the pumpkin, with a size), with their id and radius in mm. */
+/** The rings that can be drawn (on the pumpkin, with a size), with their id, circumference and radius in mm. */
 function validRings({ rings }: RingMeasurements) {
   return rings.flatMap((r) =>
     Number.isFinite(r.position) && r.position > 0 && r.position < 1 && Number.isFinite(r.circumference) && r.circumference > 0
-      ? [{ id: r.id, position: r.position, radius: r.circumference / (2 * Math.PI) }]
+      ? [{ id: r.id, position: r.position, circumference: r.circumference, radius: r.circumference / (2 * Math.PI) }]
       : [],
   );
+}
+
+/** The pumpkin's widest radius, mm: its widest drawn ring's, or the fitted profile's where that bulges further. */
+function widestRadius(rings: ReturnType<typeof validRings>, fit: ProfileFit): number {
+  return Math.max(widestCircumference(rings) / (2 * Math.PI), ...(fit.ok ? fit.profile.map((p) => p.radius) : []));
 }

@@ -10,8 +10,13 @@ export interface PlacedWarnings {
   rings: Map<RingId, string[]>;
 }
 
+/** A failed fit blamed on the ring edited last, which `ring` names ("this ring", "the ring at 6 ½ in"). */
+export function blamedFitMessage(ring: string): string {
+  return `No smooth pumpkin shape passes through ${ring}. Check its height and circumference.`;
+}
+
 /** On the row of the ring edited last, a failed fit's warning names that ring. */
-const BLAMED = "No smooth pumpkin shape passes through this ring. Check its height and circumference.";
+const BLAMED = blamedFitMessage("this ring");
 
 /**
  * Where each impossible-measurement warning goes. A ring's own warning goes on its row: its index is into

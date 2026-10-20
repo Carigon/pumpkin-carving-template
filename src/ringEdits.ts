@@ -92,6 +92,21 @@ export function sortRings(m: RingMeasurements): RingMeasurements {
   return { height: m.height, rings: [...m.rings].sort((a, b) => key(b) - key(a)) };
 }
 
+/** The largest circumference among `rings`, mm, leaving out any not measured yet; 0 for none. */
+export function widestCircumference(rings: readonly { circumference: number }[]): number {
+  return Math.max(0, ...rings.map((r) => r.circumference).filter(Number.isFinite));
+}
+
+/** The measurements with ring `id` changed by `patch`, every other ring and the height as they were. */
+export function withRing(m: RingMeasurements, id: RingId, patch: Partial<Ring>): RingMeasurements {
+  return { height: m.height, rings: m.rings.map((r) => (r.id === id ? { ...r, ...patch } : r)) };
+}
+
+/** Every ring's position but ring `id`'s, leaving out rings with no height yet. */
+function otherPositions(m: RingMeasurements, id: RingId): number[] {
+  return m.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => r.position);
+}
+
 /**
  * Drag ring `id` towards `target`: its height above the table and its circumference, in mm (either left out
  * stays as it is), each snapped as `options` say and then clamped. The limits come from `start`, the measurements as they were when the drag began, so the
@@ -112,7 +127,7 @@ export function dragRing(
   let position = ring.position;
   if (target.above !== undefined) {
     const now = ring.position * H;
-    const others = start.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => r.position * H);
+    const others = otherPositions(start, id).map((p) => p * H);
     const below = Math.max(0, ...others.filter((a) => a <= now));
     const over = Math.min(H, ...others.filter((a) => a > now));
     // Never closer than it already is: a ring inside the margin stays put rather than jumping out of it.
@@ -128,7 +143,7 @@ export function dragRing(
   if (target.circumference !== undefined) {
     // The widest diameter stays within height ÷ 5 and height × 5: no ring grows past the top, and the widest
     // shrinks only to the bottom unless another ring is at least that wide.
-    const othersWidest = Math.max(0, ...start.rings.filter((r) => r.id !== id).map((r) => r.circumference).filter(Number.isFinite));
+    const othersWidest = widestCircumference(start.rings.filter((r) => r.id !== id));
     const ratio = () => shapeNote();
     const narrowest = (Math.PI * H) / SHAPE_RATIO.max;
     const lows = [ringSize(units).low, ...(othersWidest < narrowest ? [{ value: narrowest, note: ratio }] : [])];
@@ -138,8 +153,7 @@ export function dragRing(
     circumference = around.value;
   }
 
-  const rings = start.rings.map((r) => (r.id === id ? { ...r, position, circumference } : r));
-  return { measurements: { height: H, rings }, note: notes[0] ?? null };
+  return { measurements: withRing(start, id, { position, circumference }), note: notes[0] ?? null };
 }
 
 /**
@@ -149,8 +163,7 @@ export function dragRing(
 export function dragBall(start: RingMeasurements, id: RingId, circumference: number, options: EditOptions): RingEdit {
   const { low, high } = ringSize(options.units);
   const around = clampTo(snapLength(circumference, options), [low], [high]);
-  const rings = start.rings.map((r) => (r.id === id ? { ...r, circumference: around.value } : r));
-  return { measurements: { height: start.height, rings }, note: around.note };
+  return { measurements: withRing(start, id, { circumference: around.value }), note: around.note };
 }
 
 /**
@@ -163,7 +176,7 @@ export function dragHeight(start: RingMeasurements, target: number, options: Edi
   const { units } = options;
   const stops = [0, ...start.rings.map((r) => r.position).filter(Number.isFinite), 1].sort((a, b) => a - b);
   const tightest = Math.min(...stops.slice(1).map((s, i) => s - stops[i]));
-  const widest = Math.max(0, ...start.rings.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
+  const widest = widestCircumference(start.rings) / Math.PI;
   const heightNote = (): ClampNote => ({
     limit: "height",
     message: `The height is kept between ${formatLength(HEIGHT.min, units)} and ${formatLength(HEIGHT.max, units)}.`,
@@ -228,10 +241,9 @@ export function deleteRing(m: RingMeasurements, id: RingId): RingEdit & { delete
   if (!m.rings.some((r) => r.id === id)) return refused(null);
   if (m.rings.length <= 1) return refused({ limit: "ring-count", message: "The last ring can't be deleted: the shape needs one." });
   const rings = m.rings.filter((r) => r.id !== id);
-  const widest = (rs: RingWithId[]) => Math.max(0, ...rs.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
-  const after = widest(rings);
+  const after = widestCircumference(rings);
   // Only a delete that narrows the pumpkin can push it out of shape; inserting never widens it.
-  if (after < widest(m.rings) && m.height > after * SHAPE_RATIO.max) {
+  if (after < widestCircumference(m.rings) && m.height > (after / Math.PI) * SHAPE_RATIO.max) {
     return refused({
       limit: "shape-ratio",
       message: `Deleting this ring would leave the pumpkin more than ${SHAPE_RATIO.max} times as tall as it is wide.`,
@@ -298,18 +310,14 @@ export interface TypedEdit extends RingEdit {
  */
 export function typeRingHeight(m: RingMeasurements, id: RingId, above: number, units: Units): TypedEdit {
   const H = m.height;
-  const note = (): ClampNote => ({
-    limit: "margin",
-    message: `Rings are kept ${formatLength(MARGIN, units)} from the table and the top.`,
-  });
+  const note = () => marginNote(units);
   const clamped = clampTo(above, [{ value: MARGIN, note }], [{ value: Math.max(MARGIN, H - MARGIN), note }]);
   const position = clamped.value / H;
-  const rings = m.rings.map((r) => (r.id === id ? { ...r, position } : r));
   // The core's own tolerance for two rings at one height, which it reports as an error.
-  const gaps = m.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => Math.abs(r.position - position));
+  const gaps = otherPositions(m, id).map((p) => Math.abs(p - position));
   const close = gaps.some((g) => g >= 1e-9 && g * H < MARGIN);
   const warning = close ? `This ring is within ${formatLength(MARGIN, units)} of another.` : null;
-  return { measurements: { height: H, rings }, note: clamped.note, warning };
+  return { measurements: withRing(m, id, { position }), note: clamped.note, warning };
 }
 
 /**
