@@ -4,6 +4,10 @@ Turning a flat carving design and a pumpkin's tape-measure measurements into a p
 
 ## Measuring the pumpkin
 
+**Display units**:
+Inches or centimetres: the carver's choice for every length they read or type. Switching never changes a measurement.
+_Avoid_: Measurement units
+
 **Height**:
 The straight vertical distance from the table to the underside of a book laid flat on the pumpkin's shoulders; the stem is left out.
 
@@ -13,6 +17,10 @@ _Avoid_: Slice, section, band
 
 **Widest circumference**:
 The ring with the largest circumference; the pumpkin bulges past it nowhere.
+
+**Gap**:
+The stretch of height between two neighbouring rings, or between a ring and the table or the top; a new ring goes in the middle of the gap the carver picks.
+_Avoid_: Slot, band
 
 **Profile**:
 The pumpkin's side edge from stem to base, fitted smoothly through every ring; the pumpkin's shape is this edge spun around its vertical axis.
