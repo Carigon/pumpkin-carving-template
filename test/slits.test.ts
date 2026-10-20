@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type Point2, type TemplateInput } from "../src/core";
+import { buildTemplate, defaultMargin, defaultSlits, type Point2, type TemplateInput } from "../src/core";
 import even from "./even-spacing.json";
 import { between, circle, designOf, dots, evenSpacingCases, IN, onSphere, paperStrain, placed, ring, sphere, squat, tapering } from "./slit-cases";
 
@@ -60,6 +60,8 @@ const scaledBy = ({ measurements, placement, ...rest }: TemplateInput, s: number
 /** Placing slits runs many flattening solves. */
 const SLOW = 60_000;
 const deg = Math.PI / 180;
+/** The least distance between two slits, in mm. */
+const SPACING = 25;
 
 describe("slits", () => {
   it(
@@ -117,10 +119,11 @@ describe("slits", () => {
   );
 
   it(
-    "slits run in from the cut-out edge as deep as the blank paper allows, up to the max depth (2 in by default)",
+    "slits run in from the cut-out edge as deep as the blank paper allows, up to the max depth (50 mm by default)",
     () => {
       const input = { measurements: sphere, ...ring(30, between) };
-      const { template: deep } = buildTemplate({ ...input, slits: { count: 6, depth: 2 * IN } });
+      const maxDepth = defaultSlits().depth;
+      const { template: deep } = buildTemplate({ ...input, slits: { count: 6, depth: maxDepth } });
       const { template: shallow } = buildTemplate({ ...input, slits: { count: 6, depth: 1.2 * IN } });
 
       for (const [i, slit] of deep!.slits.entries()) {
@@ -128,8 +131,8 @@ describe("slits", () => {
         expect(distanceToOutline(slit[0], deep!.cutOutline), `slit ${i}`).toBeLessThan(0.05 * IN);
         expect(distanceToOutline(slit.at(-1)!, deep!.cutOutline), `slit ${i}`).toBeLessThan(0.05 * IN);
         // ...and, with blank paper all the way, reaches the max depth.
-        expect(depthIn(slit, deep!.cutOutline), `slit ${i}`).toBeGreaterThan(2 * IN * 0.9);
-        expect(depthIn(slit, deep!.cutOutline), `slit ${i}`).toBeLessThan(2 * IN * 1.07);
+        expect(depthIn(slit, deep!.cutOutline), `slit ${i}`).toBeGreaterThan(maxDepth * 0.9);
+        expect(depthIn(slit, deep!.cutOutline), `slit ${i}`).toBeLessThan(maxDepth * 1.07);
       }
       expect(shallow!.slits).toHaveLength(6);
       // To within 0.05 in.
@@ -143,14 +146,14 @@ describe("slits", () => {
     ["dots on a squat pumpkin", { measurements: squat, ...placed(dots(90), 5.8 * IN), slits: { count: 8, depth: 2 * IN } }],
     ["dots high on a tapering pumpkin", { measurements: tapering, ...placed(dots(0), 5.8 * IN, 2 * IN), slits: { count: 6, depth: 2 * IN } }],
   ])(
-    "with %s, slits steer around the design, never cross it and stay about 1 in apart",
+    "with %s, slits steer around the design, never cross it and stay about 25 mm apart",
     (_, input) => {
       const { template } = buildTemplate(input);
 
       expect(template!.slits.length).toBeGreaterThan(3);
       for (const [i, slit] of template!.slits.entries()) {
         expect(crossesAny(slit, template!.designPaths), `slit ${i}`).toBe(false);
-        for (const [j, other] of template!.slits.slice(i + 1).entries()) expect(apart(slit, other), `slits ${i}, ${i + j + 1}`).toBeGreaterThan(0.85 * IN);
+        for (const [j, other] of template!.slits.slice(i + 1).entries()) expect(apart(slit, other), `slits ${i}, ${i + j + 1}`).toBeGreaterThan(0.85 * SPACING);
       }
     },
     SLOW,
@@ -177,7 +180,7 @@ describe("slits", () => {
 
   describe("when the design leaves no blank paper deeper than the margin", () => {
     // An oval 5 in wide on a squat pumpkin, and a disc reaching 45° from the front of a sphere: solid carve areas,
-    // so the only blank paper is the 3/4 in margin around them.
+    // so the only blank paper is the 20 mm margin around them.
     const oval = designOf(Array.from({ length: 48 }, (_, k): [number, number] => [1.5 * Math.cos((2 * Math.PI * k) / 48), Math.sin((2 * Math.PI * k) / 48)]));
     const solidOval: TemplateInput = { measurements: { height: 8 * IN, rings: [{ position: 0.5, circumference: 34 * IN }] }, ...placed(oval, 5 * IN, 0.5 * IN) };
     const disc = designOf(Array.from({ length: 64 }, (_, k) => onSphere(45 * deg, (k * 2 * Math.PI) / 64)));
@@ -195,9 +198,9 @@ describe("slits", () => {
         expect(template!.slits.length).toBeGreaterThanOrEqual(6);
         for (const slit of template!.slits) {
           expect(crossesAny(slit, template!.designPaths)).toBe(false);
-          // About 0.65 in: the margin less the slit's clearance from the design.
+          // About 17.5 mm: the margin less the slit's clearance from the design.
           expect(depthIn(slit, template!.cutOutline)).toBeGreaterThan(0.5 * IN);
-          expect(depthIn(slit, template!.cutOutline)).toBeLessThan(0.75 * IN);
+          expect(depthIn(slit, template!.cutOutline)).toBeLessThan(defaultMargin());
         }
         expect(paperStrain(template!).rms).toBeLessThan(0.75 * paperStrain(plain!).rms);
         // A set count that fits says nothing; Auto, stopping short of 3 % (about 3.4 % here), says so.
@@ -236,7 +239,7 @@ describe("slits", () => {
   it(
     "a set count that doesn't fit places what fits and says how many",
     () => {
-      // A dot 1 in across: its cut-out edge is about 8 in around, room for only a few slits 1 in apart.
+      // A dot 1 in across: its cut-out edge is about 8 in around, room for only a few slits 25 mm apart.
       const { template, warnings } = buildTemplate({ measurements: sphere, ...placed(designOf(circle(0, 0, 0.5)), 1 * IN), slits: { count: 12, depth: 2 * IN } });
 
       expect(template!.slits.length).toBeGreaterThan(0);

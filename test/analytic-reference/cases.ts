@@ -36,6 +36,8 @@ const IN = 25.4;
 const CM = 10;
 
 const noSlits = { count: 0, depth: 1 * IN };
+/** The cut-out margin the reference templates were recorded with (3/4 in), in mm. */
+const RECORDED_MARGIN = 19.05;
 
 /**
  * Pumpkins and placements whose templates the analytic surface produced, kept as the reference for the mesh.
@@ -51,6 +53,7 @@ export const referenceCases: [string, TemplateInput, number][] = [
       design: star,
       placement: { width: 6 * IN, verticalOffset: 1 * IN, rotation: 10 },
       slits: noSlits,
+      margin: RECORDED_MARGIN,
     },
     IN,
   ],
@@ -61,6 +64,7 @@ export const referenceCases: [string, TemplateInput, number][] = [
       design: face,
       placement: { width: 5.5 * IN, verticalOffset: -0.5 * IN, rotation: 0 },
       slits: noSlits,
+      margin: RECORDED_MARGIN,
     },
     IN,
   ],
@@ -74,6 +78,7 @@ export const referenceCases: [string, TemplateInput, number][] = [
       design: face,
       placement: { width: 6 * IN, verticalOffset: 0.5 * IN, rotation: -5 },
       slits: noSlits,
+      margin: RECORDED_MARGIN,
     },
     IN,
   ],
@@ -87,6 +92,7 @@ export const referenceCases: [string, TemplateInput, number][] = [
       design: star,
       placement: { width: 12 * CM, verticalOffset: 4 * CM, rotation: 0 },
       slits: noSlits,
+      margin: RECORDED_MARGIN,
     },
     CM,
   ],

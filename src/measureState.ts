@@ -8,8 +8,8 @@ export interface SavedMeasurements {
   rings?: { position: number | null; circumference: number | null }[];
 }
 
-/** In mm: 9 in tall, one 30 in ring at mid-height. */
-const DEFAULTS = { height: 228.6, rings: [{ position: 0.5, circumference: 762 }] };
+/** In mm: one ring at mid-height. */
+const DEFAULTS = { height: 230, rings: [{ position: 0.5, circumference: 760 }] };
 
 /**
  * The measurements to start from: the saved ones, or the defaults where nothing was saved, with ring ids

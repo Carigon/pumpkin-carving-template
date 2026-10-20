@@ -4,8 +4,8 @@ import { lengthFields } from "./lengthFields";
 import { mountTracePanel } from "./tracePanel";
 import { renderWarnings } from "./warnings";
 
-/** In mm: 6 in wide, centered. */
-const DEFAULTS_MM = { width: 152.4, verticalOffset: 0 };
+/** In mm; centered. */
+const DEFAULTS_MM = { width: 150, verticalOffset: 0 };
 const MAX_ROTATION = 30;
 
 export interface DesignPanel {
