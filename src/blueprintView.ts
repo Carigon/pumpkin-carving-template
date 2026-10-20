@@ -1,5 +1,5 @@
 import type { Point2, ProfileFit, PumpkinMeasurements, Units } from "./core";
-import { tapeLength, toMm } from "./displayUnits";
+import { fromMm, tapeLength, toMm } from "./displayUnits";
 
 /** What the Blueprint view is drawn from. Lengths in mm, sizes in px. */
 export interface BlueprintInput {
@@ -19,6 +19,13 @@ export interface BlueprintInput {
    * by default `fitScale` of these measurements.
    */
   fitScale?: number;
+  /**
+   * The index in `measurements.rings` of the ring edited last, which a failed fit's banner names; none (e.g. on a
+   * page load) leaves the banner generic.
+   */
+  blame?: number | null;
+  /** The ring (its index in `measurements.rings`) or height whose handle is being dragged: its label shows the value to 0.1, as the readout. */
+  readout?: number | "height" | null;
 }
 
 /** A ring's line across the pumpkin, its handle and its label by the ruler. All in px, y down. */
@@ -107,6 +114,8 @@ const PROFILE_SAMPLES = 129;
  */
 export function blueprintView(input: BlueprintInput): BlueprintDrawing {
   const { measurements, units } = input;
+  /** A ring's or the height's label: as read off a tape, or to 0.1 while its handle is dragged. */
+  const length = (mm: number, dragged: boolean) => (dragged ? `${fromMm(mm, units).toFixed(1)} ${units}` : tapeLength(mm, units));
   const zoom = clampZoom(input.zoom);
   const scale = (input.fitScale ?? fitScale(input)) * zoom;
   const origin = { x: input.size.width / 2, y: input.size.height - BOTTOM };
@@ -142,9 +151,9 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
       label: {
         x: LABEL_X,
         y: y - 9,
-        text: tapeLength(2 * Math.PI * radius, units),
+        text: length(2 * Math.PI * radius, input.readout === index),
         // A ball is measured around its middle alone.
-        at: input.ball ? null : `at ${tapeLength(position * H, units)}`,
+        at: input.ball ? null : `at ${length(position * H, input.readout === index)}`,
         leader: { x1: RULER_X, x2: x1, y },
       },
     };
@@ -174,20 +183,27 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
     x1: RULER_X,
     x2: hx,
     handle: { x: hx + HANDLE_WIDTH / 2, y: yTop },
-    label: { x: LABEL_X, y: yTop - 10, text: `height ${tapeLength(H, units)}`, at: null, leader: null },
+    label: { x: LABEL_X, y: yTop - 10, text: `height ${length(H, input.readout === "height")}`, at: null, leader: null },
   };
 
-  return { ...drawing, profile, rings, height, banner: banner(fit) };
+  const blamed = valid.find((r) => r.index === input.blame);
+  return { ...drawing, profile, rings, height, banner: banner(fit, blamed && tapeLength(blamed.position * H, units)) };
 }
 
 /**
- * What the banner across the top says when there's no profile: the shape-fit failure as the core words it, or,
- * when a ring isn't measured properly yet (the form marks it), a pointer to the form.
+ * What the banner across the top says when there's no profile: the shape-fit failure, naming the ring edited
+ * last by its height above the table (`blamed`) or else as the core words it, or, when a ring isn't measured
+ * properly yet (the form marks it), a pointer to the form.
  */
-function banner(fit: ProfileFit): string | null {
+function banner(fit: ProfileFit, blamed: string | undefined): string | null {
   if (fit.ok) return null;
   const shape = fit.warnings.find((w) => w.field === "ring" && w.ring === undefined && w.kind === "impossible-measurement");
-  if (shape && fit.warnings.length === 1) return `${shape.message} (Edits still apply; a later edit may fix it.)`;
+  const later = "(Edits still apply; a later edit may fix it.)";
+  if (shape && fit.warnings.length === 1) {
+    return blamed
+      ? `No smooth pumpkin shape passes through the ring at ${blamed}. Check its height and circumference. ${later}`
+      : `${shape.message} ${later}`;
+  }
   return "Some rings aren't measured yet. Fix the rings marked in the form to see the shape.";
 }
 
