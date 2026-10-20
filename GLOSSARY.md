@@ -14,13 +14,17 @@ _Avoid_: Slice, section, band
 **Widest circumference**:
 The ring with the largest circumference; the pumpkin bulges past it nowhere.
 
+**Profile**:
+The pumpkin's side edge from stem to base, fitted smoothly through every ring; the pumpkin's shape is this edge spun around its vertical axis.
+_Avoid_: Outline, silhouette, contour
+
 ## Viewport
 
 **View**:
 One of the ways the viewport shows the work: 3D, Trace, Blueprint or Paper.
 
 **Blueprint view**:
-The view for editing the pumpkin's shape directly: the fitted outline drawn flat against a ruler, with each ring as a line you can drag.
+The view for editing the pumpkin's shape directly: the profile drawn flat on both sides against a ruler, with each ring as a line you can drag.
 _Avoid_: Shape view, profile view, ortho view
 
 **Projection**:
