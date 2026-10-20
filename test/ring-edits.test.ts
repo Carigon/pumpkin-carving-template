@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fitProfile, ringAt } from "../src/core";
-import { deleteRing, dragBall, dragHeight, dragRing, insertRing, sortRings, withRingIds, type RingMeasurements } from "../src/ringEdits";
+import { deleteRing, dragBall, dragHeight, dragRing, insertRing, nudgeLength, sortRings, withRingIds, type RingMeasurements } from "../src/ringEdits";
 
 /** mm per inch. */
 const IN = 25.4;
@@ -178,6 +178,20 @@ describe("ring edits", () => {
     expect(above(loose, 0)).toBeCloseTo(100.4, 9);
     expect(around(loose, 0)).toBeCloseTo(800.6, 9);
     expect(dragHeight(pumpkin, 240.5, free).measurements.height).toBe(240.5);
+  });
+
+  it("nudge a length to the next point on the display unit's grid, up or down", () => {
+    // On the grid: one ⅛ in (or 1 mm) step.
+    expect(nudgeLength(4.5 * IN, 1, "in")).toBeCloseTo(4.625 * IN, 9);
+    expect(nudgeLength(4.5 * IN, -1, "in")).toBeCloseTo(4.375 * IN, 9);
+    expect(nudgeLength(100, -1, "cm")).toBeCloseTo(99, 9);
+    // Off the grid: to the next grid point that way, never back where it was.
+    expect(nudgeLength(4.5625 * IN, -1, "in")).toBeCloseTo(4.5 * IN, 9);
+    expect(nudgeLength(4.5625 * IN, 1, "in")).toBeCloseTo(4.625 * IN, 9);
+    expect(nudgeLength(100.4, 1, "cm")).toBeCloseTo(101, 9);
+    // Float noise on a grid point (9 in held as 228.6 mm) still moves a whole step.
+    expect(nudgeLength(228.6, 1, "in")).toBeCloseTo(9.125 * IN, 9);
+    expect(nudgeLength(228.6, -1, "in")).toBeCloseTo(8.875 * IN, 9);
   });
 
   it("sort rings top to bottom, keeping their ids, with rings not yet placed last", () => {

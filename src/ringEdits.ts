@@ -70,6 +70,17 @@ export function snapLength(mm: number, { units, snap }: EditOptions): number {
   return snap ? Math.round(mm / SNAP_MM[units]) * SNAP_MM[units] : mm;
 }
 
+/**
+ * `mm` nudged one step up (`direction` 1) or down (-1) the display unit's grid (see `SNAP_MM`): to the next grid
+ * point that way, so a length off the grid lands on it rather than snapping back where it was.
+ */
+export function nudgeLength(mm: number, direction: 1 | -1, units: Units): number {
+  const steps = mm / SNAP_MM[units];
+  // A grid point held with float noise counts as on the grid.
+  const on = Math.abs(steps - Math.round(steps)) < 1e-6 ? Math.round(steps) : steps;
+  return (direction > 0 ? Math.floor(on) + 1 : Math.ceil(on) - 1) * SNAP_MM[units];
+}
+
 /** The measurements with ids 0, 1, 2… on their rings, in order. */
 export function withRingIds(m: PumpkinMeasurements, firstId: RingId = 0): RingMeasurements {
   return { height: m.height, rings: m.rings.map((r, i) => ({ id: firstId + i, position: r.position, circumference: r.circumference })) };
