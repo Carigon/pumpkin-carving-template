@@ -3,6 +3,7 @@ import { createTemplateBuilder, type SurfaceParameters, type TemplateWarning } f
 import { ballMeasurements, gridDesign } from "./input/calibrationGrid";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountBlueprintView } from "./ui/blueprintViewSvg";
+import { mountDeleteConfirm } from "./ui/deleteConfirm";
 import { mountDesignPanel } from "./ui/designPanel";
 import { mountExportPanel, type ExportSource } from "./ui/exportPanel";
 import { mountGridPanel } from "./ui/gridPanel";
@@ -14,6 +15,7 @@ import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
 import { createMeasureStore, startingMeasurements, type MeasureChange, type MeasureState } from "./measureState";
+import type { RingMeasurements } from "./ringEdits";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
 import { stepInMode, steps, type Step, type StepId } from "./steps";
@@ -43,18 +45,32 @@ app.innerHTML = `
 
 const $ = (id: string) => app.querySelector<HTMLElement>(`#${id}`)!;
 const infoEl = $("surface-info");
-const header = mountHeader($("header"), changeMode, changeUnits);
+const header = mountHeader($("header"), changeMode, changeUnits, persist);
 const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
 // The measurements the form and the Blueprint view both render from and edit.
-const measures = createMeasureStore({ measurements: { height: Number.NaN, rings: [] }, lastEdited: null });
+const measures = createMeasureStore({
+  measurements: { height: Number.NaN, rings: [] },
+  lastEdited: null,
+  selected: null,
+  hovered: null,
+});
 const form = mountMeasurementForm($("measurements"), (measurements, edited) =>
   measures.set({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, { source: "form", live: false }),
 );
-const blueprint = mountBlueprintView(viewport.blueprintView, (measurements, edited, live) =>
-  measures.set({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, { source: "view", live }),
-);
+// Asking before a ring's × deletes it, as the header's settings menu says; "Don't ask again" unticks it there.
+const confirmDelete = mountDeleteConfirm(document.body, {
+  asking: () => header.askBeforeDeletingRing(),
+  stopAsking() {
+    header.setAskBeforeDeletingRing(false);
+    persist();
+  },
+});
+const blueprint = mountBlueprintView(viewport.blueprintView, {
+  change: (patch, live) => measures.set(patch, { source: "view", live }),
+  confirmDelete,
+});
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
@@ -83,11 +99,15 @@ const background = startBackgroundBuild(showTemplate, ({ slits }) => viewport.se
 let pending: Omit<ExportSource, "template"> | null = null;
 /** The latest template the worker built, with its export details, for the Paper view (null: none). */
 let built: ExportSource | null = null;
+/** The measurements the form shows, and those the 3D view and the template were last built from. */
+let followed: RingMeasurements | null = null;
+let rebuilt: RingMeasurements | null = null;
 restore();
 showUnits();
 syncMode();
 enterStep();
 update();
+followed = measures.get().measurements;
 measures.subscribe(followMeasures);
 
 /** Put back the last-used settings (lengths in mm; the display units go to the header). */
@@ -96,7 +116,7 @@ function restore(): void {
   header.restore(saved);
   const measurements = startingMeasurements(saved.measurements);
   // Nothing edited yet: a shape that doesn't fit on load isn't blamed on a ring.
-  measures.set({ measurements, lastEdited: null }, { source: "form", live: false });
+  measures.set({ measurements, lastEdited: null, selected: null, hovered: null }, { source: "form", live: false });
   form.show(measurements);
   gridPanel.restore(saved);
   designPanel.restorePlacement(saved.placement ?? {});
@@ -125,6 +145,7 @@ function persist(): void {
     cut: slitPanel.cut(),
     ...exportPanel.options(),
     step,
+    askBeforeDeletingRing: header.askBeforeDeletingRing(),
   });
 }
 
@@ -195,18 +216,24 @@ function changeUnits(): void {
 }
 
 /**
- * The shared measurements changed. The side that made the change already shows it; the other follows. During a
- * drag only the views follow: the 3D view and the template rebuild once, when it ends.
+ * The shared state changed. The side that made the change already shows it; the other follows. During a drag
+ * (or a held arrow key) only the views follow: the 3D view and the template rebuild when it ends. A change of
+ * selection or hover alone rebuilds nothing.
  */
 function followMeasures(state: MeasureState, change: MeasureChange): void {
-  if (change.source !== "form") form.show(state.measurements);
-  if (!change.live) update();
+  if (state.measurements !== followed) {
+    followed = state.measurements;
+    if (change.source !== "form") form.show(state.measurements);
+  }
+  if (!change.live && state.measurements !== rebuilt) update();
+  else if (change.source !== "view") blueprint.show(state, header.mode() === "test-grid");
 }
 
 function update(): void {
   followTrace();
   const ball = header.mode() === "test-grid";
   const state = measures.get();
+  rebuilt = state.measurements;
   // A ball is measured by its first ring alone.
   const ballCircumference = state.measurements.rings[0]?.circumference ?? Number.NaN;
   const measurements = ball ? ballMeasurements(ballCircumference) : state.measurements;

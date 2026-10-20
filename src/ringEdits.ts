@@ -19,7 +19,16 @@ export interface RingMeasurements extends PumpkinMeasurements {
   rings: RingWithId[];
 }
 
-/** Which rule held a value back. */
+/**
+ * A gap between two neighbouring rings in top-to-bottom order. `above: null` means the gap reaches the top (the
+ * height); `below: null` means it reaches the table (0).
+ */
+export interface Gap {
+  above: RingId | null;
+  below: RingId | null;
+}
+
+/** Which rule held a value back, or refused an insert or delete. */
 export type ClampLimit = "ring-size" | "height" | "margin" | "shape-ratio" | "ring-count" | "gap";
 
 /** Why an edit didn't land where it was asked to, for the carver. */
@@ -50,12 +59,26 @@ export const MARGIN = 5;
 /** The height over the widest diameter: kept between squat and tall, which take long to build. */
 export const SHAPE_RATIO = { min: 0.2, max: 5 };
 
+/** The most rings a pumpkin may have (as many as the saved settings keep). */
+export const MAX_RINGS = 20;
+
 /** The grid a snapped length lands on, counted from 0, mm: ⅛ in, or 1 mm in centimetres. */
 export const SNAP_MM: Record<Units, number> = { in: 25.4 / 8, cm: 1 };
 
 /** `mm` on the display unit's grid (see `SNAP_MM`), or as it is when `snap` is off. */
 export function snapLength(mm: number, { units, snap }: EditOptions): number {
   return snap ? Math.round(mm / SNAP_MM[units]) * SNAP_MM[units] : mm;
+}
+
+/**
+ * `mm` nudged one step up (`direction` 1) or down (-1) the display unit's grid (see `SNAP_MM`): to the next grid
+ * point that way, so a length off the grid lands on it rather than snapping back where it was.
+ */
+export function nudgeLength(mm: number, direction: 1 | -1, units: Units): number {
+  const steps = mm / SNAP_MM[units];
+  // A grid point held with float noise counts as on the grid.
+  const on = Math.abs(steps - Math.round(steps)) < 1e-6 ? Math.round(steps) : steps;
+  return (direction > 0 ? Math.floor(on) + 1 : Math.ceil(on) - 1) * SNAP_MM[units];
 }
 
 /** The measurements with ids 0, 1, 2… on their rings, in order. */
@@ -156,44 +179,54 @@ export function dragHeight(start: RingMeasurements, target: number, options: Edi
   return { measurements: { height, rings: start.rings }, note };
 }
 
-/** The most rings a pumpkin has (the saved settings' cap). */
-const MAX_RINGS = 20;
-
-/** A gap between two neighbouring rings in top-to-bottom order.
- *  above: null means the gap reaches the top (the height).
- *  below: null means it reaches the table (0). */
-export interface Gap {
-  above: RingId | null;
-  below: RingId | null;
-}
-
-/** Insert at the gap's midpoint with ringAt's circumference. Refused (measurements
- *  unchanged, id null, note says why) for a gap narrower than 2·MARGIN or a 21st ring.
- *  The new ring's id is (largest existing id) + 1. Result is sorted. */
+/**
+ * Insert a ring at the middle of `gap`, with the circumference the shape already has there (`ringAt`), so the
+ * shape doesn't change until the carver measures it. Refused (the measurements as they were, id null, and a note
+ * saying why) for a gap narrower than twice the margin or a ring past `MAX_RINGS`. The new ring's id is the largest
+ * one so far plus 1; the rings come back sorted top to bottom.
+ */
 export function insertRing(m: RingMeasurements, gap: Gap): RingEdit & { id: RingId | null } {
-  const at = (id: RingId | null, edge: number) => (id === null ? edge : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
+  const refused = (note: ClampNote | null) => ({ measurements: m, note, id: null });
+  if (m.rings.length >= MAX_RINGS) {
+    return refused({ limit: "ring-count", message: `A pumpkin can have up to ${MAX_RINGS} rings.` });
+  }
+  const at = (id: RingId | null, end: number) => (id === null ? end : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
   const top = at(gap.above, 1);
   const bottom = at(gap.below, 0);
-  if (m.rings.length >= MAX_RINGS) {
-    return { measurements: m, id: null, note: { limit: "ring-count", message: `A pumpkin has at most ${MAX_RINGS} rings.` } };
-  }
-  if (!((top - bottom) * m.height >= 2 * MARGIN)) {
-    return { measurements: m, id: null, note: { limit: "gap", message: "This gap is too narrow for another ring." } };
+  const H = m.height;
+  if (!(H > 0) || !Number.isFinite(top) || !Number.isFinite(bottom)) return refused(null);
+  if ((top - bottom) * H < 2 * MARGIN) {
+    return refused({ limit: "gap", message: "That gap is too narrow for another ring: rings are kept a little apart." });
   }
   const position = (top + bottom) / 2;
+  const circumference = ringAt(m, position);
+  if (!Number.isFinite(circumference)) return refused(null);
   const id = Math.max(-1, ...m.rings.map((r) => r.id)) + 1;
-  const rings = [...m.rings, { id, position, circumference: ringAt(m, position) }];
-  return { measurements: sortRings({ height: m.height, rings }), id, note: null };
+  return { measurements: sortRings({ height: H, rings: [...m.rings, { id, position, circumference }] }), note: null, id };
 }
 
-/** Delete any ring but the last. Refused (unchanged, note says why) for the last
- *  ring or when the shape ratio would leave 0.2–5. */
+/**
+ * Delete ring `id`. Refused (the measurements as they were, and a note saying why) for the last ring, and when
+ * taking away the widest ring would leave the pumpkin more than `SHAPE_RATIO.max` times as tall as it is wide.
+ */
 export function deleteRing(m: RingMeasurements, id: RingId): RingEdit {
+  if (!m.rings.some((r) => r.id === id)) return { measurements: m, note: null };
+  if (m.rings.length <= 1) {
+    return { measurements: m, note: { limit: "ring-count", message: "The last ring can't be deleted: the shape needs one." } };
+  }
   const rings = m.rings.filter((r) => r.id !== id);
-  if (rings.length === 0) return { measurements: m, note: { limit: "ring-count", message: "The last ring can't be removed." } };
-  const widest = Math.max(0, ...rings.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
-  const ratio = m.height / widest;
-  if (widest > 0 && (ratio < SHAPE_RATIO.min || ratio > SHAPE_RATIO.max)) return { measurements: m, note: shapeNote() };
+  const widest = (rs: RingWithId[]) => Math.max(0, ...rs.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
+  const after = widest(rings);
+  // Only a delete that narrows the pumpkin can push it out of shape; inserting never widens it.
+  if (after < widest(m.rings) && m.height > after * SHAPE_RATIO.max) {
+    return {
+      measurements: m,
+      note: {
+        limit: "shape-ratio",
+        message: `Deleting this ring would leave the pumpkin more than ${SHAPE_RATIO.max} times as tall as it is wide.`,
+      },
+    };
+  }
   return { measurements: { height: m.height, rings }, note: null };
 }
 

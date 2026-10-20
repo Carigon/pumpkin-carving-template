@@ -80,6 +80,125 @@ body {
   white-space: nowrap;
 }
 
+/* The settings button, at the header's right end, and its menu of app-wide preferences. */
+.app-settings {
+  position: relative;
+  margin-left: auto;
+}
+
+.settings-button {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-button svg {
+  fill: currentColor;
+  fill-rule: evenodd;
+}
+
+.settings-button:hover,
+.settings-button[aria-expanded="true"] {
+  color: var(--fg);
+}
+
+.settings-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 3;
+  display: grid;
+  gap: 0.5rem;
+  min-width: 14rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+
+.settings-menu[hidden] {
+  display: none;
+}
+
+.settings-menu label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Asking before a ring is deleted with its × (the Blueprint view's, and the form's). */
+.confirm-dialog {
+  width: min(18rem, calc(100vw - 2rem));
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.25);
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 0.25);
+}
+
+.confirm-dialog form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.confirm-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.confirm-dont-ask {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.confirm-actions button {
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.confirm-actions .confirm-delete {
+  border-color: var(--warn-fg);
+  background: var(--warn-fg);
+  color: var(--card);
+}
+
+.confirm-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .viewport {
   position: relative;
   min-height: 0;
@@ -885,6 +1004,8 @@ body {
   --bp-muted: #8fb3d9;
   --bp-profile: #7fd3ff;
   --bp-rough: #ff9e8f;
+  --bp-accent: #ffd166;
+  --bp-gap: rgb(255 209 102 / 0.14);
   overflow: hidden;
 }
 
@@ -914,7 +1035,7 @@ body {
 }
 
 .bp-svg:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--bp-line);
+  box-shadow: inset 0 0 0 2px var(--bp-accent);
 }
 
 .bp-svg text {
@@ -1003,6 +1124,118 @@ body {
 .bp-dragging,
 .bp-dragging .bp-hit {
   cursor: grabbing;
+}
+
+/* A ring's line and label select it; a wider, invisible line makes the line easy to hit. */
+.bp-hit-line {
+  stroke: transparent;
+  stroke-width: 12;
+  cursor: pointer;
+}
+
+.bp-ring-label {
+  cursor: pointer;
+}
+
+.bp-hovered .bp-ring-line {
+  stroke-width: 2.25;
+}
+
+.bp-selected .bp-ring-line,
+.bp-selected .bp-height-line {
+  stroke: var(--bp-accent);
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+
+.bp-selected .bp-ring-label,
+.bp-selected .bp-height-label {
+  fill: var(--bp-accent);
+  font-weight: 600;
+}
+
+.bp-selected .bp-handle {
+  stroke: var(--bp-accent);
+}
+
+/* The selected ring's round ×, at its middle. */
+.bp-remove {
+  cursor: pointer;
+}
+
+.bp-remove-bg {
+  fill: var(--bp-paper);
+  stroke: var(--bp-accent);
+  stroke-width: 1.5;
+}
+
+.bp-remove:hover .bp-remove-bg {
+  fill: var(--bp-accent);
+}
+
+.bp-remove-icon {
+  stroke: var(--bp-accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.bp-remove:hover .bp-remove-icon {
+  stroke: var(--bp-paper);
+}
+
+/* A hovered gap: a tinted band between its rings, and the ring a click would add. */
+.bp-gap {
+  fill: var(--bp-gap);
+  pointer-events: none;
+}
+
+.bp-ghost {
+  pointer-events: none;
+}
+
+.bp-ghost-line {
+  stroke: var(--bp-accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.bp-ghost-label {
+  fill: var(--bp-accent);
+}
+
+.bp-plus {
+  fill: var(--bp-paper);
+  stroke: var(--bp-accent);
+  stroke-width: 1.5;
+}
+
+.bp-plus-icon {
+  stroke: var(--bp-accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+
+.bp-svg:has(.bp-ghost) {
+  cursor: copy;
+}
+
+/* Why an insert or delete was refused, for a few seconds. */
+.bp-note {
+  position: absolute;
+  left: 3.5rem;
+  right: 3.5rem;
+  bottom: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid var(--bp-accent);
+  border-radius: 4px;
+  color: var(--bp-line);
+  background: var(--bp-panel);
+  font-size: 0.8rem;
+}
+
+.bp-note[hidden] {
+  display: none;
 }
 
 /* Why there's no smooth profile, across the top (clear of the view switcher and the status badge). */
