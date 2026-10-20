@@ -280,26 +280,33 @@ describe("ring edits", () => {
     expect(count).toEqual(insertRing(full, { above: null, below: 19 }).note);
   });
 
-  it("delete any ring but the last", () => {
+  it("delete any ring but the last, saying whether it did", () => {
     const deleted = deleteRing(pumpkin, 1);
+    expect(deleted.deleted).toBe(true);
     expect(deleted.note).toBeNull();
     expect(deleted.measurements).toEqual({ height: pumpkin.height, rings: [pumpkin.rings[0]] });
 
     const last = deleteRing(deleted.measurements, 0);
+    expect(last.deleted).toBe(false);
     expect(last.measurements).toBe(deleted.measurements);
     expect(last.note?.limit).toBe("ring-count");
     expect(last.note?.message).toMatch(/last ring/);
+
+    // A ring that's already gone: nothing to delete, and nothing to say.
+    const gone = deleteRing(pumpkin, 9);
+    expect(gone).toEqual({ measurements: pumpkin, note: null, deleted: false });
   });
 
   it("refuse a delete that leaves the pumpkin too tall for its width, and say so", () => {
     // 500 mm tall, 120 and 90 mm across: deleting the widest leaves it 5.6 times as tall as it is wide.
     const tall = withRingIds({ height: 500, rings: [{ position: 0.5, circumference: 120 * Math.PI }, { position: 0.7, circumference: 90 * Math.PI }] });
     const refused = deleteRing(tall, 0);
+    expect(refused.deleted).toBe(false);
     expect(refused.measurements).toBe(tall);
     expect(refused.note?.limit).toBe("shape-ratio");
     expect(refused.note?.message).toMatch(/tall/);
     // The narrower ring goes.
-    expect(deleteRing(tall, 1).note).toBeNull();
+    expect(deleteRing(tall, 1)).toMatchObject({ deleted: true, note: null });
     // As does the widest, while another ring is as wide.
     const twin = withRingIds({ height: 500, rings: [{ position: 0.5, circumference: 120 * Math.PI }, { position: 0.7, circumference: 120 * Math.PI }] });
     expect(deleteRing(twin, 0).measurements.rings.map((r) => r.id)).toEqual([1]);

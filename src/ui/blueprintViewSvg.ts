@@ -243,7 +243,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   const remove = (id: RingId, next: Selection) => {
     const edit = deleteRing(state.measurements, id);
     showNote(edit.note);
-    if (edit.measurements === state.measurements) return;
+    if (!edit.deleted) return;
     emit({ measurements: edit.measurements, selected: next, hovered: null });
     announce(next === null ? "Ring deleted" : `Ring deleted. ${describe(next)}`);
   };

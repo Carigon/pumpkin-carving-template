@@ -219,28 +219,25 @@ export function insertRing(m: RingMeasurements, gap: Gap): RingEdit & { id: Ring
 }
 
 /**
- * Delete ring `id`. Refused (the measurements as they were, and a note saying why) for the last ring, and when
- * taking away the widest ring would leave the pumpkin more than `SHAPE_RATIO.max` times as tall as it is wide.
+ * Delete ring `id`. Refused (`deleted: false`, the measurements as they were, and a note saying why) for the last
+ * ring, and when taking away the widest ring would leave the pumpkin more than `SHAPE_RATIO.max` times as tall as
+ * it is wide. A ring that isn't there is not deleted either, with no note.
  */
-export function deleteRing(m: RingMeasurements, id: RingId): RingEdit {
-  if (!m.rings.some((r) => r.id === id)) return { measurements: m, note: null };
-  if (m.rings.length <= 1) {
-    return { measurements: m, note: { limit: "ring-count", message: "The last ring can't be deleted: the shape needs one." } };
-  }
+export function deleteRing(m: RingMeasurements, id: RingId): RingEdit & { deleted: boolean } {
+  const refused = (note: ClampNote | null) => ({ measurements: m, note, deleted: false });
+  if (!m.rings.some((r) => r.id === id)) return refused(null);
+  if (m.rings.length <= 1) return refused({ limit: "ring-count", message: "The last ring can't be deleted: the shape needs one." });
   const rings = m.rings.filter((r) => r.id !== id);
   const widest = (rs: RingWithId[]) => Math.max(0, ...rs.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
   const after = widest(rings);
   // Only a delete that narrows the pumpkin can push it out of shape; inserting never widens it.
   if (after < widest(m.rings) && m.height > after * SHAPE_RATIO.max) {
-    return {
-      measurements: m,
-      note: {
-        limit: "shape-ratio",
-        message: `Deleting this ring would leave the pumpkin more than ${SHAPE_RATIO.max} times as tall as it is wide.`,
-      },
-    };
+    return refused({
+      limit: "shape-ratio",
+      message: `Deleting this ring would leave the pumpkin more than ${SHAPE_RATIO.max} times as tall as it is wide.`,
+    });
   }
-  return { measurements: { height: m.height, rings }, note: null };
+  return { measurements: { height: m.height, rings }, note: null, deleted: true };
 }
 
 /** A limit on a value, with the note to give when it holds the value back. */

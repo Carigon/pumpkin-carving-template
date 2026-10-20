@@ -383,7 +383,7 @@ export function mountMeasurementForm(
 
   const remove = (id: RingId) => {
     const edit = deleteRing(current, id);
-    if (edit.measurements.rings.length === current.rings.length) {
+    if (!edit.deleted) {
       note = noteOn(id, edit.note);
       relabel();
       return;
