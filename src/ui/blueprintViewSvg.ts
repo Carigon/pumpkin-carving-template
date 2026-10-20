@@ -27,8 +27,10 @@ import {
   type RingWithId,
 } from "../ringEdits";
 import type { ConfirmDelete } from "./deleteConfirm";
+import { el as svgElement, roundTo } from "./svg";
 
-const SVG = "http://www.w3.org/2000/svg";
+/** Px are drawn to 0.01. */
+const PX_DECIMALS = 2;
 /** Each zoom step (a button press or a +/− key), as a factor. */
 const ZOOM_STEP = 1.25;
 /** How much one wheel notch (100 px of deltaY) zooms: about 14 %. */
@@ -659,16 +661,11 @@ function crossIcon(x: number, y: number, k: number, turned: boolean): string {
   return turned ? `M${x - k},${y - k}L${x + k},${y + k}M${x + k},${y - k}L${x - k},${y + k}` : `M${x - k},${y}H${x + k}M${x},${y - k}V${y + k}`;
 }
 
+/** An SVG element, its numbers to `PX_DECIMALS` places. */
 function el(name: string, attrs: Record<string, string | number>): SVGElement {
-  const node = document.createElementNS(SVG, name);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(typeof v === "number" ? round(v) : v));
-  return node;
+  return svgElement(name, attrs, PX_DECIMALS);
 }
 
 function xy(p: Point2): string {
-  return `${round(p.x)},${round(p.y)}`;
-}
-
-function round(v: number): number {
-  return Math.round(v * 100) / 100;
+  return `${roundTo(p.x, PX_DECIMALS)},${roundTo(p.y, PX_DECIMALS)}`;
 }

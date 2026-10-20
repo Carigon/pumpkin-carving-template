@@ -2,8 +2,8 @@ import type { Point2 } from "../core";
 import type { PaperView } from "../paperView";
 import type { ClipRect } from "../pdf/layout";
 import { STRETCH_MAX_ALPHA } from "../stretchTint";
+import { el, roundTo } from "./svg";
 
-const SVG = "http://www.w3.org/2000/svg";
 /** For unique clip-path ids. */
 let clipCount = 0;
 
@@ -108,12 +108,6 @@ function drawing(view: PaperView, filled: boolean): SVGSVGElement {
   return svg;
 }
 
-function el(name: string, attrs: Record<string, string | number>): SVGElement {
-  const node = document.createElementNS(SVG, name);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
-  return node;
-}
-
 /** The rectangle's lower-left and upper-right corners (enough for a bounding box). */
 function oppositeCorners(r: ClipRect): Point2[] {
   return [
@@ -128,6 +122,7 @@ function bounds(points: Point2[]) {
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
+/** Template-frame lengths to 0.001. */
 function round(v: number): number {
-  return Math.round(v * 1000) / 1000;
+  return roundTo(v, 3);
 }
