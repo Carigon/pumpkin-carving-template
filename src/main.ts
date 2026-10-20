@@ -12,6 +12,7 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
+import { mountBlueprintPrototype } from "./ui/blueprintPrototype";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
 import { stepInMode, steps, type Step, type StepId } from "./steps";
@@ -46,6 +47,11 @@ const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
 const form = mountMeasurementForm($("measurements"), update);
+// PROTOTYPE (#41): the Blueprint view edits the form's rings and writes them back on release.
+const blueprint = mountBlueprintPrototype(viewport.blueprintView, ({ height, rings }) => {
+  form.restore({ height, rings });
+  update();
+});
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
@@ -182,6 +188,7 @@ function update(): void {
   // A ball is measured by its first ring alone.
   const ballCircumference = read.rings[0]?.circumference ?? Number.NaN;
   const measurements = ball ? ballMeasurements(ballCircumference, read.units) : read;
+  blueprint.sync(read, ball);
   gridPanel.setUnits(measurements.units);
   designPanel.setUnits(measurements.units);
   slitPanel.setUnits(measurements.units);

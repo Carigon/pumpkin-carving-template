@@ -13,6 +13,8 @@ export interface Viewport {
   readonly traceView: HTMLElement;
   /** The Paper view's element, where the flat template is drawn on its pages. */
   readonly paperView: HTMLElement;
+  /** PROTOTYPE (#41): the Blueprint view's element. */
+  readonly blueprintView: HTMLElement;
   /** Show a small status badge over the viewport (e.g. "Updating stretch tint…"); null hides it. */
   setStatus(text: string | null): void;
   /** Show a placeholder message over the 3D view; null hides it. */
@@ -28,6 +30,7 @@ export interface Viewport {
 
 /** The switcher's label for each view, in the order the switcher lists them. */
 const VIEW_LABELS: Record<View, string> = {
+  blueprint: "Blueprint",
   "3d": "3D",
   trace: "Trace",
   paper: "Paper",
@@ -69,6 +72,7 @@ export function mountViewport(root: HTMLElement): Viewport {
     </div>
     <div class="view view-trace" data-view="trace"></div>
     <div class="view view-paper" data-view="paper"></div>
+    <div class="view view-blueprint" data-view="blueprint"></div>
     <div class="view-switcher" role="radiogroup" aria-label="View" hidden></div>
     <div class="status-badge" role="status" hidden></div>
   `;
@@ -110,6 +114,7 @@ export function mountViewport(root: HTMLElement): Viewport {
     canvas: root.querySelector<HTMLCanvasElement>(".preview-canvas")!,
     traceView: views.trace,
     paperView: views.paper,
+    blueprintView: views.blueprint,
     setStatus(text) {
       status.textContent = text ?? "";
       status.hidden = text === null;
