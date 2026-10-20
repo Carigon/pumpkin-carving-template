@@ -124,7 +124,7 @@ export interface BlueprintDrawing {
 /** The smallest zoom: a quarter of the size that fits. */
 export const MIN_ZOOM = 0.25;
 /** The ruler's x, px. */
-export const RULER_X = 44;
+const RULER_X = 44;
 /** How far each ring line runs past the profile, px. */
 export const OVERHANG = 14;
 /** A handle pill's width, px; it starts at the line's end. */

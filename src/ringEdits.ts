@@ -51,22 +51,22 @@ export interface EditOptions {
 }
 
 /** A ring's radius, mm. */
-export const RING_RADIUS = { min: 10, max: 500 };
+const RING_RADIUS = { min: 10, max: 500 };
 /** The pumpkin's height, mm. */
-export const HEIGHT = { min: 20, max: 1000 };
+const HEIGHT = { min: 20, max: 1000 };
 /** How close a dragged ring comes to its neighbours, the table and the top, mm. */
-export const MARGIN = 5;
+const MARGIN = 5;
 /** The height over the widest diameter: kept between squat and tall, which take long to build. */
-export const SHAPE_RATIO = { min: 0.2, max: 5 };
+const SHAPE_RATIO = { min: 0.2, max: 5 };
 
 /** The most rings a pumpkin may have (as many as the saved settings keep). */
 export const MAX_RINGS = 20;
 
 /** The grid a snapped length lands on, counted from 0, mm: ⅛ in, or 1 mm in centimetres. */
-export const SNAP_MM: Record<Units, number> = { in: 25.4 / 8, cm: 1 };
+const SNAP_MM: Record<Units, number> = { in: 25.4 / 8, cm: 1 };
 
 /** `mm` on the display unit's grid (see `SNAP_MM`), or as it is when `snap` is off. */
-export function snapLength(mm: number, { units, snap }: EditOptions): number {
+function snapLength(mm: number, { units, snap }: EditOptions): number {
   return snap ? Math.round(mm / SNAP_MM[units]) * SNAP_MM[units] : mm;
 }
 
