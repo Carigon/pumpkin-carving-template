@@ -4,7 +4,8 @@ import { lengthFields } from "./lengthFields";
 import { mountTracePanel } from "./tracePanel";
 import { renderWarnings } from "./warnings";
 
-const DEFAULTS_IN = { width: 6, verticalOffset: 0 };
+/** In mm: 6 in wide, centered. */
+const DEFAULTS_MM = { width: 152.4, verticalOffset: 0 };
 const MAX_ROTATION = 30;
 
 export interface DesignPanel {
@@ -14,11 +15,11 @@ export interface DesignPanel {
   tracing(): boolean;
   /** An image design is loaded, being traced or with its trace accepted. */
   hasImage(): boolean;
-  /** Convert the length fields when the measurement units change. */
+  /** Show the length fields in `units` display units. */
   setUnits(units: Units): void;
   /** Show design-related warnings (outside the silhouette, past the front limit). */
   showWarnings(warnings: TemplateWarning[]): void;
-  /** Put back saved placement values (width null = empty), in the current units. Doesn't call `onChange`. */
+  /** Put back saved placement values (width null = empty), in mm. Doesn't call `onChange`. */
   restorePlacement(saved: Partial<{ width: number | null; verticalOffset: number; rotation: number }>): void;
 }
 
@@ -81,8 +82,8 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
   const warningsEl = $<HTMLElement>("d-warnings");
 
   const lengths = lengthFields(form, [width, offset]);
-  lengths.set(width, DEFAULTS_IN.width);
-  lengths.set(offset, DEFAULTS_IN.verticalOffset);
+  lengths.set(width, DEFAULTS_MM.width);
+  lengths.set(offset, DEFAULTS_MM.verticalOffset);
   let design: Design | null = null;
   const showStatus = (text: string, failed: boolean) => {
     status.textContent = text;

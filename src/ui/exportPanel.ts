@@ -1,8 +1,9 @@
+import type { Units } from "../core";
 import type { Paper } from "../paper";
 import { layoutTemplatePdf, type TemplatePdfInput } from "../pdf/layout";
 
-/** What the panel exports: everything the PDF needs except the panel's own options. */
-export type ExportSource = Omit<TemplatePdfInput, "filled" | "paper">;
+/** What the panel exports: everything the PDF needs except the panel's own options and the display units. */
+export type ExportSource = Omit<TemplatePdfInput, "filled" | "paper" | "units">;
 
 export interface ExportPanel {
   /** What to export, or null when there is no template yet. */
@@ -17,10 +18,10 @@ export interface ExportPanel {
 }
 
 /**
- * "Download PDF" button with the paper size and carve-area style options. pdf-lib is loaded on first export.
- * Calls `onChange` when an option changes.
+ * "Download PDF" button with the paper size and carve-area style options. pdf-lib is loaded on first export. The
+ * info block prints lengths in the display units `units` returns at the time. Calls `onChange` when an option changes.
  */
-export function mountExportPanel(root: HTMLElement, onChange: () => void = () => {}): ExportPanel {
+export function mountExportPanel(root: HTMLElement, units: () => Units, onChange: () => void = () => {}): ExportPanel {
   root.innerHTML = `
     <form class="export card" novalidate>
       <h2>Paper and PDF</h2>
@@ -67,7 +68,7 @@ export function mountExportPanel(root: HTMLElement, onChange: () => void = () =>
     try {
       // The page layout is already loaded (the Paper view uses it); pdf-lib loads on first export.
       const { renderPdf, downloadPdf } = await import("../pdf/render");
-      const layout = layoutTemplatePdf({ ...current, filled: filled.checked, paper: paper.value as Paper });
+      const layout = layoutTemplatePdf({ ...current, filled: filled.checked, paper: paper.value as Paper, units: units() });
       downloadPdf(await renderPdf(layout), "pumpkin-template.pdf");
       const { rows, cols } = layout.tiles;
       // An edit during the export already set its own status ("updating…"); keep that one.

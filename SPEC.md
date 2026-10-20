@@ -70,15 +70,17 @@ A browser-based tool. I load my design (an SVG, or a scan/photo of line art that
 
 ### Template builder contract
 
+Every physical length in and out of the builder is in millimetres. Inches and centimetres are only **display units**: the carver's choice for the lengths they read or type, converted at the fields and in the printed info block.
+
 Inputs:
 - **Design:** closed paths (polylines, or curves broken into segments by the input layer) in arbitrary design units, plus their bounding box.
-- **Pumpkin measurements:** the height, one or more tape rings (each a circumference at a fraction of the height), and units.
-- **Placement:** the design's width as seen from the front (physical units), vertical offset, and rotation.
+- **Pumpkin measurements:** the height and one or more tape rings (each a circumference at a fraction of the height), in mm.
+- **Placement:** the design's width as seen from the front and its vertical offset (mm), and rotation.
 - **Slit options:** count (a number, or Auto) and max depth.
 
 Outputs:
-- The flattened design paths in physical paper units.
-- The cut-out outline (the design's outline grown by a margin of about ¾ in).
+- The flattened design paths in mm on the paper.
+- The cut-out outline (the design's outline grown by a margin of 19.05 mm, ¾ in).
 - The slit paths.
 - Stretch values per area, available both on the 3D surface (for the preview) and on the flat template.
 - Warnings: parts past about 60° from the front, impossible measurements, fewer slits fitting than the set count, and Auto stopping with the paper still stretched more than its target.
@@ -125,7 +127,7 @@ Slits go where they relieve the most stretch. The rules come from measurements i
 
 - Vector output at true physical scale, on Letter or A4 pages.
 - Templates bigger than one page are split across pages with an overlap and join marks.
-- Content: design paths (outlines by default, with a filled option), the cut-out outline as a solid line, slits as dashed lines, a center cross, an arrow toward the stem, a 10 cm check square, and an info block with the pumpkin measurements and settings.
+- Content: design paths (outlines by default, with a filled option), the cut-out outline as a solid line, slits as dashed lines, a center cross, an arrow toward the stem, a 10 cm check square, and an info block with the pumpkin measurements and settings, its lengths in the carver's display units.
 
 ### Input processing
 
@@ -135,7 +137,7 @@ Slits go where they relieve the most stretch. The rules come from measurements i
 
 ### Settings storage
 
-- The last-used measurements, units, placement and slit options (count or Auto, and max depth) are saved in localStorage. Images are not saved.
+- The last-used measurements, display units, placement and slit options (count or Auto, and max depth) are saved in localStorage under `pumpkin-template-v2`, every length in mm. Images are not saved. Settings under the first key (`pumpkin-template-settings`, lengths in the display units) are ignored.
 
 ## Testing Decisions
 

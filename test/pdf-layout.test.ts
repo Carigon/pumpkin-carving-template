@@ -4,18 +4,30 @@ import { buildTemplate, type Placement, type PumpkinMeasurements, type SlitOptio
 import { layoutTemplatePdf, type Mark } from "../src/pdf/layout";
 import { renderPdf } from "../src/pdf/render";
 
-const measurements: PumpkinMeasurements = { height: 1000, rings: [{ circumference: 2000, position: 0.5 }], units: "in" };
-const placement: Placement = { width: 4, verticalOffset: 0, rotation: 0 };
+/** mm per inch: the template is in mm, the info block in the carver's display units. */
+const IN = 25.4;
+const measurements: PumpkinMeasurements = { height: 1000 * IN, rings: [{ circumference: 2000 * IN, position: 0.5 }] };
+const placement: Placement = { width: 4 * IN, verticalOffset: 0, rotation: 0 };
 const result = buildTemplate({
   measurements,
   design: { paths: [[{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 2 }, { x: 0, y: 2 }]], bbox: { minX: 0, minY: 0, maxX: 4, maxY: 2 } },
   placement,
 });
-const input = { template: result.template!, surface: result.surface!, measurements, placement, slits: { count: "auto", depth: 2 } satisfies SlitOptions };
+const input = {
+  template: result.template!,
+  surface: result.surface!,
+  measurements,
+  placement,
+  slits: { count: "auto", depth: 2 * IN } satisfies SlitOptions,
+  units: "in" as const,
+};
 /** The same template with two slits drawn in (the solid design leaves no room for real ones). */
 const slitted = {
   ...input.template,
-  slits: [[{ x: 0, y: 2 }, { x: 0, y: 1.5 }, { x: 0.01, y: 2 }], [{ x: 0, y: -2 }, { x: 0, y: -1.5 }, { x: 0.01, y: -2 }]],
+  slits: [
+    [{ x: 0, y: 2 * IN }, { x: 0, y: 1.5 * IN }, { x: 0.01 * IN, y: 2 * IN }],
+    [{ x: 0, y: -2 * IN }, { x: 0, y: -1.5 * IN }, { x: 0.01 * IN, y: -2 * IN }],
+  ],
 };
 
 function bbox(mark: Mark) {
@@ -27,7 +39,7 @@ function bbox(mark: Mark) {
 const find = (marks: Mark[], role: Mark["role"]) => marks.filter((m) => m.role === role);
 
 describe("PDF layout", () => {
-  it("draws the template at true scale (1 in = 72 pt) on one Letter page", () => {
+  it("draws the template at true scale (25.4 mm = 72 pt) on one Letter page", () => {
     const layout = layoutTemplatePdf(input);
 
     expect(layout.pages).toHaveLength(1);
@@ -57,7 +69,7 @@ describe("PDF layout", () => {
   it("lists the height and every ring, with its height above the table, in the info block", () => {
     const ringed: PumpkinMeasurements = {
       ...measurements,
-      rings: [{ position: 0.5, circumference: 2000 }, { position: 0.75, circumference: 1400 }, { position: 0.25, circumference: 1500 }],
+      rings: [{ position: 0.5, circumference: 2000 * IN }, { position: 0.75, circumference: 1400 * IN }, { position: 0.25, circumference: 1500 * IN }],
     };
     const info = find(layoutTemplatePdf({ ...input, measurements: ringed }).pages[0].marks, "info")
       .map((m) => (m.kind === "text" ? m.text : ""))
@@ -70,8 +82,24 @@ describe("PDF layout", () => {
     expect(info).not.toMatch(/arc|depth:/i);
   });
 
+  it("prints the info block's lengths in the carver's display units, from the same mm template", () => {
+    const text = (units: "in" | "cm") =>
+      find(layoutTemplatePdf({ ...input, template: slitted, units, cut: { margin: 19.05, line: true } }).pages[0].marks, "info").map((m) =>
+        m.kind === "text" ? m.text : "",
+      );
+
+    expect(text("in")).toContain("Height: 1000 in");
+    expect(text("in")).toContain("Cut-out margin: 0.75 in, cut line printed");
+    expect(text("in")).toContain("Design width seen from the front: 4 in");
+    expect(text("cm")).toContain("Height: 2540 cm");
+    expect(text("cm")).toContain("Cut-out margin: 1.9 cm, cut line printed");
+    expect(text("cm")).toContain("Design width seen from the front: 10.2 cm");
+    expect(text("cm")).toContain("Slits: 2 (auto), up to 5.1 cm deep");
+    expect(text("cm").join("\n")).not.toMatch(/\d in\b/);
+  });
+
   it("with many rings, the info block stays on the page, clear of the check square and the template", () => {
-    const rings = Array.from({ length: 10 }, (_, i) => ({ position: 0.05 + 0.09 * i, circumference: 1500 + 10.25 * i }));
+    const rings = Array.from({ length: 10 }, (_, i) => ({ position: 0.05 + 0.09 * i, circumference: (1500 + 10.25 * i) * IN }));
     const ringed: PumpkinMeasurements = { ...measurements, rings };
     for (const paper of ["letter", "a4"] as const) {
       const layout = layoutTemplatePdf({ ...input, measurements: ringed, paper });
@@ -100,15 +128,15 @@ describe("PDF layout", () => {
     const info = (slits: SlitOptions, template = slitted) =>
       find(layoutTemplatePdf({ ...input, template, slits }).pages[0].marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
 
-    expect(info({ count: 2, depth: 1 })).toContain("Slits: 2, up to 1 in deep");
-    expect(info({ count: "auto", depth: 2 })).toContain("Slits: 2 (auto), up to 2 in deep");
-    expect(info({ count: "auto", depth: 2 })).toContain("Cut along the solid line and the dashed slits.");
-    expect(info({ count: "auto", depth: 2 }, input.template)).toContain("Slits: none");
-    expect(info({ count: "auto", depth: 2 }, input.template)).toContain("Cut along the solid line.");
+    expect(info({ count: 2, depth: IN })).toContain("Slits: 2, up to 1 in deep");
+    expect(info({ count: "auto", depth: 2 * IN })).toContain("Slits: 2 (auto), up to 2 in deep");
+    expect(info({ count: "auto", depth: 2 * IN })).toContain("Cut along the solid line and the dashed slits.");
+    expect(info({ count: "auto", depth: 2 * IN }, input.template)).toContain("Slits: none");
+    expect(info({ count: "auto", depth: 2 * IN }, input.template)).toContain("Cut along the solid line.");
   });
 
   it("names the cut-out margin and prints the solid cut-out edge by default", () => {
-    const { marks } = layoutTemplatePdf({ ...input, cut: { margin: 0.75, line: true } }).pages[0];
+    const { marks } = layoutTemplatePdf({ ...input, cut: { margin: 0.75 * IN, line: true } }).pages[0];
     const info = find(marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
 
     expect(find(marks, "cut-outline")).toHaveLength(1);
@@ -116,7 +144,7 @@ describe("PDF layout", () => {
   });
 
   it("leaves out the solid cut-out edge when the cut line is turned off, and says so", () => {
-    const layout = layoutTemplatePdf({ ...input, template: slitted, cut: { margin: 0.75, line: false } });
+    const layout = layoutTemplatePdf({ ...input, template: slitted, cut: { margin: 0.75 * IN, line: false } });
     const { marks } = layout.pages[0];
     const info = find(marks, "info").map((m) => (m.kind === "text" ? m.text : ""));
 
@@ -140,7 +168,7 @@ describe("PDF layout", () => {
   });
 
   it("draws the slits as dashed lines", () => {
-    const slits = [[{ x: 0, y: 2 }, { x: 0, y: 1.5 }, { x: 0.01, y: 2 }]];
+    const slits = [[{ x: 0, y: 2 * IN }, { x: 0, y: 1.5 * IN }, { x: 0.01 * IN, y: 2 * IN }]];
     const { marks } = layoutTemplatePdf({ ...input, template: { ...input.template, slits } }).pages[0];
 
     const [slit] = find(marks, "slit");
@@ -158,13 +186,20 @@ describe("PDF layout", () => {
 });
 
 function bigInput(widthIn: number) {
-  const placement: Placement = { width: widthIn, verticalOffset: 0, rotation: 0 };
+  const placement: Placement = { width: widthIn * IN, verticalOffset: 0, rotation: 0 };
   const big = buildTemplate({
     measurements,
     design: { paths: [[{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }]], bbox: { minX: 0, minY: 0, maxX: 4, maxY: 3 } },
     placement,
   });
-  return { template: big.template!, surface: big.surface!, measurements, placement, slits: { count: "auto", depth: 2 } satisfies SlitOptions };
+  return {
+    template: big.template!,
+    surface: big.surface!,
+    measurements,
+    placement,
+    slits: { count: "auto", depth: 2 * IN } satisfies SlitOptions,
+    units: "in" as const,
+  };
 }
 
 /** Where the template's origin (design center) sits on a page: the middle of its center cross. */

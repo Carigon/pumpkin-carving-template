@@ -32,19 +32,21 @@ describe("calibration grid design", () => {
 
 describe("ball measurements", () => {
   it("model a sphere from a single circumference: as tall as it is wide, widest at mid-height", () => {
-    expect(ballMeasurements(29.5, "in")).toEqual({ height: 29.5 / Math.PI, rings: [{ circumference: 29.5, position: 0.5 }], units: "in" });
+    expect(ballMeasurements(750)).toEqual({ height: 750 / Math.PI, rings: [{ circumference: 750, position: 0.5 }] });
   });
 });
 
 describe("calibration grid on a basketball", () => {
-  const measurements = ballMeasurements(29.5, "in");
-  const placement = { width: 5, verticalOffset: 0, rotation: 0 };
+  /** A basketball's circumference, 29.5 in, in mm. */
+  const ball = 29.5 * 25.4;
+  const measurements = ballMeasurements(ball);
+  const placement = { width: 5 * 25.4, verticalOffset: 0, rotation: 0 };
   // Test-grid mode prints no slits: a grid is one solid carve area with no blank paper for them.
   const result = buildTemplate({ measurements, design: gridDesign(6), placement, slits: { count: 0, depth: 0 } });
 
   it("goes through the normal pipeline to a flat template with every cell", () => {
-    expect(result.surface?.semiAxes.sideToSide).toBeCloseTo(29.5 / (2 * Math.PI), 6);
-    expect(result.surface?.semiAxes.vertical).toBeCloseTo(29.5 / (2 * Math.PI), 6);
+    expect(result.surface?.semiAxes.sideToSide).toBeCloseTo(ball / (2 * Math.PI), 5);
+    expect(result.surface?.semiAxes.vertical).toBeCloseTo(ball / (2 * Math.PI), 5);
     expect(result.warnings).toEqual([]);
     expect(result.template?.designPaths).toHaveLength(1 + 36);
   });
@@ -55,7 +57,7 @@ describe("calibration grid on a basketball", () => {
     const height = outer.maxY - outer.minY;
     // By symmetry the grid flattens exactly as wide as tall.
     expect(Math.abs(width / height - 1)).toBeLessThan(0.002);
-    expect(width).toBeGreaterThan(5);
+    expect(width).toBeGreaterThan(placement.width);
   });
 
   it("exports through the PDF path with an info block naming it a calibration grid for the ball", () => {
@@ -65,7 +67,8 @@ describe("calibration grid on a basketball", () => {
       measurements,
       placement,
       slits: { count: 0, depth: 0 },
-      calibrationBall: 29.5,
+      calibrationBall: ball,
+      units: "in",
     });
     const text = layout.pages.flatMap((p) => p.marks).flatMap((m) => (m.kind === "text" ? [m.text] : []));
     expect(text).toContain("Calibration grid for a 29.5 in ball");

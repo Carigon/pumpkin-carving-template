@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildTemplate, type Design } from "../src/core";
 
+/** Millimetres per inch. */
+const IN = 25.4;
+
 /** A round design (a 32-gon), 1 unit across, centered on the origin. */
 function disc(): Design {
   const path = Array.from({ length: 32 }, (_, k) => {
@@ -10,8 +13,9 @@ function disc(): Design {
   return { paths: [path], bbox: { minX: -0.5, minY: -0.5, maxX: 0.5, maxY: 0.5 } };
 }
 
+/** A sphere `circumference` inches around (lengths in mm). */
 function sphere(circumference: number) {
-  return { height: circumference / Math.PI, rings: [{ circumference, position: 0.5 }], units: "in" as const };
+  return { height: (circumference * IN) / Math.PI, rings: [{ circumference: circumference * IN, position: 0.5 }] };
 }
 
 describe("stretch", () => {
@@ -19,14 +23,14 @@ describe("stretch", () => {
     const { template } = buildTemplate({
       measurements: sphere(300),
       design: disc(),
-      placement: { width: 3, verticalOffset: 0, rotation: 0 },
+      placement: { width: 3 * IN, verticalOffset: 0, rotation: 0 },
     });
 
     expect(template!.stretch.max).toBeLessThan(0.005);
   });
 
   it("grows for a wide design on a small sphere", () => {
-    const R = 30 / (2 * Math.PI);
+    const R = (30 * IN) / (2 * Math.PI);
     const narrow = buildTemplate({
       measurements: sphere(30),
       design: disc(),
@@ -48,7 +52,7 @@ describe("stretch", () => {
     const { template } = buildTemplate({
       measurements: sphere(30),
       design: disc(),
-      placement: { width: 6, verticalOffset: 1, rotation: 0 },
+      placement: { width: 6 * IN, verticalOffset: 1 * IN, rotation: 0 },
     });
     const stretch = template!.stretch;
 
@@ -59,20 +63,20 @@ describe("stretch", () => {
     expect(Math.max(...stretch.values)).toBeCloseTo(stretch.max, 10);
 
     // The 3D triangles lie on the sphere; the flat ones match the template (design center at the origin).
-    const R = 30 / (2 * Math.PI);
+    const R = (30 * IN) / (2 * Math.PI);
     for (const [x, y, z] of stretch.surface) expect(Math.hypot(x, y, z)).toBeCloseTo(R, 3);
     const nearest = Math.min(...stretch.flat.map((p) => Math.hypot(p.x, p.y)));
-    expect(nearest).toBeLessThan(0.5);
+    expect(nearest).toBeLessThan(0.5 * IN);
   });
 
   it("gives the outward surface normal at each 3D vertex, so the preview can draw the tint just above the skin", () => {
     const stretch = buildTemplate({
       measurements: sphere(30),
       design: disc(),
-      placement: { width: 6, verticalOffset: 1, rotation: 0 },
+      placement: { width: 6 * IN, verticalOffset: 1 * IN, rotation: 0 },
     }).template!.stretch;
 
-    const R = 30 / (2 * Math.PI);
+    const R = (30 * IN) / (2 * Math.PI);
     expect(stretch.normals).toHaveLength(stretch.surface.length);
     stretch.normals.forEach((n, i) => {
       // On a sphere the outward normal is the point's direction from the center.

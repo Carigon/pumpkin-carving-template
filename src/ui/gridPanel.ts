@@ -2,17 +2,17 @@ import type { Units } from "../core";
 import { lengthFields } from "./lengthFields";
 
 const DEFAULT_CELLS = 6;
-/** Grid width seen from the front: small enough to stay inside 60° on a basketball (29.5 in around). */
-const DEFAULT_GRID_WIDTH_IN = 5;
+/** Grid width seen from the front, in mm (5 in): small enough to stay inside 60° on a basketball (29.5 in around). */
+const DEFAULT_GRID_WIDTH_MM = 127;
 
 export interface GridPanel {
   /** Grid squares across (and down) in test-grid mode. */
   cells(): number;
-  /** Width of the grid seen from the front, in the current units (NaN when empty). */
+  /** Width of the grid seen from the front, in mm (NaN when empty). */
   gridWidth(): number;
-  /** Convert the grid width when the measurement units change. */
+  /** Show the grid width in `units` display units. */
   setUnits(units: Units): void;
-  /** Put back a saved grid size (width in the current units). Doesn't call `onChange`. */
+  /** Put back a saved grid size (width in mm). Doesn't call `onChange`. */
   restore(saved: { cells?: number; gridWidth?: number | null }): void;
 }
 
@@ -47,7 +47,7 @@ export function mountGridPanel(root: HTMLElement, onChange: () => void): GridPan
   const cellsInput = form.querySelector<HTMLInputElement>("#g-cells")!;
   const widthInput = form.querySelector<HTMLInputElement>("#g-width")!;
   const lengths = lengthFields(form, [widthInput]);
-  lengths.set(widthInput, DEFAULT_GRID_WIDTH_IN);
+  lengths.set(widthInput, DEFAULT_GRID_WIDTH_MM);
 
   form.addEventListener("input", () => onChange());
   form.addEventListener("submit", (e) => e.preventDefault());

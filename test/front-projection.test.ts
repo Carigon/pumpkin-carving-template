@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, convertLength, type Design, type Placement } from "../src/core";
+import { buildTemplate, type Design, type Placement } from "../src/core";
 
+/** Millimetres per inch. */
+const IN = 25.4;
 // A sphere: height = circumference / π, widest at mid-height.
-const CIRCUMFERENCE = 60;
+const CIRCUMFERENCE = 60 * IN;
 const R = CIRCUMFERENCE / (2 * Math.PI);
 /** The surface is a triangle mesh within 0.25 mm of the smooth shape. */
-const MESH_TOLERANCE = convertLength(0.025, "cm", "in");
-const plainSphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }], units: "in" as const };
+const MESH_TOLERANCE = 0.25;
+const plainSphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }] };
 /** The same sphere measured with more tape rings, a quarter and three quarters of the way up. */
 const ringedSphere = {
   ...plainSphere,
@@ -16,11 +18,11 @@ const ringedSphere = {
   })),
 };
 
-/** Design whose bbox is the unit square around the origin, so width 2 maps design units 1:1 to inches. */
+/** Design whose bbox is the unit square around the origin, so width 2 in maps design units 1:1 to inches. */
 function unitDesign(points: [number, number][]): Design {
   return { paths: [points.map(([x, y]) => ({ x, y }))], bbox: { minX: -1, minY: -1, maxX: 1, maxY: 1 } };
 }
-/** Design with its bbox taken from its points; placing it at its bbox width maps it 1:1 to inches. */
+/** Design with its bbox taken from its points; placing it at its bbox width maps it 1:1 to mm (at IN times that, to inches). */
 function designOf(points: [number, number][]): Design {
   const xs = points.map(([x]) => x);
   const ys = points.map(([, y]) => y);
@@ -29,7 +31,7 @@ function designOf(points: [number, number][]): Design {
     bbox: { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) },
   };
 }
-const oneToOne: Placement = { width: 2, verticalOffset: 0, rotation: 0 };
+const oneToOne: Placement = { width: 2 * IN, verticalOffset: 0, rotation: 0 };
 
 describe.each([
   ["given as one circumference", plainSphere],
@@ -37,11 +39,12 @@ describe.each([
 ])("sphere %s", (_name, sphere) => {
   describe("front projection on a sphere", () => {
     it.each([0, 1, 3, 5, 8])(
-      "a design point at horizontal offset %f lands at angle arcsin(x/R), R·arcsin(x/R) along the surface from the front",
-      (x) => {
+      "a design point at horizontal offset %f in lands at angle arcsin(x/R), R·arcsin(x/R) along the surface from the front",
+      (inches) => {
+        const x = inches * IN;
         const { design, warnings } = buildTemplate({
           measurements: sphere,
-          design: unitDesign([[x, 0], [x, 0.001], [x - 0.001, 0]]),
+          design: unitDesign([[inches, 0], [inches, 0.001], [inches - 0.001, 0]]),
           placement: oneToOne,
         });
 
@@ -70,7 +73,7 @@ describe.each([
     it.each([10, 45, 58])("a design reaching %i° from the front raises no limit warning", (deg) => {
       const { warnings } = buildTemplate({
         measurements: sphere,
-        design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [at(deg), 0.1], [-at(deg), 0.1]]),
+        design: designOf([[-at(deg), -0.1 * IN], [at(deg), -0.1 * IN], [at(deg), 0.1 * IN], [-at(deg), 0.1 * IN]]),
         placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
       });
 
@@ -80,7 +83,7 @@ describe.each([
     it.each([62, 75, 85])("a design reaching %i° from the front raises the limit warning", (deg) => {
       const { warnings } = buildTemplate({
         measurements: sphere,
-        design: designOf([[-at(deg), -0.1], [at(deg), -0.1], [0, 0.1]]),
+        design: designOf([[-at(deg), -0.1 * IN], [at(deg), -0.1 * IN], [0, 0.1 * IN]]),
         placement: { width: 2 * at(deg), verticalOffset: 0, rotation: 0 },
       });
 
@@ -93,7 +96,7 @@ describe.each([
       const { warnings } = buildTemplate({
         measurements: sphere,
         design: unitDesign([[0, 0], [0.01, 0], [0, 0.01]]),
-        placement: { width: 2, verticalOffset: at(70), rotation: 0 },
+        placement: { width: 2 * IN, verticalOffset: at(70), rotation: 0 },
       });
 
       expect(warnings.map((w) => w.kind)).toEqual(["past-front-limit"]);
@@ -101,9 +104,9 @@ describe.each([
   });
 
   describe("the projected line, for drawing", () => {
-    // A triangle 12 in wide on a sphere of radius ≈ 9.55: a straight chord between its corners would sink about 2 in.
+    // A triangle 12 in wide on a sphere of radius ≈ 9.55 in: a straight chord between its corners would sink about 2 in.
     const triangle = designOf([[-6, -4], [6, -4], [0, 5]]);
-    const placed = { width: 12, verticalOffset: 0, rotation: 0 };
+    const placed = { width: 12 * IN, verticalOffset: 0, rotation: 0 };
 
     it("follows the surface along long straight edges", () => {
       const { design } = buildTemplate({ measurements: sphere, design: triangle, placement: placed });
@@ -113,7 +116,7 @@ describe.each([
         const a = line[i].surface!.point, b = line[(i + 1) % line.length].surface!.point;
         const middle = [0, 1, 2].map((k) => (a[k] + b[k]) / 2);
         // Each chord's middle stays within a hundredth of an inch (plus the mesh's own tolerance) of the skin.
-        expect(R - Math.hypot(...middle)).toBeLessThan(0.01 + MESH_TOLERANCE);
+        expect(R - Math.hypot(...middle)).toBeLessThan(0.01 * IN + MESH_TOLERANCE);
       }
     });
 
@@ -130,9 +133,9 @@ describe.each([
     it("are reported, counted, and left off the surface while the rest still project", () => {
       const { design, warnings } = buildTemplate({
         measurements: sphere,
-        // A diamond whose left and right tips (x = ±12) fall outside the sphere's outline (radius R ≈ 9.55).
+        // A diamond whose left and right tips (x = ±12 in) fall outside the sphere's outline (radius R ≈ 9.55 in).
         design: designOf([[-12, 0], [0, -1], [12, 0], [0, 1]]),
-        placement: { width: 24, verticalOffset: 0, rotation: 0 },
+        placement: { width: 24 * IN, verticalOffset: 0, rotation: 0 },
       });
 
       const silhouette = warnings.filter((w) => w.kind === "outside-silhouette");
@@ -151,7 +154,7 @@ describe.each([
       const { warnings } = buildTemplate({
         measurements: sphere,
         design: designOf([[-2, -1], [2, -1], [2, 1], [-2, 1]]),
-        placement: { width: 4, verticalOffset: 0, rotation: 0 },
+        placement: { width: 4 * IN, verticalOffset: 0, rotation: 0 },
       });
 
       expect(warnings).toEqual([]);
@@ -161,7 +164,7 @@ describe.each([
 
 describe("placement", () => {
   const sphere = plainSphere;
-  it.each([0, -3, Number.NaN])("a front-view width of %f projects nothing", (width) => {
+  it.each([0, -3 * IN, Number.NaN])("a front-view width of %f mm projects nothing", (width) => {
     const { surface, design, warnings } = buildTemplate({
       measurements: sphere,
       design: designOf([[-1, -1], [1, -1], [0, 1]]),
@@ -183,26 +186,26 @@ describe("placement", () => {
     const { design: projected } = buildTemplate({
       measurements: sphere,
       design,
-      placement: { width: 6, verticalOffset: 2, rotation: 0 },
+      placement: { width: 6 * IN, verticalOffset: 2 * IN, rotation: 0 },
     });
 
     const corner = projected!.paths[0].points[2];
-    expect(corner.front.x).toBeCloseTo(3, 9);
-    expect(corner.front.y).toBeCloseTo(0.75 + 2, 9);
+    expect(corner.front.x).toBeCloseTo(3 * IN, 9);
+    expect(corner.front.y).toBeCloseTo((0.75 + 2) * IN, 9);
     // Front projection keeps the front-view position: the surface point is straight behind it.
-    expect(corner.surface!.point[0]).toBeCloseTo(3, 9);
-    expect(corner.surface!.point[1]).toBeCloseTo(2.75, 9);
+    expect(corner.surface!.point[0]).toBeCloseTo(3 * IN, 9);
+    expect(corner.surface!.point[1]).toBeCloseTo(2.75 * IN, 9);
   });
 
   it("rotates counterclockwise about the design's center", () => {
     const { design: projected } = buildTemplate({
       measurements: sphere,
       design,
-      placement: { width: 6, verticalOffset: 1, rotation: 90 },
+      placement: { width: 6 * IN, verticalOffset: 1 * IN, rotation: 90 },
     });
 
     const corner = projected!.paths[0].points[2];
-    expect(corner.front.x).toBeCloseTo(-0.75, 9);
-    expect(corner.front.y).toBeCloseTo(3 + 1, 9);
+    expect(corner.front.x).toBeCloseTo(-0.75 * IN, 9);
+    expect(corner.front.y).toBeCloseTo((3 + 1) * IN, 9);
   });
 });

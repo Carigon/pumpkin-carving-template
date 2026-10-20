@@ -12,21 +12,24 @@ function memoryStorage(initial: Record<string, string> = {}): SettingsStorage & 
   };
 }
 
+const KEY = "pumpkin-template-v2";
+
+/** Lengths in mm; `units` is only how they're shown. */
 const full: Settings = {
   mode: "pumpkin",
   cells: 8,
-  gridWidth: 12,
+  gridWidth: 120,
   units: "cm",
   measurements: {
-    height: 25,
+    height: 250,
     rings: [
-      { position: 0.5, circumference: 80 },
+      { position: 0.5, circumference: 800 },
       { position: 0.25, circumference: null },
     ],
   },
-  placement: { width: 15, verticalOffset: -2, rotation: 10 },
-  slits: { count: 12, maxDepth: 4 },
-  cut: { margin: 2.5, line: false },
+  placement: { width: 150, verticalOffset: -20, rotation: 10 },
+  slits: { count: 12, maxDepth: 40 },
+  cut: { margin: 25, line: false },
   paper: "a4",
   filled: true,
   step: "template",
@@ -34,7 +37,7 @@ const full: Settings = {
 
 /** Storage holding `stored` as the saved settings. */
 function saved(stored: unknown): SettingsStorage {
-  return memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) });
+  return memoryStorage({ [KEY]: JSON.stringify(stored) });
 }
 
 describe("settings", () => {
@@ -44,12 +47,27 @@ describe("settings", () => {
     expect(loadSettings(storage)).toEqual(full);
   });
 
+  it("stores the lengths in mm under its own key, whatever the display units", () => {
+    const storage = memoryStorage();
+    saveSettings(storage, full);
+    expect(Object.keys(storage.data)).toEqual([KEY]);
+    const stored = JSON.parse(storage.data[KEY]);
+    expect(stored.measurements.height).toBe(250);
+    expect(stored.cut.margin).toBe(25);
+    expect(stored.units).toBe("cm");
+  });
+
+  it("ignores settings saved under the old key, which held lengths in the display units", () => {
+    const old = memoryStorage({ "pumpkin-template-settings": JSON.stringify({ ...full, units: "in", measurements: { height: 9, rings: [] } }) });
+    expect(loadSettings(old)).toEqual({});
+  });
+
   it("restores nothing when nothing was saved", () => {
     expect(loadSettings(memoryStorage())).toEqual({});
   });
 
   it.each(["{not json", "null", "42", '"text"', "[]"])("restores nothing from corrupt data %s", (raw) => {
-    expect(loadSettings(memoryStorage({ "pumpkin-template-settings": raw }))).toEqual({});
+    expect(loadSettings(memoryStorage({ [KEY]: raw }))).toEqual({});
   });
 
   it("drops invalid values and keeps the valid ones", () => {
@@ -62,41 +80,26 @@ describe("settings", () => {
         height: -5,
         rings: [{ position: 0.3, circumference: -2 }, 7, { position: 1.5, circumference: 20 }, { position: 0.6, circumference: 20 }],
       },
-      placement: { width: 15, verticalOffset: "up", rotation: 90 },
-      slits: { count: 2.5, maxDepth: 4 },
+      placement: { width: 150, verticalOffset: "up", rotation: 90 },
+      slits: { count: 2.5, maxDepth: 40 },
       cut: { margin: 0, line: "no" },
       paper: "tabloid",
       filled: "yes",
     };
-    const storage = memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) });
+    const storage = memoryStorage({ [KEY]: JSON.stringify(stored) });
     expect(loadSettings(storage)).toEqual({
       units: "cm",
       measurements: { rings: [{ position: 0.6, circumference: 20 }] },
-      placement: { width: 15 },
-      slits: { maxDepth: 4 },
+      placement: { width: 150 },
+      slits: { maxDepth: 40 },
       step: "measure",
     });
   });
 
   it("restores an Auto slit count", () => {
     const storage = memoryStorage();
-    saveSettings(storage, { ...full, slits: { count: "auto", maxDepth: 5 } });
-    expect(loadSettings(storage).slits).toEqual({ count: "auto", maxDepth: 5 });
-  });
-
-  it("drops slit settings saved before Auto, which always held a count, so the new defaults apply", () => {
-    expect(loadSettings(saved({ ...full, slits: { count: 8, depth: 1 } })).slits).toBeUndefined();
-  });
-
-  it("drops measurements saved with a front arc and rings along it, so the form starts from its defaults", () => {
-    const stored = {
-      ...full,
-      measurements: { circumference: 80, frontArc: 40, depth: null, circumferenceAt: 22, rings: [{ distance: 10, circumference: 60 }] },
-    };
-    const restored = loadSettings(memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) }));
-
-    expect(restored.measurements).toBeUndefined();
-    expect(restored.units).toBe("cm");
+    saveSettings(storage, { ...full, slits: { count: "auto", maxDepth: 50 } });
+    expect(loadSettings(storage).slits).toEqual({ count: "auto", maxDepth: 50 });
   });
 
   it("keeps working when storage is unavailable", () => {
@@ -124,19 +127,9 @@ describe("settings", () => {
     expect(raw).not.toContain("paths");
   });
 
-  it("drops lengths when the units are unknown, since they can't be interpreted", () => {
-    const stored = { ...full, units: "furlongs" };
-    const storage = memoryStorage({ "pumpkin-template-settings": JSON.stringify(stored) });
-    expect(loadSettings(storage)).toEqual({
-      mode: "pumpkin",
-      cells: 8,
-      slits: { count: 12 },
-      placement: { rotation: 10 },
-      cut: { line: false },
-      paper: "a4",
-      filled: true,
-      step: "template",
-    });
+  it("keeps the lengths when the display units are unknown, since they're in mm either way", () => {
+    const { units: _, ...rest } = full;
+    expect(loadSettings(saved({ ...full, units: "furlongs" }))).toEqual(rest);
   });
 
   describe("last step", () => {

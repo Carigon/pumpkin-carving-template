@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { buildTemplate, createTemplateBuilder, type BuildProgress, type TemplateInput } from "../src/core";
 import { between, ring, sphere } from "./slit-cases";
 
+/** Millimetres per inch. */
+const IN = 25.4;
+
 const pumpkin = {
-  height: 10,
-  rings: [{ position: 0.4, circumference: 32 }, { position: 0.8, circumference: 22 }],
-  units: "in" as const,
+  height: 10 * IN,
+  rings: [{ position: 0.4, circumference: 32 * IN }, { position: 0.8, circumference: 22 * IN }],
 };
 const square = {
   paths: [[{ x: -1, y: -1 }, { x: 1, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 }]],
@@ -14,8 +16,8 @@ const square = {
 const input: TemplateInput = {
   measurements: pumpkin,
   design: square,
-  placement: { width: 3, verticalOffset: 0.5, rotation: 10 },
-  slits: { count: 6, depth: 0.8 },
+  placement: { width: 3 * IN, verticalOffset: 0.5 * IN, rotation: 10 },
+  slits: { count: 6, depth: 0.8 * IN },
 };
 
 describe("the template builder", () => {
@@ -24,7 +26,7 @@ describe("the template builder", () => {
   }, 30_000);
 
   it("builds in steps, reporting each slit as it is placed, to the same template", () => {
-    const slitted: TemplateInput = { measurements: sphere, ...ring(30, between), slits: { count: 2, depth: 2 } };
+    const slitted: TemplateInput = { measurements: sphere, ...ring(30, between), slits: { count: 2, depth: 2 * IN } };
     const steps = createTemplateBuilder().steps(slitted);
     const progress: BuildProgress[] = [];
     let next = steps.next();
@@ -45,7 +47,7 @@ describe("the template builder", () => {
   });
 
   it("shows measurement problems in the preview", () => {
-    const quick = createTemplateBuilder().preview({ ...input, measurements: { ...pumpkin, height: -1 } });
+    const quick = createTemplateBuilder().preview({ ...input, measurements: { ...pumpkin, height: -1 * IN } });
     expect(quick.surface).toBeNull();
     expect(quick.warnings.map((w) => w.kind)).toContain("impossible-measurement");
   });
@@ -53,9 +55,9 @@ describe("the template builder", () => {
   it("keeps the mesh across placement, design and slit edits", () => {
     const builder = createTemplateBuilder();
     const mesh = builder.preview(input).surface!.mesh;
-    expect(builder.build({ ...input, placement: { width: 4, verticalOffset: -1, rotation: 0 } }).surface!.mesh).toBe(mesh);
+    expect(builder.build({ ...input, placement: { width: 4 * IN, verticalOffset: -1 * IN, rotation: 0 } }).surface!.mesh).toBe(mesh);
     expect(builder.preview({ ...input, design: undefined }).surface!.mesh).toBe(mesh);
-    expect(builder.build({ ...input, slits: { count: 0, depth: 0 }, margin: 1 }).surface!.mesh).toBe(mesh);
+    expect(builder.build({ ...input, slits: { count: 0, depth: 0 }, margin: 1 * IN }).surface!.mesh).toBe(mesh);
     // Equal measurements given as a new object still reuse it.
     expect(builder.preview({ ...input, measurements: structuredClone(pumpkin) }).surface!.mesh).toBe(mesh);
   });
@@ -63,8 +65,8 @@ describe("the template builder", () => {
   it("rebuilds the mesh when the measurements change", () => {
     const builder = createTemplateBuilder();
     const mesh = builder.preview(input).surface!.mesh;
-    const taller = builder.preview({ ...input, measurements: { ...pumpkin, height: 11 } });
+    const taller = builder.preview({ ...input, measurements: { ...pumpkin, height: 11 * IN } });
     expect(taller.surface!.mesh).not.toBe(mesh);
-    expect(taller.surface!.semiAxes.vertical).toBeCloseTo(5.5);
+    expect(taller.surface!.semiAxes.vertical).toBeCloseTo(5.5 * IN);
   });
 });

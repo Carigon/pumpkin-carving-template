@@ -12,8 +12,8 @@ export interface PaperStretch {
 }
 
 /**
- * What the Paper view draws: the flat template across the printed pages. Everything is in the template's frame
- * and units (origin at the design center, +y toward the stem), so the view only has to scale and flip it.
+ * What the Paper view draws: the flat template across the printed pages. Everything is in the template's frame,
+ * in mm (origin at the design center, +y toward the stem), so the view only has to scale and flip it.
  */
 export interface PaperView {
   /** The cut-out edge (closed), or null when the cut line isn't printed. */
