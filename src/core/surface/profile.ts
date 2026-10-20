@@ -14,7 +14,8 @@
  * and the one-widest-point rule is exact linear inequalities in it: dρ/dφ ≥ 0 above the widest ring and ≤ 0
  * below it, so the widest ring is a true maximum and nothing bulges past it. Rings that narrow and widen again
  * on one side of the widest can't meet that; they get the smoothest profile that stays between the axis and the
- * widest radius instead.
+ * widest radius instead. Either way q stays a little above zero at the poles (q ≥ δ·R), so a narrow ring near the top
+ * or bottom gives a slightly blunter pole rather than a pointed one.
  *
  * The program is convex, so a ring read off the fitted shape and added to the others changes nothing.
  */
@@ -45,6 +46,14 @@ const NODES = 256;
  * fit unchanged however many there are.
  */
 const MODES = 32;
+/**
+ * δ: the least q at each pole, as a fraction of the widest radius. Held to q ≥ 0, the fit would sometimes want a
+ * pole that is exactly pointed and pass or fail on round-off; held a little above it, it finds a slightly blunter
+ * top instead.
+ */
+const POLE_BLUNTNESS = 1e-3;
+/** The pole test after the fit, below δ so a fit held to δ always passes it. */
+const POLE_CHECK = POLE_BLUNTNESS / 2;
 
 /** The angle φ from the stem of a ring at `position`. */
 export function angleAt(position: number): number {
@@ -96,17 +105,19 @@ export function solveProfile(height: number, rings: ProfileRing[]): ProfileSolut
   ];
 
   const nodes = Array.from({ length: NODES + 1 }, (_, m) => (Math.PI * m) / NODES);
-  // One widest point: rising (dρ/dφ ≥ 0) above the widest ring, falling below it. At the poles that keeps q ≥ 0.
+  // One widest point: rising (dρ/dφ ≥ 0) above the widest ring, falling below it. At the poles, where dρ/dφ is ±q,
+  // that becomes q ≥ δ·R: a little blunt, never pointed.
   const slopes = nodes.map(slopeRow);
+  const pole = (m: number) => (m === 0 || m === NODES ? POLE_BLUNTNESS : 0);
   const rising = bounds(nodes.map((phi, m) => ({
     row: slopes[m].row,
-    lo: phi < fw ? -slopes[m].constant : -Infinity,
-    hi: phi > fw ? -slopes[m].constant : Infinity,
+    lo: phi < fw ? pole(m) - slopes[m].constant : -Infinity,
+    hi: phi > fw ? -pole(m) - slopes[m].constant : Infinity,
   })));
-  // Otherwise: between the axis and the widest radius (0 ≤ ρ/R ≤ 1), still with q ≥ 0 at the poles.
+  // Otherwise: between the axis and the widest radius (0 ≤ ρ/R ≤ 1), still with q ≥ δ·R at the poles.
   const capped = bounds(nodes.map((phi, m) => {
-    if (m === 0) return { row: slopes[m].row, lo: -slopes[m].constant, hi: Infinity };
-    if (m === NODES) return { row: slopes[m].row, lo: -Infinity, hi: -slopes[m].constant };
+    if (m === 0) return { row: slopes[m].row, lo: POLE_BLUNTNESS - slopes[m].constant, hi: Infinity };
+    if (m === NODES) return { row: slopes[m].row, lo: -Infinity, hi: -POLE_BLUNTNESS - slopes[m].constant };
     const { row, constant } = radiusRow(phi);
     return { row, lo: -constant, hi: 1 - constant };
   }));
@@ -118,9 +129,11 @@ export function solveProfile(height: number, rings: ProfileRing[]): ProfileSolut
   for (let j = 0; j < K; j++) coefficients[j + 1] = R * x[j];
   const profile = { height, coefficients };
 
-  // Off the axis between the poles, and not pointed at them.
+  // Off the axis between the poles, and not pointed at them. The pole test sits below the bound the fit was held to,
+  // so round-off where that bound is active can't flip the result.
   const q0 = profileAt(profile, 0).dRadius, qPi = -profileAt(profile, Math.PI).dRadius;
-  if (!(q0 > 0 && qPi > 0) || nodes.some((phi, m) => m > 0 && m < NODES && !(profileAt(profile, phi).radius > 0))) {
+  const blunt = POLE_CHECK * R;
+  if (!(q0 > blunt && qPi > blunt) || nodes.some((phi, m) => m > 0 && m < NODES && !(profileAt(profile, phi).radius > 0))) {
     return { ok: false };
   }
   return { ok: true, profile, ellipsoid: x.every((xj) => Math.abs(xj) < 1e-9) };

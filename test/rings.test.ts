@@ -227,6 +227,32 @@ describe("the ring at a height", () => {
     });
   });
 
+  describe("where a narrow ring pinches the top", () => {
+    /** Rings by radius, 9 in tall: the third ring is narrow enough that the smoothest profile would point at the top. */
+    const pinched = (radius: number): PumpkinMeasurements => ({
+      height: 9 * IN,
+      rings: [[0.15, 3.5], [0.45, 4.8], [0.66, radius]].map(([position, r]) => ({ position, circumference: 2 * Math.PI * r * IN })),
+    });
+    const radii = Array.from({ length: 21 }, (_, i) => 2.9 + 0.01 * i);
+
+    it("fits every ring size along the edge, not just some", () => {
+      const fitted = radii.filter((r) => fitProfile(pinched(r)).ok);
+
+      expect(fitted).toEqual(radii);
+    });
+
+    it.each([2.9, 2.95, 3.0, 3.05])("a ring read off the fit doesn't change the shape (third ring's radius %s in)", (radius) => {
+      const m = pinched(radius);
+      const before = fitProfile(m);
+      let more = m;
+      for (let i = 0; i < 9; i++) more = withRingAt(more, largestGapMiddle(more));
+      const after = fitProfile(more);
+
+      if (!before.ok || !after.ok) throw new Error("no fit");
+      after.profile.forEach((p, i) => expect(p.radius / (4.8 * IN)).toBeCloseTo(before.profile[i].radius / (4.8 * IN), 6));
+    });
+  });
+
   it("blends the rings on either side when there is no fitted profile", () => {
     const m = { height: Number.NaN, rings: [{ position: 0.9, circumference: 10 * IN }, { position: 0.1, circumference: 20 * IN }] };
 
