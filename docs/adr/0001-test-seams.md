@@ -17,7 +17,8 @@ export (`test/calibration-grid.test.ts`), the unit-switching length fields
 the Paper view's geometry `paperView` (`test/paper-view.test.ts`), the Blueprint view's geometry `blueprintView`
 (`test/blueprint-view.test.ts`) and the ring-edit rules that drags and typed values share (`dragRing`,
 `dragHeight`, `dragBall`, `sortRings`, `insertRing`, `deleteRing`, `nudgeLength` in `src/ringEdits.ts`: `test/ring-edits.test.ts`; the Measure form's typed
-values, `typeRingHeight`, `typeCircumference` and `typeHeight`: `test/typed-edits.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
+values, `typeRingHeight`, `typeCircumference` and `typeHeight`: `test/typed-edits.test.ts`; and which of its rows a
+measurement warning marks, `placeMeasureWarnings`: `test/measure-warnings.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).
 
 ## Decision
