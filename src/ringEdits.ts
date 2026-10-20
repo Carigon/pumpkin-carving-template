@@ -195,3 +195,58 @@ function shapeNote(): ClampNote {
     message: `The pumpkin is kept no more than ${SHAPE_RATIO.max} times as tall as it is wide, or as wide as it is tall.`,
   };
 }
+
+/*
+ * Typed edits: a value the carver typed in the Measure form, committed (on blur or Enter). Typed values never
+ * snap. A typed ring may pass its neighbours (the form re-sorts the rows) and land within the margin of another
+ * ring, which is accepted with a soft warning.
+ */
+
+/** A typed edit's outcome; `warning` is a soft warning on a value accepted as typed. */
+export interface TypedEdit extends RingEdit {
+  warning: string | null;
+}
+
+/**
+ * Type ring `id`'s height above the table, mm: kept the margin above the table and below the top. Within the
+ * margin of another ring it's accepted with a soft warning; on another ring's height it's left for the core's
+ * error.
+ */
+export function typeRingHeight(m: RingMeasurements, id: RingId, above: number, units: Units): TypedEdit {
+  const H = m.height;
+  const note = (): ClampNote => ({
+    limit: "margin",
+    message: `Rings are kept ${formatLength(MARGIN, units)} from the table and the top.`,
+  });
+  const clamped = clampTo(above, [{ value: MARGIN, note }], [{ value: Math.max(MARGIN, H - MARGIN), note }]);
+  const position = clamped.value / H;
+  const rings = m.rings.map((r) => (r.id === id ? { ...r, position } : r));
+  // The core's own tolerance for two rings at one height, which it reports as an error.
+  const gaps = m.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => Math.abs(r.position - position));
+  const close = gaps.some((g) => g >= 1e-9 && g * H < MARGIN);
+  const warning = close ? `This ring is within ${formatLength(MARGIN, units)} of another.` : null;
+  return { measurements: { height: H, rings }, note: clamped.note, warning };
+}
+
+/**
+ * Type ring `id`'s circumference, mm (a typed diameter d arrives as d·π): kept within the ring size limits and,
+ * unless it is the test-grid ball, the shape ratio, as a drag is.
+ */
+export function typeCircumference(
+  m: RingMeasurements,
+  id: RingId,
+  circumference: number,
+  { units, ball }: { units: Units; ball: boolean },
+): RingEdit {
+  const options = { units, snap: false };
+  return ball ? dragBall(m, id, circumference, options) : dragRing(m, id, { circumference }, options);
+}
+
+/**
+ * Type the pumpkin's height, mm, from the measurements as they were before the carver started typing: held as a
+ * dragged height is (20–1000 mm, the shape ratio and the tightest gap), with every ring keeping its fraction and
+ * circumference.
+ */
+export function typeHeight(m: RingMeasurements, height: number, units: Units): RingEdit {
+  return dragHeight(m, height, { units, snap: false });
+}
