@@ -13,6 +13,7 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
+import { createMeasureStore, type MeasureChange, type MeasureState } from "./measureState";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
 import { stepInMode, steps, type Step, type StepId } from "./steps";
@@ -46,8 +47,14 @@ const header = mountHeader($("header"), changeMode, changeUnits);
 const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
-const form = mountMeasurementForm($("measurements"), update);
-const blueprint = mountBlueprintView(viewport.blueprintView);
+// The measurements the form and the Blueprint view both render from and edit.
+const measures = createMeasureStore({ measurements: { height: Number.NaN, rings: [] }, lastEdited: null });
+const form = mountMeasurementForm($("measurements"), (measurements, edited) =>
+  measures.set({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, { source: "form", live: false }),
+);
+const blueprint = mountBlueprintView(viewport.blueprintView, (measurements, edited, live) =>
+  measures.set({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, { source: "view", live }),
+);
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
@@ -81,12 +88,15 @@ showUnits();
 syncMode();
 enterStep();
 update();
+measures.subscribe(followMeasures);
 
 /** Put back the last-used settings (lengths in mm; the display units go to the header). */
 function restore(): void {
   const saved = loadSettings(browserStorage());
   header.restore(saved);
   form.restore(saved.measurements ?? {});
+  // Nothing edited yet: a shape that doesn't fit on load isn't blamed on a ring.
+  measures.set({ measurements: form.read(), lastEdited: null }, { source: "form", live: false });
   gridPanel.restore(saved);
   designPanel.restorePlacement(saved.placement ?? {});
   slitPanel.restore(saved.slits ?? {}, saved.cut);
@@ -96,7 +106,7 @@ function restore(): void {
 
 /** Remember the current settings (never the design). */
 function persist(): void {
-  const m = form.read();
+  const m = measures.get().measurements;
   const p = designPanel.placement();
   const orNull = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x : null);
   const slits = slitPanel.options();
@@ -182,15 +192,24 @@ function changeUnits(): void {
   persist();
 }
 
+/**
+ * The shared measurements changed. The side that made the change already shows it; the other follows. During a
+ * drag only the views follow: the 3D view and the template rebuild once, when it ends.
+ */
+function followMeasures(state: MeasureState, change: MeasureChange): void {
+  if (change.source !== "form") form.show(state.measurements);
+  if (!change.live) update();
+}
+
 function update(): void {
   followTrace();
   const ball = header.mode() === "test-grid";
-  const read = form.read();
+  const state = measures.get();
   // A ball is measured by its first ring alone.
-  const ballCircumference = read.rings[0]?.circumference ?? Number.NaN;
-  const measurements = ball ? ballMeasurements(ballCircumference) : read;
+  const ballCircumference = state.measurements.rings[0]?.circumference ?? Number.NaN;
+  const measurements = ball ? ballMeasurements(ballCircumference) : state.measurements;
   // The Blueprint view refits on every edit; it has its own empty and failed states.
-  blueprint.show(measurements, ball);
+  blueprint.show(state, ball);
   const design = ball ? gridDesign(gridPanel.cells()) : (designPanel.design() ?? undefined);
   const placement = ball ? { ...designPanel.placement(), width: gridPanel.gridWidth() } : designPanel.placement();
   // A grid is one solid carve area: no blank paper for slits.
