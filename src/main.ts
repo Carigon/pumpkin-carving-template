@@ -1,6 +1,6 @@
 import "./ui/style.css";
 import { createTemplateBuilder, type SurfaceParameters, type TemplateWarning } from "./core";
-import { ballMeasurements, gridDesign } from "./input/calibrationGrid";
+import { gridDesign } from "./input/calibrationGrid";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountBlueprintView } from "./ui/blueprintViewSvg";
 import { mountDeleteConfirm } from "./ui/deleteConfirm";
@@ -14,7 +14,15 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
-import { createMeasureStore, editPatch, startingMeasurements, type MeasureChange, type MeasureState } from "./measureState";
+import {
+  createMeasureStore,
+  editPatch,
+  EMPTY_MEASURE_STATE,
+  shapeMeasurements,
+  startingMeasurements,
+  type MeasureChange,
+  type MeasureState,
+} from "./measureState";
 import type { RingMeasurements } from "./ringEdits";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
@@ -50,12 +58,11 @@ const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
 // The measurements the form and the Blueprint view both render from and edit.
-const measures = createMeasureStore({
-  measurements: { height: Number.NaN, rings: [] },
-  lastEdited: null,
-  selected: null,
-  hovered: null,
-});
+const measures = createMeasureStore(EMPTY_MEASURE_STATE);
+/** The measurements the form shows, for `followMeasures` to tell when they change. */
+let formShows: RingMeasurements | null = null;
+/** The measurements the 3D view and the template were last built from (by `update`). */
+let builtFrom: RingMeasurements | null = null;
 // Asking before a ring's × (the form's or the view's) deletes it, as the header's settings menu says; "Don't ask
 // again" unticks it there.
 const confirmDelete = mountDeleteConfirm(document.body, {
@@ -107,15 +114,11 @@ const background = startBackgroundBuild(showTemplate, ({ slits }) => viewport.se
 let pending: Omit<ExportSource, "template"> | null = null;
 /** The latest template the worker built, with its export details, for the Paper view (null: none). */
 let built: ExportSource | null = null;
-/** The measurements the form shows, and those the 3D view and the template were last built from. */
-let followed: RingMeasurements | null = null;
-let rebuilt: RingMeasurements | null = null;
 restore();
 showUnits();
 syncMode();
 enterStep();
 update();
-followed = measures.get().measurements;
 measures.subscribe(followMeasures);
 
 /** Put back the last-used settings (lengths in mm; the display units go to the header). */
@@ -124,8 +127,9 @@ function restore(): void {
   header.restore(saved);
   const measurements = startingMeasurements(saved.measurements);
   // Nothing edited yet: a shape that doesn't fit on load isn't blamed on a ring.
-  measures.set({ measurements, lastEdited: null, selected: null, hovered: null }, { source: "form", live: false });
+  measures.set({ ...EMPTY_MEASURE_STATE, measurements }, fromForm);
   form.show(measurements);
+  formShows = measurements;
   gridPanel.restore(saved);
   designPanel.restorePlacement(saved.placement ?? {});
   slitPanel.restore(saved.slits ?? {}, saved.cut);
@@ -199,8 +203,9 @@ function renderTabs(list = stepList()): void {
 
 /** Show the current mode's inputs and keep the carver on the same step (Design and Grid stand in for each other). */
 function syncMode(): void {
-  app.classList.toggle("ball-mode", header.mode() === "test-grid");
-  form.setBall(header.mode() === "test-grid");
+  const ball = ballMode();
+  app.classList.toggle("ball-mode", ball);
+  form.setBall(ball);
   step = stepInMode(step, header.mode());
 }
 
@@ -226,27 +231,40 @@ function changeUnits(): void {
 /**
  * The shared state changed. The side that made the change already shows it; the other follows. During a drag
  * (or a held arrow key) only the views follow: the 3D view and the template rebuild when it ends. A change of
- * selection or hover alone rebuilds nothing. The form shows the selection and hover from either side, scrolling to
- * a ring selected in the view (focus stays where it is).
+ * selection or hover alone rebuilds nothing.
  */
 function followMeasures(state: MeasureState, change: MeasureChange): void {
-  if (state.measurements !== followed) {
-    followed = state.measurements;
-    if (change.source !== "form") form.show(state.measurements);
-  }
+  formFollowsMeasurements(state, change);
+  // The form shows the selection and hover from either side, scrolling to a ring selected in the view (focus
+  // stays where it is).
   form.showLinks(state.selected, state.hovered, change.source === "view");
-  if (!change.live && state.measurements !== rebuilt) update();
-  else if (change.source !== "view") blueprint.show(state, header.mode() === "test-grid");
+  if (editEnded(state, change)) update();
+  else if (change.source === "form") blueprint.show(state, ballMode());
+}
+
+/** New measurements from the view (a drag, nudge, insert or delete) show in the form; the form shows its own. */
+function formFollowsMeasurements(state: MeasureState, change: MeasureChange): void {
+  if (state.measurements === formShows) return;
+  formShows = state.measurements;
+  if (change.source === "view") form.show(state.measurements);
+}
+
+/** An edit is over (no drag or held key still going) and the 3D view and the template aren't built from it yet. */
+function editEnded(state: MeasureState, change: MeasureChange): boolean {
+  return !change.live && state.measurements !== builtFrom;
+}
+
+/** Test-grid mode: the pumpkin is a ball, measured by its first ring. */
+function ballMode(): boolean {
+  return header.mode() === "test-grid";
 }
 
 function update(): void {
   followTrace();
-  const ball = header.mode() === "test-grid";
+  const ball = ballMode();
   const state = measures.get();
-  rebuilt = state.measurements;
-  // A ball is measured by its first ring alone.
-  const ballCircumference = state.measurements.rings[0]?.circumference ?? Number.NaN;
-  const measurements = ball ? ballMeasurements(ballCircumference) : state.measurements;
+  builtFrom = state.measurements;
+  const measurements = shapeMeasurements(state.measurements, ball);
   // The Blueprint view refits on every edit; it has its own empty and failed states.
   blueprint.show(state, ball);
   const design = ball ? gridDesign(gridPanel.cells()) : (designPanel.design() ?? undefined);
@@ -274,7 +292,7 @@ function update(): void {
       placement,
       slits,
       cut,
-      ...(ball ? { calibrationBall: ballCircumference } : {}),
+      ...(ball ? { calibrationBall: measurements.rings[0].circumference } : {}),
     };
     background.request(input);
     // The Paper view keeps the last template until the new one arrives.

@@ -60,6 +60,14 @@ export interface MeasureState {
   hovered: HoverTarget;
 }
 
+/** No measurements yet (no height, no rings), nothing edited, selected or hovered. */
+export const EMPTY_MEASURE_STATE: MeasureState = Object.freeze({
+  measurements: Object.freeze({ height: Number.NaN, rings: [] }),
+  lastEdited: null,
+  selected: null,
+  hovered: null,
+});
+
 /** An edit's patch: the new measurements, and `edited` as the ring edited last unless it's null (the height, a delete). */
 export function editPatch(measurements: RingMeasurements, edited: RingId | null): Partial<MeasureState> {
   return edited === null ? { measurements } : { measurements, lastEdited: edited };

@@ -10,7 +10,7 @@ import {
   type BlueprintLabel,
 } from "../blueprintView";
 import { tapeLength } from "../displayUnits";
-import { editPatch, sameHoverTarget, shapeMeasurements, type HoverTarget, type MeasureState, type Selection } from "../measureState";
+import { editPatch, EMPTY_MEASURE_STATE, sameHoverTarget, shapeMeasurements, type HoverTarget, type MeasureState, type Selection } from "../measureState";
 import {
   deleteRing,
   dragBall,
@@ -118,12 +118,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     [...root.querySelectorAll<HTMLButtonElement>("[data-zoom]")].map((b) => [b.dataset.zoom, b]),
   ) as Record<"in" | "out" | "fit", HTMLButtonElement>;
 
-  let state: MeasureState = {
-    measurements: { height: Number.NaN, rings: [] },
-    lastEdited: null,
-    selected: null,
-    hovered: null,
-  };
+  let state: MeasureState = EMPTY_MEASURE_STATE;
   let ball = false;
   let units: Units = "in";
   let zoom = 1;
