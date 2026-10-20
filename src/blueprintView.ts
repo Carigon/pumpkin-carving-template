@@ -55,8 +55,8 @@ export interface BlueprintRing {
 
 /** A gap a ring can go in: between neighbouring rings, or a ring and the height or the table. */
 export interface BlueprintGap extends Gap {
-  /** The tinted band shown while it's hovered: from the ring (or height) above down to the ring (or table) below. */
-  band: { x1: number; x2: number; y1: number; y2: number };
+  /** The tinted area shown while it's hovered: from the ring (or height) above down to the ring (or table) below. */
+  area: { x1: number; x2: number; y1: number; y2: number };
 }
 
 /** The ring a hovered gap would get, at its middle: a dashed line with a + in its middle, labelled like a ring. */
@@ -232,7 +232,7 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
     selected: selected === "height",
   };
 
-  // Each gap down the pumpkin wide enough for a ring, banded across the pumpkin at its widest.
+  // Each gap down the pumpkin wide enough for a ring, its area spanning the pumpkin at its widest.
   const widest = Math.max(widestRing, ...(fit.ok ? fit.profile.map((p) => p.radius) : []));
   const stops = [{ id: null, position: 1 }, ...valid, { id: null, position: 0 }];
   const open =
@@ -245,7 +245,7 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
   const gaps: BlueprintGap[] = open.map(({ above, below }) => ({
     above: above.id,
     below: below.id,
-    band: {
+    area: {
       x1: origin.x - widest * scale - OVERHANG,
       x2: origin.x + widest * scale + OVERHANG,
       y1: at(0, above.position * H).y,

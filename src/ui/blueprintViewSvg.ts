@@ -335,9 +335,9 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     const box = svg.getBoundingClientRect();
     return { x: e.clientX - box.left, y: e.clientY - box.top };
   };
-  /** The gap (by ring ids) whose band holds `p`, if a ring can go there. */
+  /** The gap (by ring ids) whose area holds `p`, if a ring can go there. */
   const gapAt = (p: Point2): Gap | null => {
-    const g = shown?.gaps.find(({ band }) => p.x >= band.x1 && p.x <= band.x2 && p.y >= band.y1 && p.y <= band.y2);
+    const g = shown?.gaps.find(({ area }) => p.x >= area.x1 && p.x <= area.x2 && p.y >= area.y1 && p.y <= area.y2);
     return g ? { above: g.above, below: g.below } : null;
   };
   /** The ring (its id) a hit element belongs to. */
@@ -527,11 +527,11 @@ function draw(d: BlueprintDrawing): SVGElement[] {
   if (d.ruler.units) ruler.append(text(d.ruler.units.x, d.ruler.units.y, d.ruler.units.text, "bp-ruler-label", "end"));
   out.push(ruler);
 
-  // The hovered gap's band, behind the pumpkin.
+  // The hovered gap's area, behind the pumpkin.
   if (d.ghost) {
     const gap = d.gaps.find((g) => g.above === d.ghost!.gap.above && g.below === d.ghost!.gap.below);
     if (gap) {
-      const { x1, x2, y1, y2 } = gap.band;
+      const { x1, x2, y1, y2 } = gap.area;
       out.push(el("rect", { class: "bp-gap", x: x1, y: y1, width: x2 - x1, height: y2 - y1 }));
     }
   }

@@ -328,7 +328,7 @@ describe("Blueprint view geometry", () => {
     expect(draw().circle).toBeNull();
   });
 
-  it("bounds each gap's band by the neighbouring rings, the height and the table, never the view's edge", () => {
+  it("bounds each gap's area by the neighbouring rings, the height and the table, never the view's edge", () => {
     const drawing = draw();
     const [upper, lower] = drawing.rings; // the 22 in ring (id 1) at 0.8, the 32 in ring (id 0) at 0.4
     expect(drawing.gaps.map((g) => [g.above, g.below])).toEqual([
@@ -336,21 +336,21 @@ describe("Blueprint view geometry", () => {
       [1, 0],
       [0, null],
     ]);
-    const bands = drawing.gaps.map((g) => [g.band.y1, g.band.y2]);
-    expect(bands[0][0]).toBeCloseTo(drawing.height!.y, 9);
-    expect(bands[0][1]).toBeCloseTo(upper.y, 9);
-    expect(bands[1]).toEqual([upper.y, lower.y]);
-    expect(bands[2][0]).toBeCloseTo(lower.y, 9);
-    expect(bands[2][1]).toBeCloseTo(drawing.origin.y, 9);
+    const areas = drawing.gaps.map((g) => [g.area.y1, g.area.y2]);
+    expect(areas[0][0]).toBeCloseTo(drawing.height!.y, 9);
+    expect(areas[0][1]).toBeCloseTo(upper.y, 9);
+    expect(areas[1]).toEqual([upper.y, lower.y]);
+    expect(areas[2][0]).toBeCloseTo(lower.y, 9);
+    expect(areas[2][1]).toBeCloseTo(drawing.origin.y, 9);
     // Across the pumpkin at its widest, as far as the ring lines run.
-    for (const { band } of drawing.gaps) {
-      expect(band.x1).toBeCloseTo(lower.x1, 6);
-      expect(band.x2).toBeCloseTo(lower.x2, 6);
+    for (const { area } of drawing.gaps) {
+      expect(area.x1).toBeCloseTo(lower.x1, 6);
+      expect(area.x2).toBeCloseTo(lower.x2, 6);
     }
-    // Zoomed out, the bands still stop at the height and the table.
+    // Zoomed out, the areas still stop at the height and the table.
     const out = draw(pumpkin, { zoom: 0.25 });
-    expect(out.gaps[0].band.y1).toBeCloseTo(out.height!.y, 9);
-    expect(out.gaps[0].band.y1).toBeGreaterThan(100);
+    expect(out.gaps[0].area.y1).toBeCloseTo(out.height!.y, 9);
+    expect(out.gaps[0].area.y1).toBeGreaterThan(100);
   });
 
   it("offers no gap too narrow for a ring, and none once there are 20 rings", () => {

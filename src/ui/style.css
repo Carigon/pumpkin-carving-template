@@ -721,7 +721,7 @@ body {
 
 /*
  * Measure form: the height as its own row, then the rings as one table, sorted top to bottom, with the column
- * headers given once. Between the rows, and above and below them, an insert button's band.
+ * headers given once. Between the rows, and above and below them, an insert button's strip.
  */
 .height-row {
   padding-bottom: 1rem;
@@ -842,7 +842,7 @@ body {
   display: none;
 }
 
-/* An insert button: a 12 px band between rows, showing an accent line with a round + while hovered or focused. */
+/* An insert button: a 12 px strip between rows, showing an accent line with a round + while hovered or focused. */
 .ring-gap {
   display: grid;
   grid-template-columns: var(--ring-cols);
@@ -1216,7 +1216,7 @@ body {
   stroke: var(--bp-paper);
 }
 
-/* A hovered gap: a tinted band between its rings, and the ring a click would add. */
+/* A hovered gap: a tinted area between its rings, and the ring a click would add. */
 .bp-gap {
   fill: var(--bp-gap);
   pointer-events: none;

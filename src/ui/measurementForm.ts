@@ -60,7 +60,7 @@ interface RingRow {
   warning: HTMLElement;
 }
 
-/** An insert button's band in a gap between rows (or above the top row or below the bottom one). */
+/** An insert button's strip in a gap between rows (or above the top row or below the bottom one). */
 interface GapRow {
   gap: Gap;
   el: HTMLElement;
