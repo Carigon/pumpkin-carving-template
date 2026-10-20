@@ -14,7 +14,7 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
-import { createMeasureStore, startingMeasurements, type MeasureChange, type MeasureState } from "./measureState";
+import { createMeasureStore, editPatch, startingMeasurements, type MeasureChange, type MeasureState } from "./measureState";
 import type { RingMeasurements } from "./ringEdits";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
@@ -68,7 +68,7 @@ const confirmDelete = mountDeleteConfirm(document.body, {
 const fromForm: MeasureChange = { source: "form", live: false };
 const form = mountMeasurementForm(
   $("measurements"),
-  (measurements, edited) => measures.set({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, fromForm),
+  (measurements, edited) => measures.set(editPatch(measurements, edited), fromForm),
   {
     select: (selected) => measures.set({ selected }, fromForm),
     hover: (hovered) => measures.set({ hovered }, fromForm),

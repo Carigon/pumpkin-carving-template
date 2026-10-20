@@ -12,7 +12,7 @@ import {
 } from "../blueprintView";
 import { tapeLength } from "../displayUnits";
 import { ballMeasurements } from "../input/calibrationGrid";
-import type { MeasureState } from "../measureState";
+import { editPatch, sameHoverTarget, type HoverTarget, type MeasureState, type Selection } from "../measureState";
 import {
   deleteRing,
   dragBall,
@@ -223,7 +223,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
       live.textContent = toggle ? text : `${text} `;
     }, ANNOUNCE_MS);
   };
-  const describe = (selected: RingId | "height" | null) => {
+  const describe = (selected: Selection) => {
     if (selected === null) return "Nothing selected";
     return describeSelection(state.measurements, selected === "height" ? "height" : indexOf(selected), units);
   };
@@ -240,19 +240,19 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     }
   };
 
-  const select = (selected: RingId | "height" | null) => {
+  const select = (selected: Selection) => {
     if (selected === state.selected) return;
     emit({ selected });
     announce(describe(selected));
   };
 
-  const hover = (hovered: RingId | Gap | null) => {
-    if (sameHover(hovered, state.hovered)) return;
+  const hover = (hovered: HoverTarget) => {
+    if (sameHoverTarget(hovered, state.hovered)) return;
     emit({ hovered });
   };
 
   /** Rings top to bottom, by id: the order Page Up / Page Down walk, after the height line. */
-  const order = (): (RingId | "height")[] => ["height", ...sortRings(state.measurements).rings.filter((r) => Number.isFinite(r.position)).map((r) => r.id)];
+  const order = (): NonNullable<Selection>[] => ["height", ...sortRings(state.measurements).rings.filter((r) => Number.isFinite(r.position)).map((r) => r.id)];
 
   const insert = (gap: Gap) => {
     const edit = insertRing(state.measurements, gap);
@@ -263,7 +263,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   };
 
   /** Delete ring `id` (asked first or not already); `next` is selected after it, if it's still there. */
-  const remove = (id: RingId, next: RingId | "height" | null) => {
+  const remove = (id: RingId, next: Selection) => {
     const edit = deleteRing(state.measurements, id);
     showNote(edit.note);
     if (edit.measurements === state.measurements) return;
@@ -275,7 +275,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   let lastRebuild = 0;
   let rebuildTimer = 0;
   const nudged = (edit: RingEdit, edited: RingId | null, readout: string) => {
-    const patch = { measurements: edit.measurements, ...(edited === null ? {} : { lastEdited: edited }) };
+    const patch = editPatch(edit.measurements, edited);
     window.clearTimeout(rebuildTimer);
     const since = performance.now() - lastRebuild;
     if (since >= NUDGE_REBUILD_MS) {
@@ -341,8 +341,8 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
 
   /** Take the measurements a drag asked for: refit (or rescale, for the height), redraw and pass them on. */
   const apply = (d: Drag, measurements: RingMeasurements, isLive: boolean) => {
-    const edited = d.ring?.id ?? null;
-    state = { ...state, measurements, lastEdited: edited ?? state.lastEdited };
+    const patch = editPatch(measurements, d.ring?.id ?? null);
+    state = { ...state, ...patch };
     if (d.kind === "height" && isLive && d.fit.ok) {
       // The rings keep their fractions and circumferences, so the profile only stretches up or down.
       const k = measurements.height / d.start.height;
@@ -350,7 +350,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
       fitKey = "";
     } else refit();
     render();
-    options.change({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, isLive);
+    options.change(patch, isLive);
   };
 
   /** The pointer's place in the view, px. */
@@ -535,11 +535,6 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
       render();
     },
   };
-}
-
-function sameHover(a: RingId | Gap | null, b: RingId | Gap | null): boolean {
-  if (a === null || b === null || typeof a === "number" || typeof b === "number") return a === b;
-  return a.above === b.above && a.below === b.below;
 }
 
 /** The drawing as SVG elements, back to front. */
