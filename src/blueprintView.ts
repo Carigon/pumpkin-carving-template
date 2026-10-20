@@ -1,20 +1,16 @@
 import { ringAt, type Point2, type ProfileFit, type PumpkinMeasurements, type Units } from "./core";
 import { fromMm, tapeLength, toMm } from "./displayUnits";
-import { MARGIN, MAX_RINGS } from "./ringEdits";
-
-/**
- * A gap between neighbouring rings, by their indices in `measurements.rings`: `above: null` reaches the top (the
- * height), `below: null` the table.
- */
-export interface GapRef {
-  above: number | null;
-  below: number | null;
-}
+import type { HoverTarget, Selection } from "./measureState";
+import { blamedFitMessage } from "./measureWarnings";
+import { canInsert, widestCircumference, type Gap, type RingId, type RingMeasurements } from "./ringEdits";
 
 /** What the Blueprint view is drawn from. Lengths in mm, sizes in px. */
 export interface BlueprintInput {
-  /** The measurements, or in ball (test-grid) mode the ball's (one ring at mid-height, as tall as it is wide). */
-  measurements: PumpkinMeasurements;
+  /**
+   * The measurements, each ring with its id, or in ball (test-grid) mode the ball's (one ring at mid-height, as
+   * tall as it is wide).
+   */
+  measurements: RingMeasurements;
   /** `fitProfile(measurements)`. */
   fit: ProfileFit;
   /** Test-grid mode: the ball is drawn as a circle with one handle. */
@@ -30,22 +26,21 @@ export interface BlueprintInput {
    */
   fitScale?: number;
   /**
-   * The index in `measurements.rings` of the ring edited last, which a failed fit's banner names; none (e.g. on a
-   * page load) leaves the banner generic.
+   * The ring edited last (its id), which a failed fit's banner names; none (e.g. on a page load) or a ring that
+   * isn't drawn leaves the banner generic.
    */
-  blame?: number | null;
-  /** The ring (its index in `measurements.rings`) or height whose handle is being dragged: its label shows the value to 0.1, as the readout. */
-  readout?: number | "height" | null;
-  /** The ring (its index) or the height line that's selected; nothing is selected on a ball. */
-  selected?: number | "height" | null;
-  /** The ring (its index) or the gap the pointer is over; a gap gets a ghost ring. Nothing is hovered on a ball. */
-  hovered?: number | GapRef | null;
+  blame?: RingId | null;
+  /** The ring (its id) or height whose handle is being dragged: its label shows the value to 0.1, as the readout. */
+  readout?: RingId | "height" | null;
+  /** The ring (its id) or the height line that's selected; nothing is selected on a ball. */
+  selected?: Selection;
+  /** The ring (its id) or the gap the pointer is over; a gap gets a ghost ring. Nothing is hovered on a ball. */
+  hovered?: HoverTarget;
 }
 
 /** A ring's line across the pumpkin, its handle and its label by the ruler. All in px, y down. */
 export interface BlueprintRing {
-  /** The ring's index in `measurements.rings`. */
-  index: number;
+  id: RingId;
   y: number;
   /** The line's ends: `OVERHANG` px past the profile on each side. */
   x1: number;
@@ -60,14 +55,14 @@ export interface BlueprintRing {
 }
 
 /** A gap a ring can go in: between neighbouring rings, or a ring and the height or the table. */
-export interface BlueprintGap extends GapRef {
-  /** The tinted band shown while it's hovered: from the ring (or height) above down to the ring (or table) below. */
-  band: { x1: number; x2: number; y1: number; y2: number };
+export interface BlueprintGap extends Gap {
+  /** The tinted area shown while it's hovered: from the ring (or height) above down to the ring (or table) below. */
+  area: { x1: number; x2: number; y1: number; y2: number };
 }
 
 /** The ring a hovered gap would get, at its middle: a dashed line with a + in its middle, labelled like a ring. */
 export interface BlueprintGhost {
-  gap: GapRef;
+  gap: Gap;
   y: number;
   x1: number;
   x2: number;
@@ -118,7 +113,7 @@ export interface BlueprintDrawing {
   rings: BlueprintRing[];
   /** The height line across the top, with its handle in line with the widest ring's; null with no height or a ball. */
   height: { y: number; x1: number; x2: number; handle: Point2; label: BlueprintLabel; selected: boolean } | null;
-  /** The gaps a ring can go in (wide enough, and fewer than `MAX_RINGS` rings), top to bottom; none on a ball. */
+  /** The gaps a ring can go in (those `canInsert` allows), top to bottom; none on a ball. */
   gaps: BlueprintGap[];
   /** The ring the hovered gap would get; null when no offered gap is hovered. */
   ghost: BlueprintGhost | null;
@@ -129,7 +124,7 @@ export interface BlueprintDrawing {
 /** The smallest zoom: a quarter of the size that fits. */
 export const MIN_ZOOM = 0.25;
 /** The ruler's x, px. */
-export const RULER_X = 44;
+const RULER_X = 44;
 /** How far each ring line runs past the profile, px. */
 export const OVERHANG = 14;
 /** A handle pill's width, px; it starts at the line's end. */
@@ -196,15 +191,15 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
   // A ball has nothing to select, hover or insert.
   const selected = input.ball ? null : input.selected;
   const hovered = input.ball ? null : input.hovered;
-  const rings = valid.map(({ index, position, radius }) => {
-    const l = line(position, radius, input.readout === index);
-    const isSelected = selected === index;
+  const rings = valid.map(({ id, position, radius }) => {
+    const l = line(position, radius, input.readout === id);
+    const isSelected = selected === id;
     return {
-      index,
+      id,
       ...l,
       handle: { x: l.x2 + HANDLE_WIDTH / 2, y: l.y },
       selected: isSelected,
-      hovered: hovered === index,
+      hovered: hovered === id,
       // The last ring can't be deleted.
       remove: isSelected && measurements.rings.length > 1 ? { x: origin.x, y: l.y } : null,
     };
@@ -226,7 +221,7 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
     : [at(0, H), ...valid.map((r) => at(r.radius, r.position * H)), at(0, 0)];
   const profile = { right, left: right.map((p) => ({ x: 2 * origin.x - p.x, y: p.y })), rough: !fit.ok };
 
-  const widestRing = Math.max(0, ...valid.map((r) => r.radius));
+  const widestRing = widestCircumference(valid) / (2 * Math.PI);
   const yTop = at(0, H).y;
   const hx = origin.x + widestRing * scale + OVERHANG;
   const height = {
@@ -238,20 +233,17 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
     selected: selected === "height",
   };
 
-  // Each gap down the pumpkin wide enough for a ring, banded across the pumpkin at its widest.
-  const widest = Math.max(widestRing, ...(fit.ok ? fit.profile.map((p) => p.radius) : []));
-  const stops = [{ index: null, position: 1 }, ...valid, { index: null, position: 0 }];
-  const open =
-    measurements.rings.length >= MAX_RINGS
-      ? []
-      : stops.slice(1).flatMap((below, i) => {
-          const above = stops[i];
-          return (above.position - below.position) * H < 2 * MARGIN ? [] : [{ above, below }];
-        });
+  // Each gap down the pumpkin wide enough for a ring, its area spanning the pumpkin at its widest.
+  const widest = widestRadius(valid, fit);
+  const stops = [{ id: null, position: 1 }, ...valid, { id: null, position: 0 }];
+  const open = stops.slice(1).flatMap((below, i) => {
+    const above = stops[i];
+    return canInsert(measurements, { above: above.id, below: below.id }) ? [] : [{ above, below }];
+  });
   const gaps: BlueprintGap[] = open.map(({ above, below }) => ({
-    above: above.index,
-    below: below.index,
-    band: {
+    above: above.id,
+    below: below.id,
+    area: {
       x1: origin.x - widest * scale - OVERHANG,
       x2: origin.x + widest * scale + OVERHANG,
       y1: at(0, above.position * H).y,
@@ -260,7 +252,7 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
   }));
 
   const target = hovered !== null && typeof hovered === "object" ? hovered : null;
-  const hoveredGap = target && open.find((g) => g.above.index === target.above && g.below.index === target.below);
+  const hoveredGap = target && open.find((g) => g.above.id === target.above && g.below.id === target.below);
   let ghost: BlueprintGhost | null = null;
   if (hoveredGap) {
     // Where an inserted ring goes, with the circumference it gets (see `insertRing`).
@@ -269,7 +261,7 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
     ghost = { gap: { above: target.above, below: target.below }, ...l, plus: { x: origin.x, y: l.y } };
   }
 
-  const blamed = valid.find((r) => r.index === input.blame);
+  const blamed = valid.find((r) => r.id === input.blame);
   return {
     ...drawing,
     profile,
@@ -292,7 +284,7 @@ function banner(fit: ProfileFit, blamed: string | undefined): string | null {
   const later = "(Edits still apply; a later edit may fix it.)";
   if (shape && fit.warnings.length === 1) {
     return blamed
-      ? `No smooth pumpkin shape passes through the ring at ${blamed}. Check its height and circumference. ${later}`
+      ? `${blamedFitMessage(`the ring at ${blamed}`)} ${later}`
       : `${shape.message} ${later}`;
   }
   return "Some rings aren't measured yet. Fix the rings marked in the form to see the shape.";
@@ -340,10 +332,10 @@ function ruler(extent: number, scale: number, origin: Point2, units: Units): Blu
  * place counting down from the top (e.g. "Ring at 6 ½ in, 32 ¾ in around, 3 of 4"), or the height ("Height 9 in").
  * Empty for a ring that can't be drawn.
  */
-export function describeSelection(measurements: PumpkinMeasurements, selected: number | "height", units: Units): string {
+export function describeSelection(measurements: RingMeasurements, selected: RingId | "height", units: Units): string {
   if (selected === "height") return `Height ${tapeLength(measurements.height, units)}`;
   const rings = validRings(measurements).sort((a, b) => b.position - a.position);
-  const place = rings.findIndex((r) => r.index === selected);
+  const place = rings.findIndex((r) => r.id === selected);
   if (place < 0 || !hasHeight(measurements)) return "";
   const { position, radius } = rings[place];
   const H = measurements.height;
@@ -364,11 +356,7 @@ export function fitScale(input: Pick<BlueprintInput, "measurements" | "fit" | "s
   // With no height yet, a ruler a foot (or 30 cm) tall.
   const extent = hasHeight(measurements) ? measurements.height : toMm(input.units === "in" ? 12 : 30, input.units);
   const byHeight = (size.height - TOP - BOTTOM) / extent;
-  const widest = Math.max(
-    0,
-    ...validRings(measurements).map((r) => r.radius),
-    ...(fit.ok ? fit.profile.map((p) => p.radius) : []),
-  );
+  const widest = widestRadius(validRings(measurements), fit);
   // Room each side of the middle for the radius, past the overhang and handle on the right and the ruler on the
   // left. The ring labels get their own column left of the pumpkin while that leaves the pumpkin at least half
   // of it; in a narrower view they run over the pumpkin instead.
@@ -387,11 +375,16 @@ function hasHeight({ height }: PumpkinMeasurements): boolean {
   return Number.isFinite(height) && height > 0;
 }
 
-/** The rings that can be drawn (on the pumpkin, with a size), with their index and radius in mm. */
-function validRings({ rings }: PumpkinMeasurements) {
-  return rings.flatMap((r, index) =>
+/** The rings that can be drawn (on the pumpkin, with a size), with their id, circumference and radius in mm. */
+function validRings({ rings }: RingMeasurements) {
+  return rings.flatMap((r) =>
     Number.isFinite(r.position) && r.position > 0 && r.position < 1 && Number.isFinite(r.circumference) && r.circumference > 0
-      ? [{ index, position: r.position, radius: r.circumference / (2 * Math.PI) }]
+      ? [{ id: r.id, position: r.position, circumference: r.circumference, radius: r.circumference / (2 * Math.PI) }]
       : [],
   );
+}
+
+/** The pumpkin's widest radius, mm: its widest drawn ring's, or the fitted profile's where that bulges further. */
+function widestRadius(rings: ReturnType<typeof validRings>, fit: ProfileFit): number {
+  return Math.max(widestCircumference(rings) / (2 * Math.PI), ...(fit.ok ? fit.profile.map((p) => p.radius) : []));
 }

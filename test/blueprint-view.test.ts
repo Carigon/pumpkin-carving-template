@@ -1,29 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { fitProfile, ringAt, type PumpkinMeasurements, type Units } from "../src/core";
-import { blueprintView, describeSelection, fitScale, OVERHANG, type BlueprintDrawing, type GapRef } from "../src/blueprintView";
+import { fitProfile, ringAt, type Units } from "../src/core";
+import { blueprintView, describeSelection, fitScale, OVERHANG, type BlueprintDrawing } from "../src/blueprintView";
 import { tapeLength } from "../src/displayUnits";
 import { ballMeasurements } from "../src/input/calibrationGrid";
+import type { HoverTarget, Selection } from "../src/measureState";
+import { withRingIds, type RingId, type RingMeasurements } from "../src/ringEdits";
 
 /** mm per inch. */
 const IN = 25.4;
-const pumpkin: PumpkinMeasurements = {
+/** 9 in tall, a 32 in ring at 0.4 (id 0) and a 22 in ring at 0.8 (id 1). */
+const pumpkin: RingMeasurements = withRingIds({
   height: 9 * IN,
   rings: [{ position: 0.4, circumference: 32 * IN }, { position: 0.8, circumference: 22 * IN }],
-};
+});
 const size = { width: 800, height: 600 };
+/** The test-grid ball `circumference` mm around, its ring id 0. */
+const ballOf = (circumference: number) => withRingIds(ballMeasurements(circumference));
 
 /** The Blueprint view of `measurements` in a view of `size` px, through the public `fitProfile`. */
 function draw(
-  measurements: PumpkinMeasurements = pumpkin,
+  measurements: RingMeasurements = pumpkin,
   options: {
     zoom?: number;
     units?: Units;
     ball?: boolean;
     size?: { width: number; height: number };
-    blame?: number | null;
-    readout?: number | "height";
-    selected?: number | "height" | null;
-    hovered?: number | GapRef | null;
+    blame?: RingId | null;
+    readout?: RingId | "height";
+    selected?: Selection;
+    hovered?: HoverTarget;
   } = {},
 ): BlueprintDrawing {
   return blueprintView({
@@ -68,7 +73,7 @@ describe("Blueprint view geometry", () => {
     const drawing = draw(pumpkin, { size: narrow });
     const box = bbox([...drawing.profile!.right, ...drawing.profile!.left]);
     expect(box.maxX - box.minX).toBeGreaterThan(narrow.width / 4);
-    const widest = drawing.rings.find((r) => r.index === 0)!;
+    const widest = drawing.rings.find((r) => r.id === 0)!;
     expect(widest.handle.x + 14).toBeLessThan(narrow.width);
     expect(widest.x1).toBeGreaterThan(drawing.ruler.x);
   });
@@ -168,9 +173,9 @@ describe("Blueprint view geometry", () => {
   it("runs each ring's line 14 px past the profile on both sides, with its handle at the right end", () => {
     const drawing = draw();
     const { origin, scale } = drawing;
-    expect(drawing.rings.map((r) => r.index)).toEqual([1, 0]);
+    expect(drawing.rings.map((r) => r.id)).toEqual([1, 0]);
     for (const ring of drawing.rings) {
-      const { circumference, position } = pumpkin.rings[ring.index];
+      const { circumference, position } = pumpkin.rings[ring.id];
       const radius = (circumference / (2 * Math.PI)) * scale;
       expect(ring.y).toBeCloseTo(origin.y - position * 9 * IN * scale, 6);
       expect(ring.x2 - origin.x).toBeCloseTo(radius + 14, 6);
@@ -205,7 +210,7 @@ describe("Blueprint view geometry", () => {
     const line = drawing.height!;
     expect(line.y).toBeCloseTo(drawing.origin.y - 9 * IN * drawing.scale, 6);
     expect(line.x1).toBe(drawing.ruler.x);
-    const widest = drawing.rings.find((r) => r.index === 0)!;
+    const widest = drawing.rings.find((r) => r.id === 0)!;
     expect(line.handle.x).toBeCloseTo(widest.handle.x, 9);
     expect(line.handle.y).toBe(line.y);
     expect(line.label.text).toBe("height 9 in");
@@ -259,7 +264,7 @@ describe("Blueprint view geometry", () => {
     expect(draw(pumpkin, { readout: 1 }).height!.label.text).toBe("height 9 in");
     expect(draw(pumpkin, { readout: "height", units: "cm" }).height!.label.text).toBe("height 22.9 cm");
     expect(draw({ ...pumpkin, height: 9.06 * IN }, { readout: "height" }).height!.label.text).toBe("height 9.1 in");
-    const ball = draw(ballMeasurements(30.3 * IN), { ball: true, readout: 0 });
+    const ball = draw(ballOf(30.3 * IN), { ball: true, readout: 0 });
     expect(ball.rings[0].label.text).toBe("30.3 in");
   });
 
@@ -268,11 +273,11 @@ describe("Blueprint view geometry", () => {
   });
 
   it("leaves a ring that isn't measured yet out of the rough profile", () => {
-    const halfTyped = { ...pumpkin, rings: [...pumpkin.rings, { position: 0.6, circumference: Number.NaN }] };
+    const halfTyped = { ...pumpkin, rings: [...pumpkin.rings, { id: 2, position: 0.6, circumference: Number.NaN }] };
     const drawing = draw(halfTyped);
     expect(drawing.profile!.rough).toBe(true);
     expect(drawing.profile!.right).toHaveLength(4);
-    expect(drawing.rings.map((r) => r.index)).toEqual([1, 0]);
+    expect(drawing.rings.map((r) => r.id)).toEqual([1, 0]);
     // The form already says what's wrong with that ring; the view doesn't blame the shape for it.
     expect(drawing.banner).not.toMatch(/No smooth pumpkin shape/);
   });
@@ -292,7 +297,7 @@ describe("Blueprint view geometry", () => {
   });
 
   it("in test-grid mode draws the ball as a circle with one handle and its circumference alone", () => {
-    const ball = ballMeasurements(30 * IN);
+    const ball = ballOf(30 * IN);
     const drawing = draw(ball, { ball: true });
     const { origin, scale } = drawing;
     const radius = (30 * IN) / (2 * Math.PI);
@@ -313,7 +318,7 @@ describe("Blueprint view geometry", () => {
   });
 
   it("in test-grid mode with no circumference yet draws only an unlabelled ruler", () => {
-    const drawing = draw(ballMeasurements(Number.NaN), { ball: true });
+    const drawing = draw(ballOf(Number.NaN), { ball: true });
     expect(drawing.circle).toBeNull();
     expect(drawing.rings).toEqual([]);
     expect(drawing.ruler.labels).toEqual([]);
@@ -323,41 +328,41 @@ describe("Blueprint view geometry", () => {
     expect(draw().circle).toBeNull();
   });
 
-  it("bounds each gap's band by the neighbouring rings, the height and the table, never the view's edge", () => {
+  it("bounds each gap's area by the neighbouring rings, the height and the table, never the view's edge", () => {
     const drawing = draw();
-    const [upper, lower] = drawing.rings; // the 22 in ring (index 1) at 0.8, the 32 in ring (index 0) at 0.4
+    const [upper, lower] = drawing.rings; // the 22 in ring (id 1) at 0.8, the 32 in ring (id 0) at 0.4
     expect(drawing.gaps.map((g) => [g.above, g.below])).toEqual([
       [null, 1],
       [1, 0],
       [0, null],
     ]);
-    const bands = drawing.gaps.map((g) => [g.band.y1, g.band.y2]);
-    expect(bands[0][0]).toBeCloseTo(drawing.height!.y, 9);
-    expect(bands[0][1]).toBeCloseTo(upper.y, 9);
-    expect(bands[1]).toEqual([upper.y, lower.y]);
-    expect(bands[2][0]).toBeCloseTo(lower.y, 9);
-    expect(bands[2][1]).toBeCloseTo(drawing.origin.y, 9);
+    const areas = drawing.gaps.map((g) => [g.area.y1, g.area.y2]);
+    expect(areas[0][0]).toBeCloseTo(drawing.height!.y, 9);
+    expect(areas[0][1]).toBeCloseTo(upper.y, 9);
+    expect(areas[1]).toEqual([upper.y, lower.y]);
+    expect(areas[2][0]).toBeCloseTo(lower.y, 9);
+    expect(areas[2][1]).toBeCloseTo(drawing.origin.y, 9);
     // Across the pumpkin at its widest, as far as the ring lines run.
-    for (const { band } of drawing.gaps) {
-      expect(band.x1).toBeCloseTo(lower.x1, 6);
-      expect(band.x2).toBeCloseTo(lower.x2, 6);
+    for (const { area } of drawing.gaps) {
+      expect(area.x1).toBeCloseTo(lower.x1, 6);
+      expect(area.x2).toBeCloseTo(lower.x2, 6);
     }
-    // Zoomed out, the bands still stop at the height and the table.
+    // Zoomed out, the areas still stop at the height and the table.
     const out = draw(pumpkin, { zoom: 0.25 });
-    expect(out.gaps[0].band.y1).toBeCloseTo(out.height!.y, 9);
-    expect(out.gaps[0].band.y1).toBeGreaterThan(100);
+    expect(out.gaps[0].area.y1).toBeCloseTo(out.height!.y, 9);
+    expect(out.gaps[0].area.y1).toBeGreaterThan(100);
   });
 
   it("offers no gap too narrow for a ring, and none once there are 20 rings", () => {
     // 200 mm tall: rings 9 mm apart leave no room; 10 mm does.
-    const close = { height: 200, rings: [{ position: 0.5, circumference: 500 }, { position: 0.545, circumference: 480 }] };
+    const close = withRingIds({ height: 200, rings: [{ position: 0.5, circumference: 500 }, { position: 0.545, circumference: 480 }] });
     expect(draw(close).gaps.map((g) => [g.above, g.below])).toEqual([
       [null, 1],
       [0, null],
     ]);
-    const full = { height: 600, rings: Array.from({ length: 20 }, (_, i) => ({ position: (i + 1) / 21, circumference: 500 })) };
+    const full = withRingIds({ height: 600, rings: Array.from({ length: 20 }, (_, i) => ({ position: (i + 1) / 21, circumference: 500 })) });
     expect(draw(full).gaps).toEqual([]);
-    expect(draw(ballMeasurements(30 * IN), { ball: true }).gaps).toEqual([]);
+    expect(draw(ballOf(30 * IN), { ball: true }).gaps).toEqual([]);
   });
 
   it("over a hovered gap, draws a ghost ring at its middle with the circumference the shape has there, labelled like a ring", () => {
@@ -381,8 +386,8 @@ describe("Blueprint view geometry", () => {
 
   it("marks the selected ring, with a × at its middle unless it's the last ring", () => {
     const drawing = draw(pumpkin, { selected: 0 });
-    const selected = drawing.rings.find((r) => r.index === 0)!;
-    const other = drawing.rings.find((r) => r.index === 1)!;
+    const selected = drawing.rings.find((r) => r.id === 0)!;
+    const other = drawing.rings.find((r) => r.id === 1)!;
     expect(selected.selected).toBe(true);
     expect(selected.remove).toEqual({ x: drawing.origin.x, y: selected.y });
     expect(other.selected).toBe(false);
@@ -401,21 +406,49 @@ describe("Blueprint view geometry", () => {
 
   it("marks the hovered ring", () => {
     const drawing = draw(pumpkin, { hovered: 1 });
-    expect(drawing.rings.map((r) => [r.index, r.hovered])).toEqual([
+    expect(drawing.rings.map((r) => [r.id, r.hovered])).toEqual([
       [1, true],
       [0, false],
     ]);
   });
 
+  it("keys rings, gaps, the selection, hover, blame and readout by ring id, whatever order the rings are stored in", () => {
+    // The pumpkin above, its rings stored bottom first with ids that aren't their places.
+    const stored: RingMeasurements = {
+      height: 9 * IN,
+      rings: [
+        { id: 3, position: 0.4, circumference: 32 * IN },
+        { id: 7, position: 0.8, circumference: 22 * IN },
+      ],
+    };
+    const drawing = draw(stored, { selected: 3, hovered: { above: 7, below: 3 }, readout: 7 });
+    expect(drawing.rings.map((r) => [r.id, r.selected, r.label.text])).toEqual([
+      [7, false, "22.0 in"],
+      [3, true, "32 in"],
+    ]);
+    expect(drawing.gaps.map((g) => [g.above, g.below])).toEqual([
+      [null, 7],
+      [7, 3],
+      [3, null],
+    ]);
+    expect(drawing.ghost?.gap).toEqual({ above: 7, below: 3 });
+    expect(draw(stored, { hovered: 7 }).rings.map((r) => r.hovered)).toEqual([true, false]);
+    expect(describeSelection(stored, 3, "in")).toBe("Ring at 3 ⅝ in, 32 in around, 2 of 2");
+
+    const unfit: RingMeasurements = { ...noShape, rings: noShape.rings.map((r) => ({ ...r, id: r.id + 10 })) };
+    expect(draw(unfit, { blame: 12 }).banner).toMatch(/through the ring at 4 ⅛ in\. /);
+    expect(draw(unfit, { blame: 2 }).banner).toMatch(/through these rings\./);
+  });
+
   it("selects nothing on a ball", () => {
-    const drawing = draw(ballMeasurements(30 * IN), { ball: true, selected: 0, hovered: 0 });
+    const drawing = draw(ballOf(30 * IN), { ball: true, selected: 0, hovered: 0 });
     expect(drawing.rings[0].selected).toBe(false);
     expect(drawing.rings[0].remove).toBeNull();
     expect(drawing.ghost).toBeNull();
   });
 
   it("describes the selection for a screen reader: a ring's height, circumference and place top to bottom, or the height", () => {
-    const four = {
+    const four = withRingIds({
       height: 9 * IN,
       rings: [
         { position: 0.4, circumference: 32 * IN },
@@ -423,7 +456,7 @@ describe("Blueprint view geometry", () => {
         { position: 6.5 / 9, circumference: 32.75 * IN },
         { position: 0.1, circumference: 20 * IN },
       ],
-    };
+    });
     expect(describeSelection(four, 2, "in")).toBe("Ring at 6 ½ in, 32 ¾ in around, 2 of 4");
     expect(describeSelection(four, 3, "in")).toBe("Ring at ⅞ in, 20 in around, 4 of 4");
     expect(describeSelection(four, 0, "cm")).toBe("Ring at 9.1 cm, 81.3 cm around, 3 of 4");
@@ -433,14 +466,14 @@ describe("Blueprint view geometry", () => {
 });
 
 /** Rings no smooth shape passes through: a much narrower ring just above the widest. */
-const noShape: PumpkinMeasurements = {
+const noShape: RingMeasurements = withRingIds({
   height: 9 * IN,
   rings: [
     { position: 0.25, circumference: 25 * IN },
     { position: 0.45, circumference: 30 * IN },
     { position: 0.452, circumference: 12 * IN },
   ],
-};
+});
 
 function bbox(points: { x: number; y: number }[]) {
   const xs = points.map((p) => p.x);

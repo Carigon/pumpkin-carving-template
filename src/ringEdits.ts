@@ -51,22 +51,22 @@ export interface EditOptions {
 }
 
 /** A ring's radius, mm. */
-export const RING_RADIUS = { min: 10, max: 500 };
+const RING_RADIUS = { min: 10, max: 500 };
 /** The pumpkin's height, mm. */
-export const HEIGHT = { min: 20, max: 1000 };
+const HEIGHT = { min: 20, max: 1000 };
 /** How close a dragged ring comes to its neighbours, the table and the top, mm. */
-export const MARGIN = 5;
+const MARGIN = 5;
 /** The height over the widest diameter: kept between squat and tall, which take long to build. */
-export const SHAPE_RATIO = { min: 0.2, max: 5 };
+const SHAPE_RATIO = { min: 0.2, max: 5 };
 
 /** The most rings a pumpkin may have (as many as the saved settings keep). */
 export const MAX_RINGS = 20;
 
 /** The grid a snapped length lands on, counted from 0, mm: ⅛ in, or 1 mm in centimetres. */
-export const SNAP_MM: Record<Units, number> = { in: 25.4 / 8, cm: 1 };
+const SNAP_MM: Record<Units, number> = { in: 25.4 / 8, cm: 1 };
 
 /** `mm` on the display unit's grid (see `SNAP_MM`), or as it is when `snap` is off. */
-export function snapLength(mm: number, { units, snap }: EditOptions): number {
+function snapLength(mm: number, { units, snap }: EditOptions): number {
   return snap ? Math.round(mm / SNAP_MM[units]) * SNAP_MM[units] : mm;
 }
 
@@ -92,6 +92,21 @@ export function sortRings(m: RingMeasurements): RingMeasurements {
   return { height: m.height, rings: [...m.rings].sort((a, b) => key(b) - key(a)) };
 }
 
+/** The largest circumference among `rings`, mm, leaving out any not measured yet; 0 for none. */
+export function widestCircumference(rings: readonly { circumference: number }[]): number {
+  return Math.max(0, ...rings.map((r) => r.circumference).filter(Number.isFinite));
+}
+
+/** The measurements with ring `id` changed by `patch`, every other ring and the height as they were. */
+export function withRing(m: RingMeasurements, id: RingId, patch: Partial<Ring>): RingMeasurements {
+  return { height: m.height, rings: m.rings.map((r) => (r.id === id ? { ...r, ...patch } : r)) };
+}
+
+/** Every ring's position but ring `id`'s, leaving out rings with no height yet. */
+function otherPositions(m: RingMeasurements, id: RingId): number[] {
+  return m.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => r.position);
+}
+
 /**
  * Drag ring `id` towards `target`: its height above the table and its circumference, in mm (either left out
  * stays as it is), each snapped as `options` say and then clamped. The limits come from `start`, the measurements as they were when the drag began, so the
@@ -112,7 +127,7 @@ export function dragRing(
   let position = ring.position;
   if (target.above !== undefined) {
     const now = ring.position * H;
-    const others = start.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => r.position * H);
+    const others = otherPositions(start, id).map((p) => p * H);
     const below = Math.max(0, ...others.filter((a) => a <= now));
     const over = Math.min(H, ...others.filter((a) => a > now));
     // Never closer than it already is: a ring inside the margin stays put rather than jumping out of it.
@@ -128,7 +143,7 @@ export function dragRing(
   if (target.circumference !== undefined) {
     // The widest diameter stays within height ÷ 5 and height × 5: no ring grows past the top, and the widest
     // shrinks only to the bottom unless another ring is at least that wide.
-    const othersWidest = Math.max(0, ...start.rings.filter((r) => r.id !== id).map((r) => r.circumference).filter(Number.isFinite));
+    const othersWidest = widestCircumference(start.rings.filter((r) => r.id !== id));
     const ratio = () => shapeNote();
     const narrowest = (Math.PI * H) / SHAPE_RATIO.max;
     const lows = [ringSize(units).low, ...(othersWidest < narrowest ? [{ value: narrowest, note: ratio }] : [])];
@@ -138,8 +153,7 @@ export function dragRing(
     circumference = around.value;
   }
 
-  const rings = start.rings.map((r) => (r.id === id ? { ...r, position, circumference } : r));
-  return { measurements: { height: H, rings }, note: notes[0] ?? null };
+  return { measurements: withRing(start, id, { position, circumference }), note: notes[0] ?? null };
 }
 
 /**
@@ -149,8 +163,7 @@ export function dragRing(
 export function dragBall(start: RingMeasurements, id: RingId, circumference: number, options: EditOptions): RingEdit {
   const { low, high } = ringSize(options.units);
   const around = clampTo(snapLength(circumference, options), [low], [high]);
-  const rings = start.rings.map((r) => (r.id === id ? { ...r, circumference: around.value } : r));
-  return { measurements: { height: start.height, rings }, note: around.note };
+  return { measurements: withRing(start, id, { circumference: around.value }), note: around.note };
 }
 
 /**
@@ -163,7 +176,7 @@ export function dragHeight(start: RingMeasurements, target: number, options: Edi
   const { units } = options;
   const stops = [0, ...start.rings.map((r) => r.position).filter(Number.isFinite), 1].sort((a, b) => a - b);
   const tightest = Math.min(...stops.slice(1).map((s, i) => s - stops[i]));
-  const widest = Math.max(0, ...start.rings.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
+  const widest = widestCircumference(start.rings) / Math.PI;
   const heightNote = (): ClampNote => ({
     limit: "height",
     message: `The height is kept between ${formatLength(HEIGHT.min, units)} and ${formatLength(HEIGHT.max, units)}.`,
@@ -179,25 +192,38 @@ export function dragHeight(start: RingMeasurements, target: number, options: Edi
   return { measurements: { height, rings: start.rings }, note };
 }
 
+/** Where `gap` runs, as fractions of the height: from `top` down to `bottom` (NaN for a ring with no height yet). */
+function gapSpan(m: RingMeasurements, gap: Gap): { top: number; bottom: number } {
+  const at = (id: RingId | null, end: number) => (id === null ? end : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
+  return { top: at(gap.above, 1), bottom: at(gap.below, 0) };
+}
+
+/**
+ * Why `gap` can't take a new ring, or null when it can: the pumpkin already has `MAX_RINGS` rings, or the gap is
+ * narrower than twice the margin. The rules `insertRing` refuses by, for whoever offers a gap.
+ */
+export function canInsert(m: RingMeasurements, gap: Gap): ClampNote | null {
+  if (m.rings.length >= MAX_RINGS) return { limit: "ring-count", message: `A pumpkin can have up to ${MAX_RINGS} rings.` };
+  const { top, bottom } = gapSpan(m, gap);
+  if ((top - bottom) * m.height < 2 * MARGIN) {
+    return { limit: "gap", message: "That gap is too narrow for another ring: rings are kept a little apart." };
+  }
+  return null;
+}
+
 /**
  * Insert a ring at the middle of `gap`, with the circumference the shape already has there (`ringAt`), so the
  * shape doesn't change until the carver measures it. Refused (the measurements as they were, id null, and a note
- * saying why) for a gap narrower than twice the margin or a ring past `MAX_RINGS`. The new ring's id is the largest
- * one so far plus 1; the rings come back sorted top to bottom.
+ * saying why) where `canInsert` says no. The new ring's id is the largest one so far plus 1; the rings come back
+ * sorted top to bottom.
  */
 export function insertRing(m: RingMeasurements, gap: Gap): RingEdit & { id: RingId | null } {
   const refused = (note: ClampNote | null) => ({ measurements: m, note, id: null });
-  if (m.rings.length >= MAX_RINGS) {
-    return refused({ limit: "ring-count", message: `A pumpkin can have up to ${MAX_RINGS} rings.` });
-  }
-  const at = (id: RingId | null, end: number) => (id === null ? end : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
-  const top = at(gap.above, 1);
-  const bottom = at(gap.below, 0);
+  const refusal = canInsert(m, gap);
+  if (refusal) return refused(refusal);
+  const { top, bottom } = gapSpan(m, gap);
   const H = m.height;
   if (!(H > 0) || !Number.isFinite(top) || !Number.isFinite(bottom)) return refused(null);
-  if ((top - bottom) * H < 2 * MARGIN) {
-    return refused({ limit: "gap", message: "That gap is too narrow for another ring: rings are kept a little apart." });
-  }
   const position = (top + bottom) / 2;
   const circumference = ringAt(m, position);
   if (!Number.isFinite(circumference)) return refused(null);
@@ -206,28 +232,24 @@ export function insertRing(m: RingMeasurements, gap: Gap): RingEdit & { id: Ring
 }
 
 /**
- * Delete ring `id`. Refused (the measurements as they were, and a note saying why) for the last ring, and when
- * taking away the widest ring would leave the pumpkin more than `SHAPE_RATIO.max` times as tall as it is wide.
+ * Delete ring `id`. Refused (`deleted: false`, the measurements as they were, and a note saying why) for the last
+ * ring, and when taking away the widest ring would leave the pumpkin more than `SHAPE_RATIO.max` times as tall as
+ * it is wide. A ring that isn't there is not deleted either, with no note.
  */
-export function deleteRing(m: RingMeasurements, id: RingId): RingEdit {
-  if (!m.rings.some((r) => r.id === id)) return { measurements: m, note: null };
-  if (m.rings.length <= 1) {
-    return { measurements: m, note: { limit: "ring-count", message: "The last ring can't be deleted: the shape needs one." } };
-  }
+export function deleteRing(m: RingMeasurements, id: RingId): RingEdit & { deleted: boolean } {
+  const refused = (note: ClampNote | null) => ({ measurements: m, note, deleted: false });
+  if (!m.rings.some((r) => r.id === id)) return refused(null);
+  if (m.rings.length <= 1) return refused({ limit: "ring-count", message: "The last ring can't be deleted: the shape needs one." });
   const rings = m.rings.filter((r) => r.id !== id);
-  const widest = (rs: RingWithId[]) => Math.max(0, ...rs.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
-  const after = widest(rings);
+  const after = widestCircumference(rings);
   // Only a delete that narrows the pumpkin can push it out of shape; inserting never widens it.
-  if (after < widest(m.rings) && m.height > after * SHAPE_RATIO.max) {
-    return {
-      measurements: m,
-      note: {
-        limit: "shape-ratio",
-        message: `Deleting this ring would leave the pumpkin more than ${SHAPE_RATIO.max} times as tall as it is wide.`,
-      },
-    };
+  if (after < widestCircumference(m.rings) && m.height > (after / Math.PI) * SHAPE_RATIO.max) {
+    return refused({
+      limit: "shape-ratio",
+      message: `Deleting this ring would leave the pumpkin more than ${SHAPE_RATIO.max} times as tall as it is wide.`,
+    });
   }
-  return { measurements: { height: m.height, rings }, note: null };
+  return { measurements: { height: m.height, rings }, note: null, deleted: true };
 }
 
 /** A limit on a value, with the note to give when it holds the value back. */
@@ -288,18 +310,14 @@ export interface TypedEdit extends RingEdit {
  */
 export function typeRingHeight(m: RingMeasurements, id: RingId, above: number, units: Units): TypedEdit {
   const H = m.height;
-  const note = (): ClampNote => ({
-    limit: "margin",
-    message: `Rings are kept ${formatLength(MARGIN, units)} from the table and the top.`,
-  });
+  const note = () => marginNote(units);
   const clamped = clampTo(above, [{ value: MARGIN, note }], [{ value: Math.max(MARGIN, H - MARGIN), note }]);
   const position = clamped.value / H;
-  const rings = m.rings.map((r) => (r.id === id ? { ...r, position } : r));
   // The core's own tolerance for two rings at one height, which it reports as an error.
-  const gaps = m.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => Math.abs(r.position - position));
+  const gaps = otherPositions(m, id).map((p) => Math.abs(p - position));
   const close = gaps.some((g) => g >= 1e-9 && g * H < MARGIN);
   const warning = close ? `This ring is within ${formatLength(MARGIN, units)} of another.` : null;
-  return { measurements: { height: H, rings }, note: clamped.note, warning };
+  return { measurements: withRing(m, id, { position }), note: clamped.note, warning };
 }
 
 /**

@@ -1,3 +1,4 @@
+import { ballMeasurements } from "./input/calibrationGrid";
 import { sortRings, withRingIds, type Gap, type RingId, type RingMeasurements } from "./ringEdits";
 
 /** Saved measurements to start from; null is an empty field. Ring positions are fractions of the height. */
@@ -22,6 +23,29 @@ export function startingMeasurements(saved: SavedMeasurements = {}): RingMeasure
 }
 
 /**
+ * What the shape is built and drawn from: the measurements, or in test-grid mode the ball measured by the first
+ * ring alone (keeping that ring's id).
+ */
+export function shapeMeasurements(m: RingMeasurements, ball: boolean): RingMeasurements {
+  if (!ball) return m;
+  const first = m.rings[0];
+  const sphere = ballMeasurements(first?.circumference ?? Number.NaN);
+  return { height: sphere.height, rings: sphere.rings.map((r) => ({ ...r, id: first?.id ?? 0 })) };
+}
+
+/** What's selected: a ring (its id), the height line, or nothing. */
+export type Selection = RingId | "height" | null;
+
+/** What the pointer is over: a ring (its id), a gap, or nothing. */
+export type HoverTarget = RingId | Gap | null;
+
+/** Whether two hover targets are the same ring, the same gap, or both nothing. */
+export function sameHoverTarget(a: HoverTarget, b: HoverTarget): boolean {
+  if (a === null || b === null || typeof a === "number" || typeof b === "number") return a === b;
+  return a.above === b.above && a.below === b.below;
+}
+
+/**
  * The shared measurement state that the Measure form and the Blueprint view both render from. Every edit, from
  * either side, goes through the ring-edit rules (`ringEdits.ts`) and lands here.
  */
@@ -31,9 +55,22 @@ export interface MeasureState {
   /** The ring edited last (dragged, typed or added), which a shape-fit failure blames; null: none since the page loaded. */
   lastEdited: RingId | null;
   /** The ring selected (its id), the height line, or nothing. A ring id that's gone selects nothing. */
-  selected: RingId | "height" | null;
+  selected: Selection;
   /** The ring (its id) or the gap the pointer is over, or nothing. */
-  hovered: RingId | Gap | null;
+  hovered: HoverTarget;
+}
+
+/** No measurements yet (no height, no rings), nothing edited, selected or hovered. */
+export const EMPTY_MEASURE_STATE: MeasureState = Object.freeze({
+  measurements: Object.freeze({ height: Number.NaN, rings: [] }),
+  lastEdited: null,
+  selected: null,
+  hovered: null,
+});
+
+/** An edit's patch: the new measurements, and `edited` as the ring edited last unless it's null (the height, a delete). */
+export function editPatch(measurements: RingMeasurements, edited: RingId | null): Partial<MeasureState> {
+  return edited === null ? { measurements } : { measurements, lastEdited: edited };
 }
 
 /** Who changed the state, and whether a drag is still going. */

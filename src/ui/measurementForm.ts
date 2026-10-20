@@ -1,17 +1,20 @@
 import type { TemplateWarning, Units } from "../core";
 import { tapeLength } from "../displayUnits";
 import {
+  canInsert,
   deleteRing,
   insertRing,
   sortRings,
   typeCircumference,
   typeHeight,
   typeRingHeight,
+  withRing,
   type ClampNote,
   type Gap,
   type RingId,
   type RingMeasurements,
 } from "../ringEdits";
+import { sameHoverTarget, type HoverTarget, type Selection } from "../measureState";
 import { placeMeasureWarnings } from "../measureWarnings";
 import type { ConfirmDelete } from "./deleteConfirm";
 import { lengthFields } from "./lengthFields";
@@ -34,7 +37,7 @@ export interface MeasurementForm {
    * Show the shared selection (its row gets an accent bar and a tint) and hover (a ring's row or a gap's insert
    * button). `scroll`: the selection came from the view, so its row scrolls into view if need be. Never moves focus.
    */
-  showLinks(selected: RingId | "height" | null, hovered: RingId | Gap | null, scroll: boolean): void;
+  showLinks(selected: Selection, hovered: HoverTarget, scroll: boolean): void;
   /** Show every length (height and rings) in `units` display units. Doesn't call `onChange`. */
   setUnits(units: Units): void;
   /** Test-grid mode: the first ring alone is the ball, one Around/Across pair held only by the ring size limits. */
@@ -59,7 +62,7 @@ interface RingRow {
   warning: HTMLElement;
 }
 
-/** An insert button's band in a gap between rows (or above the top row or below the bottom one). */
+/** An insert button's strip in a gap between rows (or above the top row or below the bottom one). */
 interface GapRow {
   gap: Gap;
   el: HTMLElement;
@@ -69,9 +72,9 @@ interface GapRow {
 /** How the form tells the Blueprint view what the carver is pointing at, and asks before deleting. */
 export interface FormLinks {
   /** A field in a ring's row (or the Height) got focus: select that ring (or the height line). */
-  select(selected: RingId | "height"): void;
+  select(selected: NonNullable<Selection>): void;
   /** The pointer is over a ring's row, an insert button (its gap) or neither. */
-  hover(hovered: RingId | Gap | null): void;
+  hover(hovered: HoverTarget): void;
   /** Asks before a row's × deletes its ring (unless asking is turned off); shared with the view. */
   confirmDelete: ConfirmDelete;
 }
@@ -84,7 +87,8 @@ type Column = "above" | "around" | "across";
  * Blueprint view: its height above the table, its circumference (Around) and its diameter (Across). It renders
  * from the shared measurements (`show`) and every edit goes through the ring-edit rules: keystrokes reach
  * `onChange` as they're typed, and on commit (blur or Enter) the value is clamped, with a note when it is, and the
- * rows re-sort. Insert buttons in every gap add a ring there; a row's × removes it, asking first.
+ * rows re-sort. Insert buttons in every gap add a ring there (disabled, saying why, where `canInsert` refuses one);
+ * a row's × removes it, asking first.
  * `onChange` gets the new measurements and the ring edited (typed in or added; null for the height or a removed
  * ring). Focusing a row's field selects its ring in the view, and hovering a row or an insert button points at
  * its ring or gap there (`links`); the view's selection and hover show here (`showLinks`).
@@ -155,8 +159,8 @@ export function mountMeasurementForm(
   /** The note from the last edit, on a ring's row, under the height or under the table ("rings"). */
   let note: { on: RingId | "height" | "rings"; message: string } | null = null;
   /** The shared selection and hover, as last shown. */
-  let selected: RingId | "height" | null = null;
-  let hovered: RingId | Gap | null = null;
+  let selected: Selection = null;
+  let hovered: HoverTarget = null;
 
   const height = () => current.height;
   const heightOk = () => Number.isFinite(height()) && height() > 0;
@@ -253,7 +257,13 @@ export function mountMeasurementForm(
     for (const { gap, button } of gaps.values()) {
       const top = gap.above === null ? "the top" : at(gap.above);
       const bottom = gap.below === null ? "the table" : at(gap.below);
-      button.setAttribute("aria-label", `Add a ring between ${top} and ${bottom}`);
+      // A gap the rules refuse keeps its button, disabled and saying why (clicking it shows the note too).
+      const refusal = canInsert(current, gap);
+      const label = `Add a ring between ${top} and ${bottom}`;
+      button.setAttribute("aria-label", refusal ? `${label}. ${refusal.message}` : label);
+      button.setAttribute("aria-disabled", String(refusal !== null));
+      if (refusal) button.title = refusal.message;
+      else button.removeAttribute("title");
     }
     const show = (el: HTMLElement, on: RingId | "height" | "rings") => {
       el.textContent = note?.on === on ? note.message : "";
@@ -374,7 +384,7 @@ export function mountMeasurementForm(
 
   const remove = (id: RingId) => {
     const edit = deleteRing(current, id);
-    if (edit.measurements.rings.length === current.rings.length) {
+    if (!edit.deleted) {
       note = noteOn(id, edit.note);
       relabel();
       return;
@@ -398,11 +408,6 @@ export function mountMeasurementForm(
     return null;
   };
 
-  const withRing = (id: RingId, patch: { position?: number; circumference?: number }): RingMeasurements => ({
-    height: current.height,
-    rings: current.rings.map((r) => (r.id === id ? { ...r, ...patch } : r)),
-  });
-
   /** A keystroke: the value goes out as typed, unclamped and unsorted. */
   const typed = (input: HTMLInputElement) => {
     dirty.add(input);
@@ -425,13 +430,13 @@ export function mountMeasurementForm(
     if (!field) return;
     const { row, column } = field;
     if (column === "above") {
-      current = withRing(row.id, { position: heightOk() ? lengths.value(row.above) / height() : Number.NaN });
+      current = withRing(current, row.id, { position: heightOk() ? lengths.value(row.above) / height() : Number.NaN });
     } else {
       const c = column === "around" ? lengths.value(row.around) : lengths.value(row.across) * Math.PI;
       // The other field follows exactly, so going back and forth never drifts.
       if (column === "around") lengths.set(row.across, Number.isFinite(c) ? c / Math.PI : null);
       else lengths.set(row.around, Number.isFinite(c) ? c : null);
-      current = withRing(row.id, { circumference: c });
+      current = withRing(current, row.id, { circumference: c });
     }
     if (note?.on === row.id) note = null;
     relabel();
@@ -476,15 +481,15 @@ export function mountMeasurementForm(
     if (next !== null && next !== selected) links.select(next);
   });
   // Hover, both ways: a row points at its ring in the view, an insert button at its gap.
-  const pointAt = (target: EventTarget | null): RingId | Gap | null => {
+  const pointAt = (target: EventTarget | null): HoverTarget => {
     if (ball || !(target instanceof Element)) return null;
     const button = target.closest<HTMLButtonElement>(".insert-ring");
     if (button) return [...gaps.values()].find((g) => g.button === button)?.gap ?? null;
     const id = target.closest<HTMLElement>(".ring")?.dataset.ring;
     return id === undefined ? null : Number(id);
   };
-  const hover = (next: RingId | Gap | null) => {
-    if (!sameTarget(next, hovered)) links.hover(next);
+  const hover = (next: HoverTarget) => {
+    if (!sameHoverTarget(next, hovered)) links.hover(next);
   };
   table.addEventListener("mouseover", (e) => hover(pointAt(e.target)));
   table.addEventListener("mouseleave", () => hover(null));
@@ -492,8 +497,10 @@ export function mountMeasurementForm(
   table.addEventListener("focusin", (e) => {
     if (e.target instanceof Element && e.target.closest(".insert-ring")) hover(pointAt(e.target));
   });
+  // Leaving it clears the gap it showed, wherever the pointer is; moving the pointer over something shows that.
   table.addEventListener("focusout", (e) => {
-    if (e.target instanceof Element && e.target.closest(".insert-ring") && !table.matches(":hover")) hover(null);
+    if (!(e.target instanceof Element) || !e.target.closest(".insert-ring")) return;
+    if (sameHoverTarget(hovered, pointAt(e.target))) hover(null);
   });
   form.addEventListener("input", (e) => {
     if (e.target instanceof HTMLInputElement) typed(e.target);
@@ -550,11 +557,6 @@ export function mountMeasurementForm(
       scrollIntoPane(selected === "height" ? heightRow : rows.get(selected)?.el);
     },
   };
-}
-
-function sameTarget(a: RingId | Gap | null, b: RingId | Gap | null): boolean {
-  if (a === null || b === null || typeof a === "number" || typeof b === "number") return a === b;
-  return a.above === b.above && a.below === b.below;
 }
 
 /**
