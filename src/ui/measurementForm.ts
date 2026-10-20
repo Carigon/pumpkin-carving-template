@@ -1,8 +1,19 @@
-import { nextRing, type PumpkinMeasurements, type TemplateWarning, type Units } from "../core";
+import { ringAt, type PumpkinMeasurements, type TemplateWarning, type Units } from "../core";
 import { lengthFields } from "./lengthFields";
 
 /** In mm: 9 in and 30 in. */
 const DEFAULTS_MM = { height: 228.6, circumference: 762 };
+
+/** Where "+ Add ring" puts a ring: the middle of the largest gap, the bottom and top counting as edges (the lower gap wins a tie). */
+function largestGapMiddle(m: PumpkinMeasurements): number {
+  const placed = m.rings.map((r) => r.position).filter((p) => Number.isFinite(p) && p > 0 && p < 1);
+  const stops = [0, ...placed.sort((a, b) => a - b), 1];
+  let gap = 0;
+  for (let i = 1; i + 1 < stops.length; i++) {
+    if (stops[i + 1] - stops[i] > stops[gap + 1] - stops[gap] + 1e-12) gap = i;
+  }
+  return (stops[gap] + stops[gap + 1]) / 2;
+}
 
 /** Saved values to put back; null = an empty field. Ring positions are fractions of the height. */
 export interface SavedMeasurements {
@@ -190,9 +201,11 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
   refresh();
 
   form.querySelector(".add-ring")!.addEventListener("click", () => {
-    const ring = nextRing(read());
+    const m = read();
+    const position = largestGapMiddle(m);
+    const circumference = ringAt(m, position);
     // Exact, so the shape doesn't change until the carver types a measurement (the field shows it rounded).
-    addRow(ring.position, Number.isFinite(ring.circumference) ? ring.circumference : null).circumference.focus();
+    addRow(position, Number.isFinite(circumference) ? circumference : null).circumference.focus();
     refresh();
     onChange(read());
   });

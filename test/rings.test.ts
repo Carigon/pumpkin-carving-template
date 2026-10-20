@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, fitProfile, nextRing, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
+import { buildTemplate, fitProfile, ringAt, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
 
 /** Millimetres per inch and per centimetre. */
 const IN = 25.4;
@@ -186,27 +186,37 @@ describe("fitting the profile alone", () => {
   });
 });
 
-describe("adding a ring", () => {
-  it("goes in the middle of the largest gap, counting the bottom and top as edges", () => {
-    let m: PumpkinMeasurements = { height: 9 * IN, rings: [{ position: 0.5, circumference: 30 * IN }] };
-    const positions: number[] = [];
-    for (let i = 0; i < 4; i++) {
-      const ring = nextRing(m);
-      positions.push(ring.position);
-      m = { ...m, rings: [...m.rings, ring] };
-    }
+describe("the ring at a height", () => {
+  /** Where the form puts a new ring: the middle of the largest gap, the bottom and top counting as edges. */
+  function largestGapMiddle(m: PumpkinMeasurements): number {
+    const stops = [0, ...m.rings.map((r) => r.position).sort((a, b) => a - b), 1];
+    let gap = 0;
+    for (let i = 1; i + 1 < stops.length; i++) if (stops[i + 1] - stops[i] > stops[gap + 1] - stops[gap] + 1e-12) gap = i;
+    return (stops[gap] + stops[gap + 1]) / 2;
+  }
+  const withRingAt = (m: PumpkinMeasurements, position: number): PumpkinMeasurements => ({
+    ...m,
+    rings: [...m.rings, { position, circumference: ringAt(m, position) }],
+  });
 
-    expect(positions).toEqual([0.25, 0.75, 0.125, 0.375]);
+  it("reads its circumference off the fitted profile at that height", () => {
+    const m = pumpkins[0][1];
+
+    const surface = buildTemplate({ measurements: m }).surface!;
+    // Within the error of interpolating between the reported profile's points.
+    for (const position of [0.05, 0.25, 0.6, 0.97]) {
+      expect((2 * Math.PI * radiusAt(surface, heightOf(m, position))) / ringAt(m, position)).toBeCloseTo(1, 3);
+    }
   });
 
   it.each([
     ["the default ring", { height: 9 * IN, rings: [{ position: 0.5, circumference: 30 * IN }] } as PumpkinMeasurements],
     ...pumpkins,
-  ])("doesn't change the shape (%s)", (_name, m) => {
+  ])("added to the rings, doesn't change the shape (%s)", (_name, m) => {
     const before = buildTemplate({ measurements: m }).surface!;
     // Up to a dozen rings or more.
     let more = m;
-    for (let i = 0; i < 9; i++) more = { ...more, rings: [...more.rings, nextRing(more)] };
+    for (let i = 0; i < 9; i++) more = withRingAt(more, largestGapMiddle(more));
     const after = buildTemplate({ measurements: more });
 
     expect(after.warnings).toEqual([]);
@@ -217,24 +227,17 @@ describe("adding a ring", () => {
     });
   });
 
-  it("reads its circumference off the fitted shape at its height", () => {
-    const m = pumpkins[0][1];
-    const ring = nextRing(m);
+  it("blends the rings on either side when there is no fitted profile", () => {
+    const m = { height: Number.NaN, rings: [{ position: 0.9, circumference: 10 * IN }, { position: 0.1, circumference: 20 * IN }] };
 
-    const surface = buildTemplate({ measurements: m }).surface!;
-    expect((2 * Math.PI * radiusAt(surface, heightOf(m, ring.position))) / ring.circumference).toBeCloseTo(1, 4);
+    expect(ringAt(m, 0.5)).toBeCloseTo(15 * IN, 11);
+    expect(ringAt(m, 0.3)).toBeCloseTo(17.5 * IN, 11);
   });
 
-  it("blends the rings on either side of the gap when there is no fitted shape", () => {
-    const ring = nextRing({ height: Number.NaN, rings: [{ position: 0.1, circumference: 20 * IN }, { position: 0.9, circumference: 10 * IN }] });
+  it("copies the one ring next to it below the lowest ring or above the highest when there is no fitted profile", () => {
+    const m = { height: 0, rings: [{ position: 0.5, circumference: 30 * IN }, { position: 0.7, circumference: 20 * IN }] };
 
-    expect(ring.position).toBeCloseTo(0.5, 12);
-    expect(ring.circumference).toBeCloseTo(15 * IN, 11);
-  });
-
-  it("copies the ring next to the gap when the gap runs to the bottom or top and there is no fitted shape", () => {
-    const ring = nextRing({ height: 0, rings: [{ position: 0.5, circumference: 30 * IN }] });
-
-    expect(ring).toEqual({ position: 0.25, circumference: 30 * IN });
+    expect(ringAt(m, 0.25)).toBe(30 * IN);
+    expect(ringAt(m, 0.9)).toBe(20 * IN);
   });
 });
