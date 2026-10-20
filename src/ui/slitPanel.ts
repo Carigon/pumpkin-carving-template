@@ -1,28 +1,29 @@
-import { convertLength, defaultMargin, defaultSlits, type SlitOptions, type TemplateWarning, type Units } from "../core";
+import { defaultMargin, defaultSlits, type SlitOptions, type TemplateWarning, type Units } from "../core";
+import { formatLength } from "../displayUnits";
 import type { Settings } from "../settings";
 import { lengthFields } from "./lengthFields";
 import { renderWarnings } from "./warnings";
 
-/** Paper margin around the design (in the current units) and whether the PDF prints the solid cut-out edge. */
+/** Paper margin around the design (in mm) and whether the PDF prints the solid cut-out edge. */
 export interface CutOptions {
   margin: number;
   line: boolean;
 }
 
-/** Margins the carver can choose, in inches. */
-const MARGIN_RANGE_IN = [0.25, 3] as const;
+/** Margins the carver can choose, in mm (1/4 in to 3 in). */
+const MARGIN_RANGE_MM = [6.35, 76.2] as const;
 
 export interface SlitPanel {
   options(): SlitOptions;
   /** The margin and cut-line choice. An empty or out-of-range margin reads as the default (and is flagged). */
   cut(): CutOptions;
-  /** Convert the length fields when the measurement units change. */
+  /** Show the length fields (and the margin warning) in `units` display units. */
   setUnits(units: Units): void;
   /** Show slit warnings (fewer slits fit than set, or the paper still stretches too much). */
   showWarnings(warnings: TemplateWarning[]): void;
   /** Show how many slits Auto placed in the empty count field (null: not known yet). */
   showAutoCount(count: number | null): void;
-  /** Put back saved slit and cut-out options, in the current units. Doesn't call `onChange`. */
+  /** Put back saved slit and cut-out options, lengths in mm. Doesn't call `onChange`. */
   restore(saved: Partial<Settings["slits"]>, cut?: Partial<CutOptions>): void;
 }
 
@@ -31,7 +32,6 @@ export interface SlitPanel {
  * shows how many slits it placed; a typed number overrides it. Calls `onChange` whenever one changes.
  */
 export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPanel {
-  const defaults = defaultSlits("in");
   root.innerHTML = `
     <form class="slits" novalidate>
       <section class="card">
@@ -40,7 +40,7 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
         <label for="s-margin">Margin around the design</label>
         <div class="input-row">
           <input id="s-margin" type="number" inputmode="decimal" min="0" step="any"
-            value="${defaultMargin("in")}" aria-describedby="s-margin-hint s-margin-warning" />
+            aria-describedby="s-margin-hint s-margin-warning" />
           <span class="unit-label">in</span>
         </div>
         <div id="s-margin-hint" class="hint">Blank paper between the design and the cut-out edge.</div>
@@ -63,7 +63,7 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
       <div class="field">
         <label for="s-depth">Max slit depth</label>
         <div class="input-row">
-          <input id="s-depth" type="number" inputmode="decimal" min="0" step="any" value="${defaults.depth}" />
+          <input id="s-depth" type="number" inputmode="decimal" min="0" step="any" />
           <span class="unit-label">in</span>
         </div>
         <div class="hint">Slits let the paper bend around the pumpkin.
@@ -85,18 +85,17 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
   const marginWarning = form.querySelector<HTMLElement>("#s-margin-warning")!;
   const warningsEl = form.querySelector<HTMLElement>("#s-warnings")!;
   const lengths = lengthFields(form, [depth, margin]);
+  lengths.set(margin, defaultMargin());
+  lengths.set(depth, defaultSlits().depth);
 
-  /** The margin in the current units, or the default with a message when the field isn't a usable margin. */
+  /** The margin in mm, or the default with a message when the field isn't a usable margin. */
   const readMargin = (): number => {
-    const units = lengths.units();
-    const [lo, hi] = MARGIN_RANGE_IN.map((v) => convertLength(v, "in", units));
+    const [lo, hi] = MARGIN_RANGE_MM;
     const m = lengths.value(margin);
     const ok = Number.isFinite(m) && m >= lo - 1e-9 && m <= hi + 1e-9;
-    const fallback = defaultMargin(units);
-    const round = (v: number) => Math.round(v * 100) / 100;
-    marginWarning.textContent = ok
-      ? ""
-      : `Enter a margin from ${round(lo)} to ${round(hi)} ${units}. Using ${round(fallback)} ${units} for now.`;
+    const fallback = defaultMargin();
+    const fmt = (mm: number) => formatLength(mm, lengths.units());
+    marginWarning.textContent = ok ? "" : `Enter a margin from ${fmt(lo)} to ${fmt(hi)}. Using ${fmt(fallback)} for now.`;
     marginWarning.hidden = ok;
     margin.setAttribute("aria-invalid", String(!ok));
     return ok ? m : fallback;
@@ -108,7 +107,7 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
 
   return {
     options() {
-      const fallback = defaultSlits(lengths.units());
+      const fallback = defaultSlits();
       const n = Number(count.value), d = lengths.value(depth);
       return {
         count: count.value.trim() !== "" && Number.isFinite(n) ? Math.max(0, Math.round(n)) : "auto",
@@ -122,7 +121,10 @@ export function mountSlitPanel(root: HTMLElement, onChange: () => void): SlitPan
       if (cut.margin !== undefined) lengths.set(margin, cut.margin);
       if (cut.line !== undefined) line.checked = cut.line;
     },
-    setUnits: (next: Units) => lengths.setUnits(next),
+    setUnits(next: Units) {
+      lengths.setUnits(next);
+      readMargin();
+    },
     showWarnings: (warnings: TemplateWarning[]) => renderWarnings(warningsEl, warnings, "slits"),
     showAutoCount: (n) => (count.placeholder = n === null ? "Auto" : `Auto (${n})`),
   };

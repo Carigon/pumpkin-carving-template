@@ -1,9 +1,12 @@
 import type { Vec3 } from "./surface/surface";
 
-/** Length units the user measures in. All physical lengths in builder input/output use these units. */
+/**
+ * Display units: what the carver reads and types lengths in. The core never uses them: every physical length in
+ * builder input and output is in mm.
+ */
 export type Units = "in" | "cm";
 
-/** Tape-measure measurements of the pumpkin. */
+/** Tape-measure measurements of the pumpkin, lengths in mm. */
 export interface PumpkinMeasurements {
   /**
    * Straight vertical height from the table to the underside of a book laid flat on the pumpkin's shoulders.
@@ -15,17 +18,17 @@ export interface PumpkinMeasurements {
    * pumpkin. Every horizontal cross-section is a circle.
    */
   rings: Ring[];
-  units: Units;
 }
 
 /** A horizontal tape ring around the pumpkin. */
 export interface Ring {
+  /** In mm. */
   circumference: number;
   /** Where the ring was taken, as a fraction of the height: 0 = bottom (the table), 1 = top. */
   position: number;
 }
 
-/** Half the fitted shape's size along each axis, in the measurement units. */
+/** Half the fitted shape's size along each axis, in mm. */
 export interface SemiAxes {
   /** Side-to-side (x). */
   sideToSide: number;
@@ -35,13 +38,13 @@ export interface SemiAxes {
   vertical: number;
 }
 
-/** One point of the side profile: the side-to-side radius at a height (y, stem up, 0 at mid-height). */
+/** One point of the side profile: the side-to-side radius at a height (y, stem up, 0 at mid-height), in mm. */
 export interface ProfilePoint {
   radius: number;
   height: number;
 }
 
-/** Derived surface parameters, for the preview and the PDF info block. */
+/** Derived surface parameters, for the preview and the PDF info block. Lengths in mm. */
 export interface SurfaceParameters {
   /** "ellipsoid" when the smoothest shape through the rings is one (e.g. a single ring at mid-height), else "revolved". */
   kind: "ellipsoid" | "revolved";
@@ -54,12 +57,11 @@ export interface SurfaceParameters {
   profile: ProfilePoint[];
   /** The surface as triangles, as projection sees it: within 0.25 mm of the smooth shape. */
   mesh: SurfaceMesh;
-  units: Units;
 }
 
 /** A triangle mesh of the pumpkin's surface, for drawing it. Same axes as the projected design. */
 export interface SurfaceMesh {
-  /** x, y, z per vertex. */
+  /** x, y, z per vertex, in mm. */
   positions: Float64Array;
   /** Outward unit normal per vertex (x, y, z), to blend across triangles for smooth shading. */
   normals: Float64Array;
@@ -115,7 +117,7 @@ export type TemplateWarning = MeasurementWarning | FrontLimitWarning | OutsideSi
 
 /**
  * Slits let the paper bend around the pumpkin. They're placed one at a time where they relieve the most stretch,
- * at least about 1 in apart.
+ * at least about 25 mm (1 in) apart.
  */
 export interface SlitOptions {
   /**
@@ -124,8 +126,8 @@ export interface SlitOptions {
    */
   count: number | "auto";
   /**
-   * The deepest a slit may run in from the cut-out edge, in the measurement units. Each goes this deep unless the
-   * design is in the way; one that can't get about 3/4 in deep (or through most of a narrower margin) isn't placed.
+   * The deepest a slit may run in from the cut-out edge, in mm. Each goes this deep unless the
+   * design is in the way; one that can't get about 19 mm (3/4 in) deep (or through most of a narrower margin) isn't placed.
    */
   depth: number;
 }
@@ -151,9 +153,9 @@ export interface Design {
 
 /** Where the design sits on the pumpkin, as seen from the front. */
 export interface Placement {
-  /** Width of the design's bounding box as seen from the front, in the measurement units. */
+  /** Width of the design's bounding box as seen from the front, in mm. */
   width: number;
-  /** How far the design's center sits above the pumpkin's center (negative = below), in the measurement units. */
+  /** How far the design's center sits above the pumpkin's center (negative = below), in mm. */
   verticalOffset: number;
   /** Rotation in degrees, counterclockwise as seen from the front. */
   rotation: number;
@@ -164,15 +166,15 @@ export interface TemplateInput {
   /** The design to place. Projection happens only when both design and placement are given. */
   design?: Design;
   placement?: Placement;
-  /** Slit count and max depth; defaults to `defaultSlits(units)`. */
+  /** Slit count and max depth; defaults to `defaultSlits()`. */
   slits?: SlitOptions;
-  /** Paper margin between the design and the cut-out edge, in the measurement units; defaults to `defaultMargin(units)`. */
+  /** Paper margin between the design and the cut-out edge, in mm; defaults to `defaultMargin()`. */
   margin?: number;
 }
 
 /** One design point after projection. */
 export interface ProjectedPoint {
-  /** Placed position in the front view (x right, y up), in the measurement units. */
+  /** Placed position in the front view (x right, y up), in mm. */
   front: Point2;
   /** Where the point lands on the pumpkin, or null if it misses the silhouette. */
   surface: { point: Vec3; normal: Vec3 } | null;
@@ -206,15 +208,14 @@ export interface TemplateResult {
 }
 
 /**
- * The flat paper template, in physical paper units (the measurement units).
+ * The flat paper template, lengths in mm on the paper.
  * Origin at the design center (where the center cross goes); +y points toward the stem.
  */
 export interface FlatTemplate {
-  units: Units;
   /** Flattened design paths (carve areas), implicitly closed. Holes are nested paths: fill them even-odd. */
   designPaths: Point2[][];
   /**
-   * The cut-out edge: the design's outline grown by the margin (3/4 in unless set), following it into concave parts. One piece:
+   * The cut-out edge: the design's outline grown by the margin (19.05 mm, 3/4 in, unless set), following it into concave parts. One piece:
    * holes are filled and separate parts of the design are bridged. Implicitly closed, counterclockwise.
    */
   cutOutline: Point2[];

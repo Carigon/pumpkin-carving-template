@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, convertLength, nextRing, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
+import { buildTemplate, nextRing, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
+
+/** Millimetres per inch and per centimetre. */
+const IN = 25.4;
+const CM = 10;
 
 /** Radius of the fitted profile at height `y` (0 at mid-height), interpolated between profile points. */
 function radiusAt(surface: SurfaceParameters, y: number): number {
@@ -26,24 +30,31 @@ function widestOf(surface: SurfaceParameters) {
 const pumpkins: [string, PumpkinMeasurements][] = [
   [
     "a bottom-heavy pumpkin",
-    { height: 10, rings: [{ position: 0.35, circumference: 32 }, { position: 0.75, circumference: 24 }, { position: 0.15, circumference: 26 }], units: "in" },
+    {
+      height: 10 * IN,
+      rings: [{ position: 0.35, circumference: 32 * IN }, { position: 0.75, circumference: 24 * IN }, { position: 0.15, circumference: 26 * IN }],
+    },
   ],
-  ["a tall, tapered pumpkin", { height: 14, rings: [{ position: 0.3, circumference: 30 }, { position: 0.8, circumference: 18 }], units: "in" }],
+  ["a tall, tapered pumpkin", { height: 14 * IN, rings: [{ position: 0.3, circumference: 30 * IN }, { position: 0.8, circumference: 18 * IN }] }],
   [
     "a barrel",
-    { height: 9, rings: [{ position: 0.5, circumference: 30 }, { position: 0.2, circumference: 28 }, { position: 0.8, circumference: 28 }], units: "in" },
+    { height: 9 * IN, rings: [{ position: 0.5, circumference: 30 * IN }, { position: 0.2, circumference: 28 * IN }, { position: 0.8, circumference: 28 * IN }] },
   ],
   [
     "a squat pumpkin in cm",
     {
-      height: 25,
-      rings: [{ position: 0.45, circumference: 80 }, { position: 0.2, circumference: 66 }, { position: 0.7, circumference: 70 }, { position: 0.9, circumference: 40 }],
-      units: "cm",
+      height: 25 * CM,
+      rings: [
+        { position: 0.45, circumference: 80 * CM },
+        { position: 0.2, circumference: 66 * CM },
+        { position: 0.7, circumference: 70 * CM },
+        { position: 0.9, circumference: 40 * CM },
+      ],
     },
   ],
   [
     "a lopsided pumpkin whose rings narrow and widen again below the widest",
-    { height: 10, rings: [{ position: 0.5, circumference: 30 }, { position: 0.3, circumference: 26 }, { position: 0.2, circumference: 27 }], units: "in" },
+    { height: 10 * IN, rings: [{ position: 0.5, circumference: 30 * IN }, { position: 0.3, circumference: 26 * IN }, { position: 0.2, circumference: 27 * IN }] },
   ],
 ];
 
@@ -90,31 +101,31 @@ describe("pumpkin profile through rings at known heights", () => {
   });
 
   it("a sphere measured with several rings comes out as that sphere", () => {
-    const C = 40, R = C / (2 * Math.PI);
+    const C = 40 * IN, R = C / (2 * Math.PI);
     const rings = [0.5, 0.1, 0.3, 0.8, 0.95].map((position) => ({
       position,
       circumference: 2 * Math.PI * Math.sqrt(R ** 2 - (2 * R * (position - 0.5)) ** 2),
     }));
-    const { surface, warnings } = buildTemplate({ measurements: { height: 2 * R, rings, units: "in" } });
+    const { surface, warnings } = buildTemplate({ measurements: { height: 2 * R, rings } });
 
     expect(warnings).toEqual([]);
     for (const p of surface!.profile) expect(Math.hypot(p.radius, p.height)).toBeCloseTo(R, 5);
   });
 
   it("near-equal rings above and below the widest give a flatter-sided pumpkin than the ellipsoid of the same height", () => {
-    const base = { height: 9, units: "in" as const };
-    const { surface: ellipsoid } = buildTemplate({ measurements: { ...base, rings: [{ position: 0.5, circumference: 30 }] } });
+    const base = { height: 9 * IN };
+    const { surface: ellipsoid } = buildTemplate({ measurements: { ...base, rings: [{ position: 0.5, circumference: 30 * IN }] } });
     const { surface: barrel, warnings } = buildTemplate({
       measurements: {
         ...base,
-        rings: [{ position: 0.5, circumference: 30 }, { position: 0.2, circumference: 29.1 }, { position: 0.8, circumference: 29.1 }],
+        rings: [{ position: 0.5, circumference: 30 * IN }, { position: 0.2, circumference: 29.1 * IN }, { position: 0.8, circumference: 29.1 * IN }],
       },
     });
 
     expect(warnings).toEqual([]);
     // Three quarters of the way from the middle to the top, as a fraction of the widest radius:
     // cos(asin 0.75) ≈ 0.66 on the ellipsoid, much more on the barrel.
-    const sideAt = (s: SurfaceParameters, fraction: number) => radiusAt(s, fraction * 4.5) / widestOf(s).radius;
+    const sideAt = (s: SurfaceParameters, fraction: number) => radiusAt(s, fraction * 4.5 * IN) / widestOf(s).radius;
     expect(sideAt(ellipsoid!, 0.75)).toBeCloseTo(Math.cos(Math.asin(0.75)), 3);
     expect(sideAt(barrel!, 0.75)).toBeGreaterThan(sideAt(ellipsoid!, 0.75) + 0.1);
     expect(sideAt(barrel!, -0.75)).toBeGreaterThan(sideAt(ellipsoid!, -0.75) + 0.1);
@@ -123,9 +134,8 @@ describe("pumpkin profile through rings at known heights", () => {
   it("symmetric rings give a pumpkin symmetric about mid-height", () => {
     const { surface } = buildTemplate({
       measurements: {
-        height: 9,
-        rings: [{ position: 0.5, circumference: 30 }, { position: 0.2, circumference: 28 }, { position: 0.8, circumference: 28 }],
-        units: "in",
+        height: 9 * IN,
+        rings: [{ position: 0.5, circumference: 30 * IN }, { position: 0.2, circumference: 28 * IN }, { position: 0.8, circumference: 28 * IN }],
       },
     });
 
@@ -140,12 +150,11 @@ describe("pumpkin profile through rings at known heights", () => {
     const square = [[-2, -2], [2, -2], [2, 2], [-2, 2]].map(([x, y]) => ({ x, y }));
     const { surface, design, template, warnings } = buildTemplate({
       measurements: {
-        height: 12,
-        rings: [{ position: 0.45, circumference: 32 }, { position: 0.75, circumference: 29 }, { position: 0.2, circumference: 30 }],
-        units: "in",
+        height: 12 * IN,
+        rings: [{ position: 0.45, circumference: 32 * IN }, { position: 0.75, circumference: 29 * IN }, { position: 0.2, circumference: 30 * IN }],
       },
       design: { paths: [square], bbox: { minX: -2, minY: -2, maxX: 2, maxY: 2 } },
-      placement: { width: 4, verticalOffset: -0.5, rotation: 0 },
+      placement: { width: 4 * IN, verticalOffset: -0.5 * IN, rotation: 0 },
     });
 
     expect(warnings).toEqual([]);
@@ -154,7 +163,7 @@ describe("pumpkin profile through rings at known heights", () => {
       expect(x).toBeCloseTo(p.front.x, 9);
       expect(y).toBeCloseTo(p.front.y, 9);
       // The mesh is within 0.25 mm of the smooth shape; measured across, a little more where the side leans.
-      expect(Math.abs(Math.hypot(x, z) - radiusAt(surface!, y))).toBeLessThan(2 * convertLength(0.025, "cm", "in"));
+      expect(Math.abs(Math.hypot(x, z) - radiusAt(surface!, y))).toBeLessThan(2 * 0.25);
     }
     expect(template!.stretch.max).toBeLessThan(0.06);
   });
@@ -162,7 +171,7 @@ describe("pumpkin profile through rings at known heights", () => {
 
 describe("adding a ring", () => {
   it("goes in the middle of the largest gap, counting the bottom and top as edges", () => {
-    let m: PumpkinMeasurements = { height: 9, rings: [{ position: 0.5, circumference: 30 }], units: "in" };
+    let m: PumpkinMeasurements = { height: 9 * IN, rings: [{ position: 0.5, circumference: 30 * IN }] };
     const positions: number[] = [];
     for (let i = 0; i < 4; i++) {
       const ring = nextRing(m);
@@ -174,7 +183,7 @@ describe("adding a ring", () => {
   });
 
   it.each([
-    ["the default ring", { height: 9, rings: [{ position: 0.5, circumference: 30 }], units: "in" } as PumpkinMeasurements],
+    ["the default ring", { height: 9 * IN, rings: [{ position: 0.5, circumference: 30 * IN }] } as PumpkinMeasurements],
     ...pumpkins,
   ])("doesn't change the shape (%s)", (_name, m) => {
     const before = buildTemplate({ measurements: m }).surface!;
@@ -200,15 +209,15 @@ describe("adding a ring", () => {
   });
 
   it("blends the rings on either side of the gap when there is no fitted shape", () => {
-    const ring = nextRing({ height: Number.NaN, rings: [{ position: 0.1, circumference: 20 }, { position: 0.9, circumference: 10 }], units: "in" });
+    const ring = nextRing({ height: Number.NaN, rings: [{ position: 0.1, circumference: 20 * IN }, { position: 0.9, circumference: 10 * IN }] });
 
     expect(ring.position).toBeCloseTo(0.5, 12);
-    expect(ring.circumference).toBeCloseTo(15, 12);
+    expect(ring.circumference).toBeCloseTo(15 * IN, 11);
   });
 
   it("copies the ring next to the gap when the gap runs to the bottom or top and there is no fitted shape", () => {
-    const ring = nextRing({ height: 0, rings: [{ position: 0.5, circumference: 30 }], units: "in" });
+    const ring = nextRing({ height: 0, rings: [{ position: 0.5, circumference: 30 * IN }] });
 
-    expect(ring).toEqual({ position: 0.25, circumference: 30 });
+    expect(ring).toEqual({ position: 0.25, circumference: 30 * IN });
   });
 });

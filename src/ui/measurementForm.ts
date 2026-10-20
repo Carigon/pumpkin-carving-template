@@ -1,33 +1,34 @@
 import { nextRing, type PumpkinMeasurements, type TemplateWarning, type Units } from "../core";
 import { lengthFields } from "./lengthFields";
 
-const DEFAULTS_IN = { height: 9, circumference: 30 };
+/** In mm: 9 in and 30 in. */
+const DEFAULTS_MM = { height: 228.6, circumference: 762 };
 
 /** Saved values to put back; null = an empty field. Ring positions are fractions of the height. */
 export interface SavedMeasurements {
-  units?: Units;
+  /** In mm. */
   height?: number | null;
   rings?: { position: number | null; circumference: number | null }[];
 }
 
 export interface MeasurementForm {
   /**
-   * Current measurements. Empty fields read as NaN so the builder reports them; ring rows left completely
+   * Current measurements, in mm. Empty fields read as NaN so the builder reports them; ring rows left completely
    * empty are skipped.
    */
   read(): PumpkinMeasurements;
   /** Show impossible-measurement warnings next to the height and the matching rings; clears the others. */
   showWarnings(warnings: TemplateWarning[]): void;
-  /** Convert every length (height and rings) to `units`. Doesn't call `onChange`. */
+  /** Show every length (height and rings) in `units` display units. Doesn't call `onChange`. */
   setUnits(units: Units): void;
-  /** Put back saved units and values. Missing values keep the current ones. Doesn't call `onChange`. */
+  /** Put back saved values. Missing values keep the current ones. Doesn't call `onChange`. */
   restore(saved: SavedMeasurements): void;
 }
 
 interface RingRow {
   el: HTMLElement;
   name: HTMLElement;
-  /** Height above the table, in the current units. */
+  /** Height above the table. */
   above: HTMLInputElement;
   circumference: HTMLInputElement;
   /** Shows `position` as a hint. */
@@ -38,8 +39,8 @@ interface RingRow {
 }
 
 /**
- * Measurement form: the height, and tape rings each at a height above the table. The units are chosen in the
- * header and set with `setUnits`.
+ * Measurement form: the height, and tape rings each at a height above the table. The display units are chosen in
+ * the header and set with `setUnits`.
  * Ring heights are kept as fractions of the height, so changing the height keeps the rings in proportion.
  * Calls `onChange` with the current measurements on every edit.
  */
@@ -82,7 +83,7 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
   const ringsWarning = form.querySelector<HTMLElement>(".rings-warning")!;
 
   const lengths = lengthFields(form, [heightInput]);
-  lengths.set(heightInput, DEFAULTS_IN.height);
+  lengths.set(heightInput, DEFAULTS_MM.height);
   const height = () => lengths.value(heightInput);
   const heightOk = () => Number.isFinite(height()) && height() > 0;
 
@@ -182,11 +183,10 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
         position: r.above.value.trim() === "" ? Number.NaN : r.position,
         circumference: lengths.value(r.circumference),
       })),
-      units: lengths.units(),
     };
   };
 
-  addRow(0.5, DEFAULTS_IN.circumference);
+  addRow(0.5, DEFAULTS_MM.circumference);
   refresh();
 
   form.querySelector(".add-ring")!.addEventListener("click", () => {
@@ -209,8 +209,7 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
   return {
     read,
     setUnits: (next) => lengths.setUnits(next),
-    restore({ units: savedUnits, height: savedHeight, rings }) {
-      if (savedUnits) lengths.setUnits(savedUnits);
+    restore({ height: savedHeight, rings }) {
       if (savedHeight !== undefined) {
         lengths.set(heightInput, savedHeight);
         followHeight();

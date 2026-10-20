@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, convertLength, type FlatTemplate, type Point2 } from "../src/core";
+import { buildTemplate, type FlatTemplate, type Point2 } from "../src/core";
 import { referenceCases } from "./analytic-reference/cases";
 import reference from "./analytic-reference/templates.json";
 
 /**
  * Templates the analytic surface (the smooth revolved shape, flattened through its (u, v) chart) produced for
- * `referenceCases`, recorded before flattening moved onto the mesh. Points are [x, y] on paper.
+ * `referenceCases`, recorded before flattening moved onto the mesh. Points are [x, y] on paper, in the units the case
+ * was measured in back then (inches or cm): scale them by the case's mm per unit.
  */
 type Recorded = {
   designPaths: [number, number][][];
@@ -20,9 +21,10 @@ const recorded = reference as unknown as Record<string, Recorded>;
  * template turned its paper upright through its (u, v) chart, which is off by a fraction of a degree high up on a
  * pumpkin (the chart's scale changes with height), so about half of this is the reference's own error.
  */
-const TOLERANCE_CM = 0.1;
+const TOLERANCE_MM = 1;
 
-const toPoints = (line: [number, number][]): Point2[] => line.map(([x, y]) => ({ x, y }));
+/** A recorded line in mm, from its points in units `mmPerUnit` mm long. */
+const toPoints = (line: [number, number][], mmPerUnit: number): Point2[] => line.map(([x, y]) => ({ x: x * mmPerUnit, y: y * mmPerUnit }));
 
 function distanceToSegment(p: Point2, a: Point2, b: Point2): number {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -63,20 +65,19 @@ function maxOnPaper({ stretch, cutOutline }: FlatTemplate): number {
   return max;
 }
 
-describe.each(referenceCases)("the template on the mesh for %s", (name, input) => {
-  const tolerance = convertLength(TOLERANCE_CM, "cm", input.measurements.units);
+describe.each(referenceCases)("the template on the mesh for %s", (name, input, mmPerUnit) => {
   const analytic = recorded[name];
   const { template } = buildTemplate(input);
 
   it("has the analytic template's design paths, within 1 mm", () => {
     expect(template!.designPaths).toHaveLength(analytic.designPaths.length);
     template!.designPaths.forEach((path, i) => {
-      expect(apart(path, toPoints(analytic.designPaths[i]), true), `path ${i}`).toBeLessThan(tolerance);
+      expect(apart(path, toPoints(analytic.designPaths[i], mmPerUnit), true), `path ${i}`).toBeLessThan(TOLERANCE_MM);
     });
   });
 
   it("has the analytic template's cut-out edge, within 1 mm", () => {
-    expect(apart(template!.cutOutline, toPoints(analytic.cutOutline), true)).toBeLessThan(tolerance);
+    expect(apart(template!.cutOutline, toPoints(analytic.cutOutline, mmPerUnit), true)).toBeLessThan(TOLERANCE_MM);
   });
 
   it("has the analytic template's stretch", () => {

@@ -31,55 +31,63 @@ const face = designOf([
   ]),
 ]);
 
-const noSlits = { count: 0, depth: 1 };
+/** mm per inch and per cm. */
+const IN = 25.4;
+const CM = 10;
+
+const noSlits = { count: 0, depth: 1 * IN };
 
 /**
  * Pumpkins and placements whose templates the analytic surface produced, kept as the reference for the mesh.
  * Flattened without slits: where slits go depends on the stretch, which depends on the mesh.
+ * Each case gives its lengths in mm, then the mm per unit of its reference template, recorded when the core worked
+ * in the carver's inches or cm.
  */
-export const referenceCases: [string, TemplateInput][] = [
+export const referenceCases: [string, TemplateInput, number][] = [
   [
     "a star on a sphere",
     {
-      measurements: { height: 60 / Math.PI, rings: [{ position: 0.5, circumference: 60 }], units: "in" },
+      measurements: { height: (60 * IN) / Math.PI, rings: [{ position: 0.5, circumference: 60 * IN }] },
       design: star,
-      placement: { width: 6, verticalOffset: 1, rotation: 10 },
+      placement: { width: 6 * IN, verticalOffset: 1 * IN, rotation: 10 },
       slits: noSlits,
     },
+    IN,
   ],
   [
     "a face on a squat ellipsoid",
     {
-      measurements: { height: 8, rings: [{ position: 0.5, circumference: 34 }], units: "in" },
+      measurements: { height: 8 * IN, rings: [{ position: 0.5, circumference: 34 * IN }] },
       design: face,
-      placement: { width: 5.5, verticalOffset: -0.5, rotation: 0 },
+      placement: { width: 5.5 * IN, verticalOffset: -0.5 * IN, rotation: 0 },
       slits: noSlits,
     },
+    IN,
   ],
   [
     "a face on a bottom-heavy pumpkin",
     {
       measurements: {
-        height: 10,
-        rings: [{ position: 0.35, circumference: 32 }, { position: 0.75, circumference: 24 }, { position: 0.15, circumference: 26 }],
-        units: "in",
+        height: 10 * IN,
+        rings: [{ position: 0.35, circumference: 32 * IN }, { position: 0.75, circumference: 24 * IN }, { position: 0.15, circumference: 26 * IN }],
       },
       design: face,
-      placement: { width: 6, verticalOffset: 0.5, rotation: -5 },
+      placement: { width: 6 * IN, verticalOffset: 0.5 * IN, rotation: -5 },
       slits: noSlits,
     },
+    IN,
   ],
   [
     "a star high up on a squat pumpkin in cm",
     {
       measurements: {
-        height: 25,
-        rings: [{ position: 0.45, circumference: 80 }, { position: 0.2, circumference: 66 }, { position: 0.7, circumference: 70 }, { position: 0.9, circumference: 40 }],
-        units: "cm",
+        height: 25 * CM,
+        rings: [{ position: 0.45, circumference: 80 * CM }, { position: 0.2, circumference: 66 * CM }, { position: 0.7, circumference: 70 * CM }, { position: 0.9, circumference: 40 * CM }],
       },
       design: star,
-      placement: { width: 12, verticalOffset: 4, rotation: 0 },
+      placement: { width: 12 * CM, verticalOffset: 4 * CM, rotation: 0 },
       slits: noSlits,
     },
+    CM,
   ],
 ];

@@ -1,7 +1,6 @@
 import type { MeasurementWarning, ProfilePoint, PumpkinMeasurements, SurfaceParameters } from "../types";
 import { angleAt, fitProfile, profileAt } from "./profile";
 import { meshSurface, type MeshSurface } from "../mesh/meshSurface";
-import { convertLength } from "../units";
 import { revolvedSurface } from "./revolved";
 import { revolvedMesh } from "./revolvedMesh";
 
@@ -17,8 +16,8 @@ export type SurfaceFit =
 
 /** Points in the reported side profile. */
 const PROFILE_POINTS = 257;
-/** Furthest a facet of the mesh may stray from the smooth shape: 0.25 mm. */
-const MESH_TOLERANCE_CM = 0.025;
+/** Furthest a facet of the mesh may stray from the smooth shape, in mm. */
+const MESH_TOLERANCE_MM = 0.25;
 
 /**
  * Fit the pumpkin surface to the tape measurements: the smoothest side profile through every ring at its
@@ -45,7 +44,7 @@ export function fitSurface(m: PumpkinMeasurements): SurfaceFit {
     return { radius: p.radius, height: p.y };
   });
   const smooth = revolvedSurface(fit.profile);
-  const mesh = revolvedMesh(fit.profile, smooth, convertLength(MESH_TOLERANCE_CM, "cm", m.units));
+  const mesh = revolvedMesh(fit.profile, smooth, MESH_TOLERANCE_MM);
   const widest = Math.max(...m.rings.map((r) => r.circumference / (2 * Math.PI)), ...profile.map((p) => p.radius));
   return {
     ok: true,
@@ -55,15 +54,13 @@ export function fitSurface(m: PumpkinMeasurements): SurfaceFit {
       semiAxes: { sideToSide: widest, frontToBack: widest, vertical: m.height / 2 },
       profile,
       mesh,
-      units: m.units,
     },
     radiusAt: (position) => profileAt(fit.profile, angleAt(position)).radius,
   };
 }
 
 /** Measurements that can't be a pumpkin: no height, no rings, rings off the pumpkin or on top of each other. */
-function checkMeasurements({ height, rings, units }: PumpkinMeasurements): MeasurementWarning[] {
-  const fmt = (x: number) => `${Number(x.toFixed(2))} ${units}`;
+function checkMeasurements({ height, rings }: PumpkinMeasurements): MeasurementWarning[] {
   const warnings: MeasurementWarning[] = [];
   const heightOk = Number.isFinite(height) && height > 0;
   if (!heightOk) warnings.push({ kind: "impossible-measurement", field: "height", message: "Height must be a positive number." });
@@ -72,8 +69,7 @@ function checkMeasurements({ height, rings, units }: PumpkinMeasurements): Measu
   }
   rings.forEach((r, i) => {
     if (!(Number.isFinite(r.position) && r.position > 0 && r.position < 1)) {
-      const range = heightOk ? `, more than 0 and less than ${fmt(height)} above the table` : "";
-      warnings.push(ringWarning(i, `The ring must be between the bottom and the top of the pumpkin${range}.`));
+      warnings.push(ringWarning(i, "The ring must be between the bottom and the top of the pumpkin."));
     } else if (!(Number.isFinite(r.circumference) && r.circumference > 0)) {
       warnings.push(ringWarning(i, "Circumference must be a positive number."));
     } else if (rings.some((o, j) => j < i && Math.abs(o.position - r.position) < 1e-9)) {

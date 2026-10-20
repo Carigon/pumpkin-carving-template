@@ -2,25 +2,26 @@ import type { Units } from "./core";
 import type { Paper } from "./paper";
 import { STEP_IDS, stepInMode, type Mode, type StepId } from "./steps";
 
-/** The inputs a returning carver gets back on reload. Never images or designs. */
+/** The inputs a returning carver gets back on reload. Never images or designs. Every length is in mm. */
 export interface Settings {
   mode: Mode;
   /** Test-grid squares across. */
   cells: number;
-  /** Test-grid width seen from the front, in `units`; null when empty. */
+  /** Test-grid width seen from the front; null when empty. */
   gridWidth: number | null;
+  /** The carver's display units. */
   units: Units;
-  /** Lengths in `units`; null when the field was left empty. */
+  /** Null when the field was left empty. */
   measurements: {
     height: number | null;
     /** Tape rings, in list order. `position` is a fraction of the height (0 = table, 1 = top), not a length. */
     rings: { position: number | null; circumference: number | null }[];
   };
-  /** Width and offset in `units` (width null when empty); rotation in degrees. */
+  /** Width and offset (width null when empty); rotation in degrees. */
   placement: { width: number | null; verticalOffset: number; rotation: number };
-  /** Slit count ("auto" unless the carver typed one) and max depth in `units`. */
+  /** Slit count ("auto" unless the carver typed one) and max depth. */
   slits: { count: number | "auto"; maxDepth: number };
-  /** Paper margin around the design in `units`; whether the PDF prints the solid cut-out edge. */
+  /** Paper margin around the design; whether the PDF prints the solid cut-out edge. */
   cut: { margin: number; line: boolean };
   paper: Paper;
   filled: boolean;
@@ -50,7 +51,8 @@ export interface SettingsStorage {
   setItem(key: string, value: string): void;
 }
 
-const KEY = "pumpkin-template-settings";
+/** Lengths in mm. The first key, "pumpkin-template-settings", held them in the display units; it is ignored. */
+const KEY = "pumpkin-template-v2";
 const MAX_ROTATION = 30;
 const MAX_SLITS = 24;
 const MAX_CELLS = 20;
@@ -105,36 +107,29 @@ export function loadSettings(storage: SettingsStorage | undefined): RestoredSett
 }
 
 function validate(s: Record<string, unknown>): RestoredSettings {
-  const units = oneOf(s.units, ["in", "cm"] as const);
   const m = record(s.measurements);
   const p = record(s.placement);
   const sl = record(s.slits);
   const c = record(s.cut);
-  // Lengths only mean something in known units.
-  const length = <T>(value: T) => (units ? value : undefined);
 
   const mode = oneOf(s.mode, ["pumpkin", "test-grid"] as const);
 
   return compact({
     mode,
     cells: integerIn(s.cells, 1, MAX_CELLS),
-    gridWidth: length(emptyOr(s.gridWidth, positive)),
-    units,
-    // Measurements saved with a front arc have no height and their rings no position, so nothing of them survives.
+    gridWidth: emptyOr(s.gridWidth, positive),
+    units: oneOf(s.units, ["in", "cm"] as const),
     measurements: group({
-      height: length(emptyOr(m.height, positive)),
-      rings: length(rings(m.rings)),
+      height: emptyOr(m.height, positive),
+      rings: rings(m.rings),
     }),
     placement: group({
-      width: length(emptyOr(p.width, positive)),
-      verticalOffset: length(finite(p.verticalOffset)),
+      width: emptyOr(p.width, positive),
+      verticalOffset: finite(p.verticalOffset),
       rotation: inRange(p.rotation, -MAX_ROTATION, MAX_ROTATION),
     }),
-    // Slit settings saved before Auto (a count and a depth, no max depth) held the old defaults, not choices: drop them.
-    slits: "maxDepth" in sl
-      ? group({ count: sl.count === "auto" ? ("auto" as const) : integerIn(sl.count, 0, MAX_SLITS), maxDepth: length(nonNegative(sl.maxDepth)) })
-      : undefined,
-    cut: group({ margin: length(positive(c.margin)), line: typeof c.line === "boolean" ? c.line : undefined }),
+    slits: group({ count: sl.count === "auto" ? ("auto" as const) : integerIn(sl.count, 0, MAX_SLITS), maxDepth: nonNegative(sl.maxDepth) }),
+    cut: group({ margin: positive(c.margin), line: typeof c.line === "boolean" ? c.line : undefined }),
     paper: oneOf(s.paper, ["letter", "a4"] as const),
     filled: typeof s.filled === "boolean" ? s.filled : undefined,
     // The app starts in pumpkin mode when the saved mode is unusable.

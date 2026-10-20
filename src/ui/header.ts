@@ -10,7 +10,7 @@ export interface Header {
 
 /**
  * The slim app header: the title and the app-wide choices, what's being made (pumpkin template or test grid
- * for a ball) and the units. Calls `onMode` / `onUnits` when one changes.
+ * for a ball) and the display units. Calls `onMode` / `onUnits` when one changes.
  */
 export function mountHeader(root: HTMLElement, onMode: () => void, onUnits: () => void): Header {
   root.classList.add("app-header");

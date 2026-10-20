@@ -1,4 +1,4 @@
-import type { Design, Point2, PumpkinMeasurements, Units } from "../core";
+import type { Design, Point2, PumpkinMeasurements } from "../core";
 
 /** Bar width as a fraction of the cell pitch. */
 const BAR = 0.12;
@@ -19,9 +19,12 @@ export function gridDesign(cells: number): Design {
   return { paths, bbox: { minX: 0, minY: 0, maxX: size, maxY: size } };
 }
 
-/** Ball mode: a sphere from a single circumference, as tall as it is wide (circumference ÷ π) and widest at mid-height. */
-export function ballMeasurements(circumference: number, units: Units): PumpkinMeasurements {
-  return { height: circumference / Math.PI, rings: [{ circumference, position: 0.5 }], units };
+/**
+ * Ball mode: a sphere from a single circumference (mm), as tall as it is wide (circumference ÷ π) and widest at
+ * mid-height.
+ */
+export function ballMeasurements(circumference: number): PumpkinMeasurements {
+  return { height: circumference / Math.PI, rings: [{ circumference, position: 0.5 }] };
 }
 
 function square(x: number, y: number, size: number): Point2[] {

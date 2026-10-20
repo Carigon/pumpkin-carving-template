@@ -5,7 +5,6 @@ import { placeDesign } from "./projection/placement";
 import { projectDesign } from "./projection/projectDesign";
 import { frontProjection } from "./projection/projection";
 import { fitSurface, type SurfaceFit } from "./surface/fitSurface";
-import { fromInches } from "./units";
 import type {
   BuildProgress,
   FlatTemplate,
@@ -14,37 +13,36 @@ import type {
   TemplateInput,
   TemplateResult,
   TemplateWarning,
-  Units,
 } from "./types";
 
-/** Paper margin between the design and the cut-out edge, unless the carver changes it. */
-const DEFAULT_CUT_MARGIN_IN = 0.75;
-/** Least blank paper between a slit and the design. */
-const SLIT_CLEARANCE_IN = 0.1;
-/** Least distance between two slits, so they don't crowd one gap and leave thin strips of paper. */
-const SLIT_SPACING_IN = 1;
+/** Paper margin between the design and the cut-out edge, unless the carver changes it (3/4 in). */
+const DEFAULT_CUT_MARGIN_MM = 19.05;
+/** Least blank paper between a slit and the design (0.1 in). */
+const SLIT_CLEARANCE_MM = 2.54;
+/** Least distance between two slits, so they don't crowd one gap and leave thin strips of paper (1 in). */
+const SLIT_SPACING_MM = 25.4;
 /**
  * Short stubs on open paper barely relieve any stretch, so slits shorter than this aren't placed, unless the margin
  * is narrower: a slit that runs through most of the margin band (`MIN_MARGIN_SHARE` of the paper between the edge
- * and the design's clearance) still helps a lot on solid designs, where nothing deeper fits.
+ * and the design's clearance) still helps a lot on solid designs, where nothing deeper fits (3/4 in).
  */
-const MIN_SLIT_DEPTH_IN = 0.75;
+const MIN_SLIT_DEPTH_MM = 19.05;
 const MIN_MARGIN_SHARE = 0.8;
-/** Deeper than the margin, so slits reach in between parts of the design where there is room. */
-const DEFAULT_SLIT_DEPTH_IN = 2;
+/** Deeper than the margin, so slits reach in between parts of the design where there is room (2 in). */
+const DEFAULT_SLIT_DEPTH_MM = 50.8;
 
-/** The paper margin between the design and the cut-out edge a template gets unless the carver changes it. */
-export function defaultMargin(units: Units): number {
-  return fromInches(DEFAULT_CUT_MARGIN_IN, units);
+/** The paper margin between the design and the cut-out edge a template gets unless the carver changes it, in mm. */
+export function defaultMargin(): number {
+  return DEFAULT_CUT_MARGIN_MM;
 }
 
-/** The slits a template gets unless the carver changes them. */
-export function defaultSlits(units: Units): SlitOptions {
-  return { count: "auto", depth: fromInches(DEFAULT_SLIT_DEPTH_IN, units) };
+/** The slits a template gets unless the carver changes them (depth in mm). */
+export function defaultSlits(): SlitOptions {
+  return { count: "auto", depth: DEFAULT_SLIT_DEPTH_MM };
 }
 
 /**
- * The template builder: the single pure entry point of the core.
+ * The template builder: the single pure entry point of the core. Every length in and out is in mm.
  * No DOM, canvas, WebGL or PDF dependencies.
  */
 export function buildTemplate(input: TemplateInput): TemplateResult {
@@ -95,7 +93,6 @@ function finish(steps: Generator<BuildProgress, TemplateResult>): TemplateResult
 
 /** The template for `input` on an already fitted surface; without `flatten`, only the quick projection. */
 function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean): Generator<BuildProgress, TemplateResult> {
-  const { units } = input.measurements;
   if (!fit.ok) return { surface: null, design: null, template: null, warnings: [...fit.warnings] };
   const { surface, parameters: surfaceParameters } = fit;
 
@@ -110,8 +107,8 @@ function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean):
   const warnings: TemplateWarning[] = designWarnings(projected);
   if (!flatten) return { surface: surfaceParameters, design: projected, template: null, warnings };
 
-  const margin = input.margin !== undefined && input.margin > 0 ? input.margin : defaultMargin(units);
-  const slitOptions = input.slits ?? defaultSlits(units);
+  const margin = input.margin !== undefined && input.margin > 0 ? input.margin : defaultMargin();
+  const slitOptions = input.slits ?? defaultSlits();
   const { count } = slitOptions;
   const steps = flattenDesign({
     surface,
@@ -122,9 +119,9 @@ function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean):
     slits: {
       count: count === "auto" ? count : Math.max(0, Math.round(count)),
       depth: slitOptions.depth,
-      clearance: fromInches(SLIT_CLEARANCE_IN, units),
-      spacing: fromInches(SLIT_SPACING_IN, units),
-      minDepth: Math.min(fromInches(MIN_SLIT_DEPTH_IN, units), MIN_MARGIN_SHARE * (margin - fromInches(SLIT_CLEARANCE_IN, units))),
+      clearance: SLIT_CLEARANCE_MM,
+      spacing: SLIT_SPACING_MM,
+      minDepth: Math.min(MIN_SLIT_DEPTH_MM, MIN_MARGIN_SHARE * (margin - SLIT_CLEARANCE_MM)),
     },
   });
   let next = steps.next();
@@ -134,7 +131,6 @@ function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean):
   let template: FlatTemplate | null = null;
   if (flat && flat.paths.length > 0) {
     template = {
-      units,
       designPaths: flat.paths,
       cutOutline: flat.outline,
       slits: flat.slits,

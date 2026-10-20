@@ -1,26 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, convertLength, type Design, type PumpkinMeasurements, type SurfaceParameters, type Vec3 } from "../src/core";
+import { buildTemplate, type Design, type PumpkinMeasurements, type SurfaceParameters, type Vec3 } from "../src/core";
 
-/** No facet may be further than this from the smooth shape it comes from: 0.25 mm. */
-const meshTolerance = (units: PumpkinMeasurements["units"]) => convertLength(0.025, "cm", units);
-/** The reported profile is itself a fine polyline through the smooth shape; this covers how far it cuts inside it. */
-const PROFILE_SLACK_CM = 0.002;
+/** Millimetres per inch and per centimetre. */
+const IN = 25.4;
+const CM = 10;
+/** No facet may be further than this from the smooth shape it comes from, in mm. */
+const MESH_TOLERANCE = 0.25;
+/** The reported profile is itself a fine polyline through the smooth shape; this covers how far it cuts inside it, in mm. */
+const PROFILE_SLACK = 0.02;
 
 const pumpkins: [string, PumpkinMeasurements][] = [
   [
     "a bottom-heavy pumpkin",
-    { height: 10, rings: [{ position: 0.35, circumference: 32 }, { position: 0.75, circumference: 24 }, { position: 0.15, circumference: 26 }], units: "in" },
+    {
+      height: 10 * IN,
+      rings: [{ position: 0.35, circumference: 32 * IN }, { position: 0.75, circumference: 24 * IN }, { position: 0.15, circumference: 26 * IN }],
+    },
   ],
-  ["a tall, tapered pumpkin", { height: 14, rings: [{ position: 0.3, circumference: 30 }, { position: 0.8, circumference: 18 }], units: "in" }],
+  ["a tall, tapered pumpkin", { height: 14 * IN, rings: [{ position: 0.3, circumference: 30 * IN }, { position: 0.8, circumference: 18 * IN }] }],
   [
     "a squat pumpkin in cm",
     {
-      height: 25,
-      rings: [{ position: 0.45, circumference: 80 }, { position: 0.2, circumference: 66 }, { position: 0.7, circumference: 70 }, { position: 0.9, circumference: 40 }],
-      units: "cm",
+      height: 25 * CM,
+      rings: [
+        { position: 0.45, circumference: 80 * CM },
+        { position: 0.2, circumference: 66 * CM },
+        { position: 0.7, circumference: 70 * CM },
+        { position: 0.9, circumference: 40 * CM },
+      ],
     },
   ],
-  ["a sphere", { height: 60 / Math.PI, rings: [{ position: 0.5, circumference: 60 }], units: "in" }],
+  ["a sphere", { height: (60 * IN) / Math.PI, rings: [{ position: 0.5, circumference: 60 * IN }] }],
 ];
 
 /**
@@ -82,14 +92,12 @@ function profileShape(surface: SurfaceParameters) {
 const degreesBetween = (a: Vec3, b: Vec3) =>
   (Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * 180) / Math.PI;
 
-/** Single-point "paths" at the given front-view positions; placed at width 2, design units are measurement units. */
+/** Single-point "paths" at the given front-view positions; placed at width 2, design units map 1:1 to mm. */
 function pointsDesign(points: [number, number][]): Design {
   return { paths: points.map(([x, y]) => [{ x, y }]), bbox: { minX: -1, minY: -1, maxX: 1, maxY: 1 } };
 }
 
 describe.each(pumpkins)("%s as a triangle mesh", (_name, m) => {
-  const tolerance = meshTolerance(m.units);
-  const slack = convertLength(PROFILE_SLACK_CM, "cm", m.units);
   const { surface } = buildTemplate({ measurements: m });
   const shape = profileShape(surface!);
   const half = m.height / 2;
@@ -109,7 +117,7 @@ describe.each(pumpkins)("%s as a triangle mesh", (_name, m) => {
         worst = Math.max(worst, shape.distance(mix(corners, ws)));
       }
     }
-    expect(worst).toBeLessThan(tolerance + slack);
+    expect(worst).toBeLessThan(MESH_TOLERANCE + PROFILE_SLACK);
   });
 
   it("carries a unit normal at every vertex", () => {
@@ -136,14 +144,14 @@ describe.each(pumpkins)("%s as a triangle mesh", (_name, m) => {
       expect(point[0]).toBeCloseTo(front[k][0], 9);
       expect(point[1]).toBeCloseTo(front[k][1], 9);
       expect(point[2]).toBeGreaterThan(0);
-      expect(shape.distance(point)).toBeLessThan(tolerance + slack);
+      expect(shape.distance(point)).toBeLessThan(MESH_TOLERANCE + PROFILE_SLACK);
       expect(Math.hypot(...normal)).toBeCloseTo(1, 9);
       expect(degreesBetween(normal, shape.normal(point))).toBeLessThan(0.5);
     });
   });
 
   it("misses just outside the silhouette and hits just inside it", () => {
-    const margin = 2 * tolerance;
+    const margin = 2 * MESH_TOLERANCE;
     const heights = Array.from({ length: 15 }, (_, i) => (0.8 * half * (i - 7)) / 7);
     const outside: [number, number][] = heights.flatMap((y) => [[shape.radiusAt(y) + margin, y], [-shape.radiusAt(y) - margin, y]]);
     outside.push([0, half + margin], [0, -half - margin]);

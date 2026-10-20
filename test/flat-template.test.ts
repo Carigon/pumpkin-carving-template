@@ -42,9 +42,18 @@ function bboxOf(points: Point2[]) {
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
-const CIRCUMFERENCE = 60;
+/** mm per inch and per cm. */
+const IN = 25.4;
+const CM = 10;
+/** The default paper margin between the design and the cut-out edge (3/4 in). */
+const MARGIN = 19.05;
+
+/** A sphere `circumference` mm around. */
+const sphereAround = (circumference: number) => ({ height: circumference / Math.PI, rings: [{ circumference, position: 0.5 }] });
+
+const CIRCUMFERENCE = 60 * IN;
 const R = CIRCUMFERENCE / (2 * Math.PI);
-const plainSphere = { height: 2 * R, rings: [{ circumference: CIRCUMFERENCE, position: 0.5 }], units: "in" as const };
+const plainSphere = sphereAround(CIRCUMFERENCE);
 /** The same sphere measured with more tape rings, a quarter and three quarters of the way up. */
 const ringedSphere = {
   ...plainSphere,
@@ -113,40 +122,41 @@ describe.each([
 
 describe("scale of the flat template", () => {
   // A huge sphere is almost flat over a few inches, so the template should match the front view 1:1.
-  const huge = { height: 2000 / Math.PI, rings: [{ circumference: 2000, position: 0.5 }], units: "in" as const };
+  const huge = sphereAround(2000 * IN);
+  /** Within 0.005 in (0.127 mm). */
+  const near = (actual: number, expected: number) => expect(Math.abs(actual - expected)).toBeLessThan(0.005 * IN);
 
   it("a design 4 in wide seen from the front comes out 4 in wide on paper", () => {
     const { template } = buildTemplate({
       measurements: huge,
       design: designOf([[0, 0], [4, 0], [4, 2], [0, 2]]),
-      placement: { width: 4, verticalOffset: 0, rotation: 0 },
+      placement: { width: 4 * IN, verticalOffset: 0, rotation: 0 },
     });
 
     const box = bboxOf(template!.designPaths.flat());
-    expect(template!.units).toBe("in");
-    expect(box.maxX - box.minX).toBeCloseTo(4, 2);
-    expect(box.maxY - box.minY).toBeCloseTo(2, 2);
+    near(box.maxX - box.minX, 4 * IN);
+    near(box.maxY - box.minY, 2 * IN);
     // Centered on the design center, stem (+y) up.
-    expect(box.minX).toBeCloseTo(-2, 2);
-    expect(box.maxY).toBeCloseTo(1, 2);
+    near(box.minX, -2 * IN);
+    near(box.maxY, 1 * IN);
   });
 
+  // A huge sphere and design measured in inches, and one measured in cm: the margin is 3/4 in whatever their size.
   it.each([
-    ["in", 0.75],
-    ["cm", 1.905],
-  ] as const)("the cut-out outline is the design's outline grown by 3/4 in (%s)", (units, margin) => {
+    ["4 in wide on a sphere 2000 in around", IN],
+    ["4 cm wide on a sphere 2000 cm around", CM],
+  ] as const)("the cut-out outline is the design's outline grown by 3/4 in (a design %s)", (_, unit) => {
     const { template } = buildTemplate({
-      measurements: { ...huge, units },
+      measurements: sphereAround(2000 * unit),
       design: designOf([[0, 0], [4, 0], [4, 2], [0, 2]]),
-      placement: { width: 4, verticalOffset: 0, rotation: 0 },
+      placement: { width: 4 * unit, verticalOffset: 0, rotation: 0 },
     });
 
     const box = bboxOf(template!.cutOutline);
-    expect(template!.units).toBe(units);
-    expect(box.minX).toBeCloseTo(-2 - margin, 2);
-    expect(box.maxX).toBeCloseTo(2 + margin, 2);
-    expect(box.minY).toBeCloseTo(-1 - margin, 2);
-    expect(box.maxY).toBeCloseTo(1 + margin, 2);
+    near(box.minX, -2 * unit - MARGIN);
+    near(box.maxX, 2 * unit + MARGIN);
+    near(box.minY, -1 * unit - MARGIN);
+    near(box.maxY, 1 * unit + MARGIN);
   });
 
   it("the cut-out edge follows the design's outline into concave parts instead of cutting across them", () => {
@@ -155,29 +165,28 @@ describe("scale of the flat template", () => {
     const { template } = buildTemplate({
       measurements: huge,
       design: designOf([[0, 0], [4, 0], [4, 2], [2, 2], [2, 4], [0, 4]]),
-      placement: { width: 4, verticalOffset: 0, rotation: 0 },
+      placement: { width: 4 * IN, verticalOffset: 0, rotation: 0 },
     });
 
     const outline = template!.cutOutline;
     const design = template!.designPaths;
-    // Every point of the edge is 3/4 in from the design: the edge hugs the L all the way round.
-    for (const p of outline) expect(distanceToPaths(p, design)).toBeCloseTo(0.75, 1);
+    // Every point of the edge is 3/4 in from the design (to 0.05 in): the edge hugs the L all the way round.
+    for (const p of outline) expect(Math.abs(distanceToPaths(p, design) - MARGIN)).toBeLessThan(0.05 * IN);
     // The design sits inside the edge; the notch doesn't.
     for (const p of design.flat()) expect(insidePolygon(p, outline)).toBe(true);
-    expect(insidePolygon({ x: 1.5, y: 1.5 }, outline)).toBe(false);
+    expect(insidePolygon({ x: 1.5 * IN, y: 1.5 * IN }, outline)).toBe(false);
   });
 
   it.each([
-    ["in", 0.4],
-    ["in", 2],
-    ["cm", 5],
-  ] as const)("the cut-out edge stays the chosen margin from the design (%s, margin %s)", (units, margin) => {
-    // The same L as above, measured in the chosen units; its notch is 2 in (5.08 cm) across.
-    const k = units === "cm" ? 2.54 : 1;
+    ["0.4 in, on a sphere 2000 in around", IN, 0.4 * IN],
+    ["2 in, on a sphere 2000 in around", IN, 2 * IN],
+    ["5 cm, on a sphere 2000 cm around", CM, 5 * CM],
+  ] as const)("the cut-out edge stays the chosen margin from the design (margin %s)", (_, unit, margin) => {
+    // The same L as above, 4 in wide; its notch is 2 in (5.08 cm) across.
     const { template } = buildTemplate({
-      measurements: { ...huge, units },
+      measurements: sphereAround(2000 * unit),
       design: designOf([[0, 0], [4, 0], [4, 2], [2, 2], [2, 4], [0, 4]]),
-      placement: { width: 4 * k, verticalOffset: 0, rotation: 0 },
+      placement: { width: 4 * IN, verticalOffset: 0, rotation: 0 },
       margin,
     });
 
@@ -192,21 +201,21 @@ describe("scale of the flat template", () => {
     const { template } = buildTemplate({
       measurements: huge,
       design: designOf([[0, 0], [1, 0], [1, 1], [0, 1]], [[4, 0], [5, 0], [5, 1], [4, 1]]),
-      placement: { width: 5, verticalOffset: 0, rotation: 0 },
+      placement: { width: 5 * IN, verticalOffset: 0, rotation: 0 },
     });
 
     const outline = template!.cutOutline;
     for (const p of template!.designPaths.flat()) expect(insidePolygon(p, outline)).toBe(true);
     const box = bboxOf(outline);
-    expect(box.minX).toBeCloseTo(-2.5 - 0.75, 2);
-    expect(box.maxX).toBeCloseTo(2.5 + 0.75, 2);
+    near(box.minX, -2.5 * IN - MARGIN);
+    near(box.maxX, 2.5 * IN + MARGIN);
   });
 
   it("a design that misses the pumpkin entirely gives no template", () => {
     const { template } = buildTemplate({
-      measurements: { height: 20 / Math.PI, rings: [{ circumference: 20, position: 0.5 }], units: "in" },
+      measurements: sphereAround(20 * IN),
       design: designOf([[0, 0], [1, 0], [1, 1]]),
-      placement: { width: 1, verticalOffset: 50, rotation: 0 },
+      placement: { width: 1 * IN, verticalOffset: 50 * IN, rotation: 0 },
     });
 
     expect(template).toBeNull();

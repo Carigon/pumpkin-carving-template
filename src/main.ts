@@ -1,5 +1,5 @@
 import "./ui/style.css";
-import { createTemplateBuilder, type TemplateWarning } from "./core";
+import { createTemplateBuilder, type SurfaceParameters, type TemplateWarning } from "./core";
 import { ballMeasurements, gridDesign } from "./input/calibrationGrid";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountDesignPanel } from "./ui/designPanel";
@@ -49,7 +49,7 @@ const form = mountMeasurementForm($("measurements"), update);
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
-const exportPanel = mountExportPanel($("export"), changePaper);
+const exportPanel = mountExportPanel($("export"), header.units, changePaper);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs
 // (file, tracing, width) hide; move up/down and rotation apply to the grid too.
 const designStep = $("step-design");
@@ -65,6 +65,8 @@ let lastTracing = false;
 let lastHasImage = false;
 /** The warnings showing now, for the step tabs' badges. */
 let warnings: TemplateWarning[] = [];
+/** The fitted surface showing now (null: the measurements are impossible), for its size in the display units. */
+let surface: SurfaceParameters | null = null;
 // The quick preview (projection alone) runs here on every edit; flattening runs in the worker.
 const builder = createTemplateBuilder();
 const background = startBackgroundBuild(showTemplate, ({ slits }) => viewport.setStatus(`Placing slits… ${slits}`));
@@ -73,20 +75,16 @@ let pending: Omit<ExportSource, "template"> | null = null;
 /** The latest template the worker built, with its export details, for the Paper view (null: none). */
 let built: ExportSource | null = null;
 restore();
+showUnits();
 syncMode();
 enterStep();
 update();
 
-/** Put back the last-used settings. Units go first so the length fields are read in the saved units. */
+/** Put back the last-used settings (lengths in mm; the display units go to the header). */
 function restore(): void {
   const saved = loadSettings(browserStorage());
   header.restore(saved);
-  form.restore({ units: saved.units, ...saved.measurements });
-  if (saved.units) {
-    gridPanel.setUnits(saved.units);
-    designPanel.setUnits(saved.units);
-    slitPanel.setUnits(saved.units);
-  }
+  form.restore(saved.measurements ?? {});
   gridPanel.restore(saved);
   designPanel.restorePlacement(saved.placement ?? {});
   slitPanel.restore(saved.slits ?? {}, saved.cut);
@@ -104,7 +102,7 @@ function persist(): void {
     mode: header.mode(),
     cells: gridPanel.cells(),
     gridWidth: orNull(gridPanel.gridWidth()),
-    units: m.units,
+    units: header.units(),
     measurements: {
       height: orNull(m.height),
       rings: m.rings.map((r) => ({ position: orNull(r.position), circumference: orNull(r.circumference) })),
@@ -169,10 +167,17 @@ function changeMode(): void {
   update();
 }
 
+/** Show every length in the header's display units. Nothing is measured differently, so nothing is rebuilt. */
+function showUnits(): void {
+  const units = header.units();
+  for (const panel of [form, gridPanel, designPanel, slitPanel]) panel.setUnits(units);
+  renderSurfaceInfo(infoEl, surface, units);
+}
+
 function changeUnits(): void {
-  // The other panels follow the form's units in `update`.
-  form.setUnits(header.units());
-  update();
+  showUnits();
+  if (built) drawPaper();
+  persist();
 }
 
 function update(): void {
@@ -181,10 +186,7 @@ function update(): void {
   const read = form.read();
   // A ball is measured by its first ring alone.
   const ballCircumference = read.rings[0]?.circumference ?? Number.NaN;
-  const measurements = ball ? ballMeasurements(ballCircumference, read.units) : read;
-  gridPanel.setUnits(measurements.units);
-  designPanel.setUnits(measurements.units);
-  slitPanel.setUnits(measurements.units);
+  const measurements = ball ? ballMeasurements(ballCircumference) : read;
   const design = ball ? gridDesign(gridPanel.cells()) : (designPanel.design() ?? undefined);
   const placement = ball ? { ...designPanel.placement(), width: gridPanel.gridWidth() } : designPanel.placement();
   // A grid is one solid carve area: no blank paper for slits.
@@ -193,7 +195,8 @@ function update(): void {
   const input = { measurements, design, placement, slits, margin: cut.margin };
   const quick = builder.preview(input);
   showWarnings(quick.warnings);
-  renderSurfaceInfo(infoEl, quick.surface);
+  surface = quick.surface;
+  renderSurfaceInfo(infoEl, surface, header.units());
   preview.update(quick.surface, quick.design);
   if (!quick.surface) {
     viewport.setPlaceholder("Fix the measurements in the Measure step to see the pumpkin.");
@@ -222,7 +225,6 @@ function update(): void {
     viewport.setStatus(null);
     exportPanel.setSource(null);
   }
-  // Last, so the design and slit lengths have already been converted to the current units.
   persist();
 }
 
@@ -274,5 +276,5 @@ function drawPaper(): void {
     return;
   }
   const options = exportPanel.options();
-  paper.show(paperView({ ...built, ...options }), options.filled);
+  paper.show(paperView({ ...built, ...options, units: header.units() }), options.filled);
 }

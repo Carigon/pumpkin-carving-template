@@ -1,4 +1,5 @@
-import { convertLength, type FlatTemplate, type Placement, type Point2, type PumpkinMeasurements, type Ring, type SlitOptions, type SurfaceParameters, type Units } from "../core";
+import type { FlatTemplate, Placement, Point2, PumpkinMeasurements, Ring, SlitOptions, SurfaceParameters, Units } from "../core";
+import { formatLength, shownLength } from "../displayUnits";
 import type { Paper } from "../paper";
 
 /**
@@ -12,10 +13,10 @@ export const PAPER_SIZES: Record<Paper, [number, number]> = {
   a4: [595.28, 841.89],
 };
 
-/** PDF points per unit length. */
-const ptPer = (units: Units) => 72 * convertLength(1, units, "in");
+/** PDF points per mm. */
+const PT_PER_MM = 72 / 25.4;
 const PAGE_MARGIN = 18;
-const CHECK_SQUARE = (100 / 25.4) * 72;
+const CHECK_SQUARE = 100 * PT_PER_MM;
 const GAP = 14;
 /** Overlap between neighbouring tiles, in pt (0.5 in). */
 const OVERLAP = 36;
@@ -63,7 +64,7 @@ export interface DocumentLayout {
 }
 
 /**
- * A page that carries (part of) the template, placed in the template's own frame: in the template's units,
+ * A page that carries (part of) the template, placed in the template's own frame: in mm,
  * origin at the design center, +y toward the stem. Not drawn in the PDF; it says where the PDF puts its pages.
  */
 export interface TemplatePage {
@@ -85,15 +86,17 @@ export interface TemplatePdfInput {
   /** The slit settings the template was made with (its slits say how many there are). */
   slits: SlitOptions;
   /**
-   * The paper margin the template was made with (in the measurement units), and whether to print the solid
+   * The paper margin the template was made with (in mm), and whether to print the solid
    * cut-out edge. Left out (e.g. for a test grid): the edge is printed and no margin is listed.
    */
   cut?: { margin: number; line: boolean };
   /** Print carve areas filled instead of outlined. */
   filled?: boolean;
   paper?: Paper;
-  /** Set for a test-grid template: the ball's circumference, in the measurement units. */
+  /** Set for a test-grid template: the ball's circumference, in mm. */
   calibrationBall?: number;
+  /** The carver's display units, for the lengths printed in the info block. */
+  units: Units;
 }
 
 /**
@@ -104,9 +107,7 @@ export interface TemplatePdfInput {
 export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
   const size = PAPER_SIZES[input.paper ?? "letter"];
   const [pageW, pageH] = size;
-  const scale = ptPer(input.template.units);
-
-  const outline = input.template.cutOutline.map((p) => ({ x: p.x * scale, y: p.y * scale }));
+  const outline = input.template.cutOutline.map((p) => ({ x: p.x * PT_PER_MM, y: p.y * PT_PER_MM }));
   const box = bounds(outline);
   const templateW = box.maxX - box.minX;
   const templateH = box.maxY - box.minY;
@@ -115,7 +116,7 @@ export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
   const title = "Pumpkin carving template";
 
   if (templateW > usableW || templateH > usableH) {
-    return { title, ...tileTemplate(input, scale, box, size), templateFits: false };
+    return { title, ...tileTemplate(input, box, size), templateFits: false };
   }
 
   const furniture = drawFurniture(input, PAGE_MARGIN, PAGE_MARGIN, pageW);
@@ -126,7 +127,7 @@ export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
     x: pageW / 2 - (box.minX + box.maxX) / 2,
     y: together ? pageH - PAGE_MARGIN - box.maxY : pageH / 2 - (box.minY + box.maxY) / 2,
   };
-  const templateMarks = drawTemplate(input, scale, origin);
+  const templateMarks = drawTemplate(input, origin);
 
   return {
     title,
@@ -135,7 +136,7 @@ export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
       : [{ size, marks: templateMarks }, { size, marks: furniture.marks }],
     templateFits: true,
     tiles: { rows: 1, cols: 1 },
-    templatePages: [templatePage(0, "1", size, { x: -origin.x, y: -origin.y }, scale)],
+    templatePages: [templatePage(0, "1", size, { x: -origin.x, y: -origin.y })],
   };
 }
 
@@ -144,7 +145,7 @@ export function layoutTemplatePdf(input: TemplatePdfInput): DocumentLayout {
  * 0,0); each page shows its window of the sheet, clipped to the printable area. Seam lines and crosses sit in
  * the middle of each overlap band on the sheet, so both neighbours print them in the same place.
  */
-function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<typeof bounds>, size: [number, number]) {
+function tileTemplate(input: TemplatePdfInput, box: ReturnType<typeof bounds>, size: [number, number]) {
   const [pageW, pageH] = size;
   const usableW = pageW - 2 * PAGE_MARGIN;
   const usableH = pageH - 2 * PAGE_MARGIN;
@@ -156,7 +157,7 @@ function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<ty
   const gridH = rows * stepY + OVERLAP;
 
   const origin = { x: gridW / 2 - (box.minX + box.maxX) / 2, y: gridH / 2 - (box.minY + box.maxY) / 2 };
-  const sheet = [...drawTemplate(input, scale, origin), ...seamMarks(rows, cols, stepX, stepY, gridW, gridH)];
+  const sheet = [...drawTemplate(input, origin), ...seamMarks(rows, cols, stepX, stepY, gridW, gridH)];
   const clip: ClipRect = { x: PAGE_MARGIN, y: PAGE_MARGIN, width: usableW, height: usableH };
   const name = (r: number, c: number) => `${String.fromCharCode(65 + c)}${r + 1}`;
   const top = pageH - PAGE_MARGIN;
@@ -181,7 +182,7 @@ function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<ty
       }
       if (r > 0) marks.push(label(pageW / 2 + 4, top - inset - 5, `^ joins ${name(r - 1, c)}`));
       if (r < rows - 1) marks.push(label(pageW / 2 + 4, PAGE_MARGIN + inset, `v joins ${name(r + 1, c)}`));
-      templatePages.push(templatePage(pages.length, name(r, c), size, { x: -origin.x - dx, y: -origin.y - dy }, scale));
+      templatePages.push(templatePage(pages.length, name(r, c), size, { x: -origin.x - dx, y: -origin.y - dy }));
       pages.push({ size, marks });
     }
   }
@@ -196,13 +197,13 @@ function tileTemplate(input: TemplatePdfInput, scale: number, box: ReturnType<ty
   return { pages, tiles: { rows, cols }, templatePages };
 }
 
-/** A page whose lower-left corner is at `corner` (pt, relative to the template origin), in template units. */
-function templatePage(index: number, name: string, [pageW, pageH]: [number, number], corner: Point2, scale: number): TemplatePage {
+/** A page whose lower-left corner is at `corner` (pt, relative to the template origin), in mm. */
+function templatePage(index: number, name: string, [pageW, pageH]: [number, number], corner: Point2): TemplatePage {
   const rect = (x: number, y: number, width: number, height: number): ClipRect => ({
-    x: x / scale,
-    y: y / scale,
-    width: width / scale,
-    height: height / scale,
+    x: x / PT_PER_MM,
+    y: y / PT_PER_MM,
+    width: width / PT_PER_MM,
+    height: height / PT_PER_MM,
   });
   return {
     index,
@@ -258,8 +259,8 @@ function textWidth(text: string, size: number): number {
   return text.length * size * 0.55;
 }
 
-function drawTemplate({ template, filled, cut }: TemplatePdfInput, scale: number, origin: Point2): Mark[] {
-  const place = (p: Point2): Point2 => ({ x: origin.x + p.x * scale, y: origin.y + p.y * scale });
+function drawTemplate({ template, filled, cut }: TemplatePdfInput, origin: Point2): Mark[] {
+  const place = (p: Point2): Point2 => ({ x: origin.x + p.x * PT_PER_MM, y: origin.y + p.y * PT_PER_MM });
   const design = template.designPaths.map((path) => path.map(place));
   const designTop = Math.max(...design.flat().map((p) => p.y));
   const cutTop = Math.max(...template.cutOutline.map((p) => place(p).y));
@@ -322,24 +323,23 @@ function drawTemplate({ template, filled, cut }: TemplatePdfInput, scale: number
  * as tall as the square, or taller when the info runs longer (many rings); the square then sits at its top.
  */
 function drawFurniture(
-  { template, measurements, surface, placement, slits, cut, filled, calibrationBall }: TemplatePdfInput,
+  { template, measurements, surface, placement, slits, cut, filled, calibrationBall, units }: TemplatePdfInput,
   x: number,
   y: number,
   pageW: number,
 ): { marks: Mark[]; height: number } {
   const infoX = x + CHECK_SQUARE + GAP;
   const slitCount = template.slits.length;
-  const u = measurements.units;
-  const len = (v: number) => `${fmt(v)} ${u}`;
+  const len = (mm: number) => formatLength(mm, units);
   const { sideToSide, frontToBack, vertical } = surface.semiAxes;
   const lines: [string, number, boolean?][] = [
     [calibrationBall ? `Calibration grid for a ${len(calibrationBall)} ball` : "Pumpkin carving template", 11, true],
     [`Height: ${len(measurements.height)}`, 8.5],
     ...ringLines(measurements, len, pageW - PAGE_MARGIN - infoX),
-    [`Fitted shape: ${fmt(2 * sideToSide)} x ${fmt(2 * frontToBack)} x ${fmt(2 * vertical)} ${u}`, 8.5],
+    [`Fitted shape: ${[sideToSide, frontToBack, vertical].map((r) => shownLength(2 * r, units)).join(" x ")} ${units}`, 8.5],
     ["  (width x depth x height)", 8.5],
     [`Design width seen from the front: ${len(placement.width)}`, 8.5],
-    [`Moved up: ${len(placement.verticalOffset)}   Rotation: ${fmt(placement.rotation)}°`, 8.5],
+    [`Moved up: ${len(placement.verticalOffset)}   Rotation: ${Math.round(placement.rotation * 100) / 100}°`, 8.5],
     [`Slits: ${slitCount > 0 ? `${slitCount}${slits.count === "auto" ? " (auto)" : ""}, up to ${len(slits.depth)} deep` : "none"}`, 8.5],
     ...(cut ? [[`Cut-out margin: ${len(cut.margin)}, cut line ${cut.line ? "printed" : "not printed"}`, 8.5] as [string, number]] : []),
     [`Carve areas: ${filled ? "filled" : "outlines"}`, 8.5],
@@ -406,8 +406,4 @@ function bounds(points: Point2[]) {
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
-}
-
-function fmt(v: number): string {
-  return String(Math.round(v * 100) / 100);
 }
