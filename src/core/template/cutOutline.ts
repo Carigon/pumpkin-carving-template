@@ -1,6 +1,5 @@
 import {
   contourLoops,
-  countComponents,
   distanceToNodes,
   distanceToPaths,
   fillHoles,
@@ -49,7 +48,7 @@ export function cutRegion(paths: Point2[][], margin: number, { reach = 0, bridgi
   let attempt = closedRegion(outer, margin, reach, r);
   if (attempt.loops.length > 1) {
     // Bridge with the smallest closing radius that joins the pieces (a little more, so the bridge has width).
-    r = Math.max(r, 1.1 * joiningRadius(attempt.grid, attempt.field) + 2 * attempt.grid.h);
+    r = Math.max(r, 1.1 * joiningRadius(attempt.grid, attempt.field, outer, margin) + 2 * attempt.grid.h);
     for (let tries = 0; tries < 2 && attempt.loops.length > 1; tries++, r *= 2) attempt = closedRegion(outer, margin, reach, r);
     if (attempt.loops.length > 1) fillPolygon(attempt.grid, attempt.field, roundedHull(paths.flat(), margin));
     r /= 2;
@@ -120,16 +119,53 @@ function outermost(paths: Point2[][]): Point2[][] {
   });
 }
 
-/** The smallest growth that joins every piece of the region (field ≤ 0) into one, to within a few percent. */
-function joiningRadius(grid: Grid, field: Float64Array): number {
-  const fromInside = distanceToNodes(grid, (k) => field[k] <= 0);
-  let lo = 0, hi = Math.hypot(grid.nx, grid.ny) * grid.h;
-  while (hi - lo > Math.max(grid.h, 0.02 * hi)) {
-    const mid = (lo + hi) / 2;
-    if (countComponents(grid, (k) => fromInside[k] <= mid) <= 1) hi = mid;
-    else lo = mid;
+/**
+ * The smallest growth that joins every piece of the region (field ≤ 0) into one, as far as the grid's nodes can
+ * tell. Growth is measured by each node's exact distance to the grown design, so the result moves smoothly with
+ * the design instead of in steps.
+ */
+function joiningRadius(grid: Grid, field: Float64Array, paths: Point2[][], margin: number): number {
+  const inside = (k: number) => field[k] <= 0;
+  // Distances to the nearest inside node are never shorter than the exact ones, so they bound how far out to measure.
+  const bound = bottleneck(distanceToNodes(grid, inside), inside, grid.nx);
+  const toDesign = distanceToPaths(grid, paths, margin + bound + grid.h);
+  return bottleneck(toDesign.map((d, k) => (inside(k) ? 0 : Math.max(0, d - margin))), inside, grid.nx);
+}
+
+/**
+ * The smallest `t` for which the nodes with `growth` ≤ t join every group of `inside` nodes into one (4-connected):
+ * adds nodes in order of growth, merging groups as they touch.
+ */
+function bottleneck(growth: Float64Array, inside: (k: number) => boolean, nx: number): number {
+  const order = Array.from(growth.keys()).sort((a, b) => growth[a] - growth[b]);
+  // Union-find over the added nodes (-1 = not added yet), and whether each group holds inside nodes.
+  const parent = new Int32Array(growth.length).fill(-1);
+  const holdsInside = new Uint8Array(growth.length);
+  const root = (k: number): number => {
+    while (parent[k] !== k) k = parent[k] = parent[parent[k]];
+    return k;
+  };
+  let pieces = 0, joined = 0;
+  for (const k of order) {
+    // Inside nodes come first (growth 0), so once past them every piece is counted.
+    if (pieces <= 1 && growth[k] > 0) return joined;
+    parent[k] = k;
+    if (inside(k)) {
+      holdsInside[k] = 1;
+      pieces++;
+    }
+    const i = k % nx;
+    for (const n of [i > 0 ? k - 1 : -1, i < nx - 1 ? k + 1 : -1, k - nx, k + nx]) {
+      if (n < 0 || n >= growth.length || parent[n] < 0) continue;
+      const a = root(k), b = root(n);
+      if (a === b) continue;
+      if (holdsInside[a] && holdsInside[b]) pieces--;
+      parent[b] = a;
+      holdsInside[a] |= holdsInside[b];
+    }
+    joined = growth[k];
   }
-  return hi;
+  return joined;
 }
 
 function onBorder({ nx, ny }: Grid, k: number): boolean {

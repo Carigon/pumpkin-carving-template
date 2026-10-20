@@ -50,6 +50,13 @@ const depthIn = (slit: Point2[], outline: Point2[]) => Math.max(...slit.map((p) 
 /** Where a slit opens on the cut-out edge: halfway between its two ends. */
 const mouth = (slit: Point2[]): Point2 => ({ x: (slit[0].x + slit.at(-1)!.x) / 2, y: (slit[0].y + slit.at(-1)!.y) / 2 });
 
+/** `input` with every length in it (the pumpkin's and the placement's) times `s`. */
+const scaledBy = ({ measurements, placement, ...rest }: TemplateInput, s: number): TemplateInput => ({
+  ...rest,
+  measurements: { height: s * measurements.height, rings: measurements.rings.map((ring) => ({ ...ring, circumference: s * ring.circumference })) },
+  placement: placement && { ...placement, width: s * placement.width, verticalOffset: s * placement.verticalOffset },
+});
+
 /** Placing slits runs many flattening solves. */
 const SLOW = 60_000;
 const deg = Math.PI / 180;
@@ -244,14 +251,33 @@ describe("slits", () => {
       const { template: slit } = buildTemplate(input);
       const { template: plain } = buildTemplate({ ...input, slits: { count: 0, depth: 0 } });
 
-      // Limits: 2.1 % on average and 3.5 % over all but 5 % of the paper (measured: about 2.02 % and 3.3 %, from 3.6 %
-      // and 5.5 % without slits). Auto stops a little over its 3 % target, where more slits stop paying. (The inch
-      // version of this pumpkin once measured 1.7 %, but only at exactly those inputs: scaled by 1 ± 1e-9 the cut-out
-      // edge comes out differently and it measured 2.02 % too.)
+      // Limits: 2 % on average and 3.5 % over all but 5 % of the paper (measured: about 1.95 % and 3.1 %, from 3.6 %
+      // and 5.4 % without slits; 1.8 % to 1.95 % on pumpkins up to half a percent larger or smaller). Auto stops a
+      // little over its 3 % target, where more slits stop paying.
       const withSlits = paperStrain(slit!), without = paperStrain(plain!);
-      expect(withSlits.rms).toBeLessThan(0.021);
+      expect(withSlits.rms).toBeLessThan(0.02);
       expect(withSlits.p95).toBeLessThan(0.035);
       expect(withSlits.rms).toBeLessThan(0.6 * without.rms);
+    },
+    SLOW,
+  );
+
+  it.each([0.983, 1.001])(
+    "the same design on a pumpkin %s times the size, give or take a part in a billion, gets the same cut-out edge and slits",
+    (size) => {
+      // At these sizes the cut-out edge used to hang on how a division rounded: the edge moved by up to 7 mm, and
+      // Auto's slits with it, between sizes a part in a billion apart.
+      const [smaller, exact, larger] = [1 - 1e-9, 1, 1 + 1e-9].map(
+        (s) => buildTemplate(scaledBy({ measurements: sphere, ...ring(45, between) }, size * s)).template!,
+      );
+
+      for (const other of [smaller, larger]) {
+        // No farther apart than the size change itself moves them (a fraction of a micrometre).
+        for (const p of other.cutOutline) expect(distanceToOutline(p, exact.cutOutline)).toBeLessThan(1e-3);
+        for (const p of exact.cutOutline) expect(distanceToOutline(p, other.cutOutline)).toBeLessThan(1e-3);
+        expect(other.slits).toHaveLength(exact.slits.length);
+        expect(paperStrain(other).rms).toBeCloseTo(paperStrain(exact).rms, 6);
+      }
     },
     SLOW,
   );

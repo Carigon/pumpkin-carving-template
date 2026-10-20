@@ -22,7 +22,10 @@ export function gridAround(points: Point2[], pad: number, cells: number): Grid {
   }
   const h = (Math.max(maxX - minX, maxY - minY) + 2 * pad) / cells || 1;
   const x0 = minX - pad - h, y0 = minY - pad - h;
-  return { x0, y0, h, nx: Math.ceil((maxX + pad + h - x0) / h) + 1, ny: Math.ceil((maxY + pad + h - y0) / h) + 1 };
+  // The longer side spans exactly `cells` steps, so its count must not hang on how that division rounds
+  // (one node more or less would move every node-count-dependent result).
+  const steps = (span: number) => Math.ceil(span / h - 1e-9);
+  return { x0, y0, h, nx: steps(maxX - minX + 2 * pad) + 3, ny: steps(maxY - minY + 2 * pad) + 3 };
 }
 
 /**
@@ -127,32 +130,6 @@ export function fillHoles(grid: Grid, values: Float64Array, fill: number): void 
     if (j < ny - 1) push(k + nx);
   }
   for (let k = 0; k < values.length; k++) if (!outside[k] && values[k] > 0) values[k] = fill;
-}
-
-/** Number of 4-connected groups of nodes that are `member`s. */
-export function countComponents(grid: Grid, member: (k: number) => boolean): number {
-  const { nx, ny } = grid;
-  // 0 = not a member, 1 = member not reached yet, 2 = reached.
-  const state = new Uint8Array(nx * ny);
-  for (let k = 0; k < state.length; k++) state[k] = member(k) ? 1 : 0;
-  const stack = new Int32Array(nx * ny);
-  let count = 0;
-  for (let start = 0; start < state.length; start++) {
-    if (state[start] !== 1) continue;
-    count++;
-    state[start] = 2;
-    let top = 0;
-    stack[top++] = start;
-    while (top > 0) {
-      const k = stack[--top];
-      const i = k % nx;
-      if (i > 0 && state[k - 1] === 1) { state[k - 1] = 2; stack[top++] = k - 1; }
-      if (i < nx - 1 && state[k + 1] === 1) { state[k + 1] = 2; stack[top++] = k + 1; }
-      if (k >= nx && state[k - nx] === 1) { state[k - nx] = 2; stack[top++] = k - nx; }
-      if (k + nx < state.length && state[k + nx] === 1) { state[k + nx] = 2; stack[top++] = k + nx; }
-    }
-  }
-  return count;
 }
 
 /**
