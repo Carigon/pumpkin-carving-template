@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { fitProfile, type PumpkinMeasurements, type Units } from "../src/core";
-import { blueprintView, fitScale, OVERHANG, type BlueprintDrawing } from "../src/blueprintView";
+import { fitProfile, ringAt, type PumpkinMeasurements, type Units } from "../src/core";
+import { blueprintView, describeSelection, fitScale, OVERHANG, type BlueprintDrawing, type GapRef } from "../src/blueprintView";
+import { tapeLength } from "../src/displayUnits";
 import { ballMeasurements } from "../src/input/calibrationGrid";
 
 /** mm per inch. */
@@ -21,6 +22,8 @@ function draw(
     size?: { width: number; height: number };
     blame?: number | null;
     readout?: number | "height";
+    selected?: number | "height" | null;
+    hovered?: number | GapRef | null;
   } = {},
 ): BlueprintDrawing {
   return blueprintView({
@@ -32,6 +35,8 @@ function draw(
     units: options.units ?? "in",
     blame: options.blame,
     readout: options.readout,
+    selected: options.selected,
+    hovered: options.hovered,
   });
 }
 
@@ -316,6 +321,114 @@ describe("Blueprint view geometry", () => {
 
   it("draws no circle for a pumpkin", () => {
     expect(draw().circle).toBeNull();
+  });
+
+  it("bounds each gap's band by the neighbouring rings, the height and the table, never the view's edge", () => {
+    const drawing = draw();
+    const [upper, lower] = drawing.rings; // the 22 in ring (index 1) at 0.8, the 32 in ring (index 0) at 0.4
+    expect(drawing.gaps.map((g) => [g.above, g.below])).toEqual([
+      [null, 1],
+      [1, 0],
+      [0, null],
+    ]);
+    const bands = drawing.gaps.map((g) => [g.band.y1, g.band.y2]);
+    expect(bands[0][0]).toBeCloseTo(drawing.height!.y, 9);
+    expect(bands[0][1]).toBeCloseTo(upper.y, 9);
+    expect(bands[1]).toEqual([upper.y, lower.y]);
+    expect(bands[2][0]).toBeCloseTo(lower.y, 9);
+    expect(bands[2][1]).toBeCloseTo(drawing.origin.y, 9);
+    // Across the pumpkin at its widest, as far as the ring lines run.
+    for (const { band } of drawing.gaps) {
+      expect(band.x1).toBeCloseTo(lower.x1, 6);
+      expect(band.x2).toBeCloseTo(lower.x2, 6);
+    }
+    // Zoomed out, the bands still stop at the height and the table.
+    const out = draw(pumpkin, { zoom: 0.25 });
+    expect(out.gaps[0].band.y1).toBeCloseTo(out.height!.y, 9);
+    expect(out.gaps[0].band.y1).toBeGreaterThan(100);
+  });
+
+  it("offers no gap too narrow for a ring, and none once there are 20 rings", () => {
+    // 200 mm tall: rings 9 mm apart leave no room; 10 mm does.
+    const close = { height: 200, rings: [{ position: 0.5, circumference: 500 }, { position: 0.545, circumference: 480 }] };
+    expect(draw(close).gaps.map((g) => [g.above, g.below])).toEqual([
+      [null, 1],
+      [0, null],
+    ]);
+    const full = { height: 600, rings: Array.from({ length: 20 }, (_, i) => ({ position: (i + 1) / 21, circumference: 500 })) };
+    expect(draw(full).gaps).toEqual([]);
+    expect(draw(ballMeasurements(30 * IN), { ball: true }).gaps).toEqual([]);
+  });
+
+  it("over a hovered gap, draws a ghost ring at its middle with the circumference the shape has there, labelled like a ring", () => {
+    expect(draw().ghost).toBeNull();
+    const drawing = draw(pumpkin, { hovered: { above: 1, below: 0 } });
+    const { origin, scale } = drawing;
+    const ghost = drawing.ghost!;
+    expect(ghost.gap).toEqual({ above: 1, below: 0 });
+    // Midway between 0.8 and 0.4 of 9 in: 5.4 in up, labelled to the nearest ⅛.
+    expect(ghost.y).toBeCloseTo(origin.y - 0.6 * 9 * IN * scale, 6);
+    expect(ghost.label.at).toBe("at 5 ⅜ in");
+    const around = ringAt(pumpkin, 0.6);
+    expect(ghost.label.text).toBe(tapeLength(around, "in"));
+    expect(ghost.x2 - origin.x).toBeCloseTo((around / (2 * Math.PI)) * scale + OVERHANG, 6);
+    expect(origin.x - ghost.x1).toBeCloseTo(ghost.x2 - origin.x, 6);
+    expect(ghost.plus).toEqual({ x: origin.x, y: ghost.y });
+    expect(ghost.label.leader).toEqual({ x1: drawing.ruler.x, x2: ghost.x1, y: ghost.y });
+    // A gap that isn't offered gets no ghost.
+    expect(draw(pumpkin, { hovered: { above: 0, below: 1 } }).ghost).toBeNull();
+  });
+
+  it("marks the selected ring, with a × at its middle unless it's the last ring", () => {
+    const drawing = draw(pumpkin, { selected: 0 });
+    const selected = drawing.rings.find((r) => r.index === 0)!;
+    const other = drawing.rings.find((r) => r.index === 1)!;
+    expect(selected.selected).toBe(true);
+    expect(selected.remove).toEqual({ x: drawing.origin.x, y: selected.y });
+    expect(other.selected).toBe(false);
+    expect(other.remove).toBeNull();
+    expect(drawing.height!.selected).toBe(false);
+
+    const one = { height: 9 * IN, rings: [pumpkin.rings[0]] };
+    const last = draw(one, { selected: 0 }).rings[0];
+    expect(last.selected).toBe(true);
+    expect(last.remove).toBeNull();
+
+    const height = draw(pumpkin, { selected: "height" });
+    expect(height.height!.selected).toBe(true);
+    expect(height.rings.every((r) => !r.selected && r.remove === null)).toBe(true);
+  });
+
+  it("marks the hovered ring", () => {
+    const drawing = draw(pumpkin, { hovered: 1 });
+    expect(drawing.rings.map((r) => [r.index, r.hovered])).toEqual([
+      [1, true],
+      [0, false],
+    ]);
+  });
+
+  it("selects nothing on a ball", () => {
+    const drawing = draw(ballMeasurements(30 * IN), { ball: true, selected: 0, hovered: 0 });
+    expect(drawing.rings[0].selected).toBe(false);
+    expect(drawing.rings[0].remove).toBeNull();
+    expect(drawing.ghost).toBeNull();
+  });
+
+  it("describes the selection for a screen reader: a ring's height, circumference and place top to bottom, or the height", () => {
+    const four = {
+      height: 9 * IN,
+      rings: [
+        { position: 0.4, circumference: 32 * IN },
+        { position: 0.8, circumference: 22 * IN },
+        { position: 6.5 / 9, circumference: 32.75 * IN },
+        { position: 0.1, circumference: 20 * IN },
+      ],
+    };
+    expect(describeSelection(four, 2, "in")).toBe("Ring at 6 ½ in, 32 ¾ in around, 2 of 4");
+    expect(describeSelection(four, 3, "in")).toBe("Ring at ⅞ in, 20 in around, 4 of 4");
+    expect(describeSelection(four, 0, "cm")).toBe("Ring at 9.1 cm, 81.3 cm around, 3 of 4");
+    expect(describeSelection(four, "height", "in")).toBe("Height 9 in");
+    expect(describeSelection(four, 7, "in")).toBe("");
   });
 });
 
