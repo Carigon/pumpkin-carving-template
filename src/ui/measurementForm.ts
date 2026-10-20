@@ -30,8 +30,8 @@ export interface MeasurementForm {
    */
   read(): RingMeasurements;
   /**
-   * Follow measurements edited elsewhere (e.g. a drag in the Blueprint view): the height, and each ring whose
-   * row has its id. Doesn't call `onChange`.
+   * Follow measurements edited elsewhere (e.g. a drag in the Blueprint view): the height, each ring whose row has
+   * its id, a row for each ring added there and none for a ring deleted there. Doesn't call `onChange`.
    */
   show(measurements: RingMeasurements): void;
   /** Show impossible-measurement warnings next to the height and the matching rings; clears the others. */
@@ -125,8 +125,9 @@ export function mountMeasurementForm(
     });
   };
 
-  const addRow = (position: number, circumference: number | null): RingRow => {
-    const id = nextId++;
+  /** A new row, with ring `id` (by default the next unused one), at the end or before `before`. */
+  const addRow = (position: number, circumference: number | null, id = nextId, before?: RingRow): RingRow => {
+    nextId = Math.max(nextId, id + 1);
     const el = document.createElement("li");
     el.className = "ring";
     el.innerHTML = `
@@ -169,16 +170,24 @@ export function mountMeasurementForm(
     lengths.set(row.above, Number.isFinite(position) && heightOk() ? position * height() : null);
     lengths.set(row.circumference, circumference);
     el.querySelector(".remove-ring")!.addEventListener("click", () => {
-      lengths.remove(row.above);
-      lengths.remove(row.circumference);
-      rows.splice(rows.indexOf(row), 1);
-      el.remove();
+      removeRow(row);
       refresh();
       onChange(read(), null);
     });
-    rows.push(row);
-    list.append(el);
+    if (before) {
+      rows.splice(rows.indexOf(before), 0, row);
+      before.el.before(el);
+    } else {
+      rows.push(row);
+      list.append(el);
+    }
     return row;
+  };
+  const removeRow = (row: RingRow) => {
+    lengths.remove(row.above);
+    lengths.remove(row.circumference);
+    rows.splice(rows.indexOf(row), 1);
+    row.el.remove();
   };
   const clearRows = () => {
     for (const row of [...rows]) {
@@ -238,12 +247,22 @@ export function mountMeasurementForm(
     read,
     show(m) {
       if (Number.isFinite(m.height)) lengths.set(heightInput, m.height);
-      for (const ring of m.rings) {
+      // Rings deleted elsewhere leave; filled rows only, as rows left empty aren't measurements yet.
+      const ids = new Set(m.rings.map((r) => r.id));
+      for (const row of readRows) if (rows.includes(row) && !ids.has(row.id)) removeRow(row);
+      m.rings.forEach((ring, i) => {
         const row = rows.find((r) => r.id === ring.id);
-        if (!row) continue;
+        if (!row) {
+          // Added elsewhere: before the row of the next ring down, as the rings come top to bottom.
+          const next = m.rings.slice(i + 1).map((r) => rows.find((row) => row.id === r.id)).find((r) => r !== undefined);
+          addRow(ring.position, ring.circumference, ring.id, next);
+          return;
+        }
         if (Number.isFinite(ring.position)) row.position = ring.position;
         if (Number.isFinite(ring.circumference)) lengths.set(row.circumference, ring.circumference);
-      }
+      });
+      // Warnings come back by ring index in these measurements.
+      readRows = m.rings.flatMap((ring) => rows.filter((r) => r.id === ring.id));
       followHeight();
       refresh();
     },

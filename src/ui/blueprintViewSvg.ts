@@ -2,15 +2,33 @@ import { fitProfile, type Point2, type ProfileFit, type PumpkinMeasurements, typ
 import {
   blueprintView,
   clampZoom,
+  describeSelection,
   fitScale,
   HANDLE_WIDTH,
   MIN_ZOOM,
   type BlueprintDrawing,
   type BlueprintLabel,
+  type GapRef,
 } from "../blueprintView";
+import { tapeLength } from "../displayUnits";
 import { ballMeasurements } from "../input/calibrationGrid";
 import type { MeasureState } from "../measureState";
-import { dragBall, dragHeight, dragRing, type RingId, type RingMeasurements, type RingWithId } from "../ringEdits";
+import {
+  deleteRing,
+  dragBall,
+  dragHeight,
+  dragRing,
+  insertRing,
+  nudgeLength,
+  sortRings,
+  type ClampNote,
+  type Gap,
+  type RingEdit,
+  type RingId,
+  type RingMeasurements,
+  type RingWithId,
+} from "../ringEdits";
+import type { ConfirmDelete } from "./deleteConfirm";
 
 const SVG = "http://www.w3.org/2000/svg";
 /** Each zoom step (a button press or a +/− key), as a factor. */
@@ -21,22 +39,33 @@ const WHEEL_RATE = 0.0015;
 const HIT_RADIUS = 22;
 /** How long the scale takes to ease to the new fit after a drag, ms. */
 const THAW_MS = 220;
+/** While an arrow key is held, the 3D view and the template rebuild at most this often, ms. */
+const NUDGE_REBUILD_MS = 250;
+/** How long the live region waits for held keys to settle before reading out, ms. */
+const ANNOUNCE_MS = 400;
+/** How long a refused insert or delete's note stays up, ms. */
+const NOTE_MS = 4000;
 
 export interface BlueprintPane {
   /**
-   * The shared measurements changed: refit the profile and redraw. In test-grid mode the first ring is the ball,
-   * drawn as a circle.
+   * The shared state changed (measurements, selection or hover): refit the profile if need be and redraw. In
+   * test-grid mode the first ring is the ball, drawn as a circle, and nothing is selected.
    */
   show(state: MeasureState, ball: boolean): void;
   /** Label the ruler and the rings in these display units. */
   setUnits(units: Units): void;
 }
 
-/**
- * A drag changed the measurements: `edited` is the ring dragged (null: the height). Called once per animation
- * frame while the drag goes on (`live`), then once more when it ends.
- */
-export type BlueprintEdit = (measurements: RingMeasurements, edited: RingId | null, live: boolean) => void;
+export interface BlueprintOptions {
+  /**
+   * The view changed the shared state: a drag, nudge, insert or delete (with `lastEdited` for the ring edited),
+   * or the selection or hover. While a drag or held key goes on, `live` is true, once per animation frame; a last
+   * change with `live: false` comes when it ends.
+   */
+  change(patch: Partial<MeasureState>, live: boolean): void;
+  /** Asks before the × deletes a ring (unless asking is turned off); shared with the form. */
+  confirmDelete: ConfirmDelete;
+}
 
 /** A handle being dragged. */
 interface Drag {
@@ -61,15 +90,22 @@ interface Drag {
  * Dragging a ring's handle sets its circumference (sideways) and height above the table (up and down), and the
  * height's handle sets the height, through the ring-edit rules; Alt drags free of the grid. The profile refits
  * once per animation frame while dragging and the scale holds still, easing to the new fit on release.
+ * Clicking a ring's line or label selects it (as does dragging its handle); the selected ring shows a × that
+ * deletes it, asking first. Hovering a gap shows where a ring would go, and clicking adds it there.
+ * The view is one Tab stop: Page Up / Page Down move the selection through the height line and the rings, the
+ * arrows nudge it by one snap step, Delete deletes the selected ring without asking, Escape clears the selection,
+ * and a polite live region reads out the selection and nudged values.
  * Zoom (0.25× to 1×, anchored at the bottom middle) comes from the stacked buttons, the scroll wheel and the +/−
  * keys while the view has focus; it isn't saved. The geometry is `blueprintView`; this only draws it as SVG at
- * the element's size in px and handles the pointer.
+ * the element's size in px and handles the pointer and keys.
  */
-export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): BlueprintPane {
+export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions): BlueprintPane {
   root.innerHTML = `
-    <svg class="bp-svg" tabindex="0" role="img"
-      aria-label="Blueprint: the pumpkin's profile drawn to scale against a ruler, with each ring as a line. Press + or − to zoom."></svg>
+    <svg class="bp-svg" tabindex="0" role="application" aria-roledescription="blueprint"
+      aria-label="Blueprint: the pumpkin's profile drawn to scale, with each ring as a line. Page Up and Page Down select the height or a ring, the arrow keys nudge it, Delete deletes the selected ring, + and − zoom."></svg>
     <div class="bp-banner" hidden></div>
+    <div class="bp-note" role="status" hidden></div>
+    <div class="bp-live visually-hidden" aria-live="polite"></div>
     <div class="bp-zoom" role="group" aria-label="Zoom">
       <button type="button" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in">+</button>
       <button type="button" data-zoom="out" title="Zoom out (−)" aria-label="Zoom out">−</button>
@@ -78,11 +114,18 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
   `;
   const svg = root.querySelector<SVGSVGElement>(".bp-svg")!;
   const banner = root.querySelector<HTMLElement>(".bp-banner")!;
+  const noteEl = root.querySelector<HTMLElement>(".bp-note")!;
+  const live = root.querySelector<HTMLElement>(".bp-live")!;
   const buttons = Object.fromEntries(
     [...root.querySelectorAll<HTMLButtonElement>("[data-zoom]")].map((b) => [b.dataset.zoom, b]),
   ) as Record<"in" | "out" | "fit", HTMLButtonElement>;
 
-  let state: MeasureState = { measurements: { height: Number.NaN, rings: [] }, lastEdited: null };
+  let state: MeasureState = {
+    measurements: { height: Number.NaN, rings: [] },
+    lastEdited: null,
+    selected: null,
+    hovered: null,
+  };
   let ball = false;
   let units: Units = "in";
   let zoom = 1;
@@ -95,6 +138,8 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
   let shownScale = Number.NaN;
   let shown: BlueprintDrawing | null = null;
   let drag: Drag | null = null;
+  /** A pointer is down: focus from a click doesn't select the top ring. */
+  let pointerDown = false;
   let frame = 0;
   let thaw = 0;
 
@@ -113,6 +158,23 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
   };
 
   const size = () => ({ width: svg.clientWidth, height: svg.clientHeight });
+  const rings = () => state.measurements.rings;
+  const indexOf = (id: RingId | null) => (id === null ? -1 : rings().findIndex((r) => r.id === id));
+  /** A ring's id from a drawn index. */
+  const idAt = (index: number | null) => (index === null ? null : (rings()[index]?.id ?? null));
+  /** The selection as the drawing takes it: an index, the height, or none. */
+  const selectedRef = () => {
+    const { selected } = state;
+    if (selected === "height") return "height" as const;
+    const i = indexOf(selected);
+    return i < 0 ? null : i;
+  };
+  const hoveredRef = (): number | GapRef | null => {
+    const { hovered } = state;
+    if (hovered === null) return null;
+    if (typeof hovered === "number") return indexOf(hovered) < 0 ? null : indexOf(hovered);
+    return { above: hovered.above === null ? null : indexOf(hovered.above), below: hovered.below === null ? null : indexOf(hovered.below) };
+  };
 
   const render = () => {
     buttons.in.disabled = buttons.fit.disabled = zoom >= 1;
@@ -122,7 +184,7 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
     if (view.width === 0 || view.height === 0) return;
     const measurements = drawn();
     shownScale = heldScale ?? fitScale({ measurements, fit, size: view, units });
-    const blamed = state.measurements.rings.findIndex((r) => r.id === state.lastEdited);
+    const blamed = indexOf(state.lastEdited);
     shown = blueprintView({
       measurements,
       fit,
@@ -133,10 +195,126 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
       fitScale: shownScale,
       blame: ball || blamed < 0 ? null : blamed,
       readout: drag ? (drag.kind === "height" ? "height" : drag.index) : null,
+      selected: selectedRef(),
+      // No ghost ring while a handle is dragged.
+      hovered: drag ? null : hoveredRef(),
     });
     svg.replaceChildren(...draw(shown));
     banner.textContent = shown.banner ?? "";
     banner.hidden = shown.banner === null;
+  };
+
+  /** Change the shared state from here: take it locally, redraw and pass it on. */
+  const emit = (patch: Partial<MeasureState>, isLive = false) => {
+    state = { ...state, ...patch };
+    if (patch.measurements) refit();
+    render();
+    options.change(patch, isLive);
+  };
+
+  // The live region, debounced so held keys don't flood it.
+  let announceTimer = 0;
+  let toggle = false;
+  const announce = (text: string) => {
+    window.clearTimeout(announceTimer);
+    announceTimer = window.setTimeout(() => {
+      // A trailing no-break space every other time, so the same words twice still change and are read twice.
+      toggle = !toggle;
+      live.textContent = toggle ? text : `${text} `;
+    }, ANNOUNCE_MS);
+  };
+  const describe = (selected: RingId | "height" | null) => {
+    if (selected === null) return "Nothing selected";
+    return describeSelection(state.measurements, selected === "height" ? "height" : indexOf(selected), units);
+  };
+
+  /** A refused insert or delete, or a nudge held back by a rule: shown briefly, and read out. */
+  let noteTimer = 0;
+  const showNote = (note: ClampNote | null, readOut = true) => {
+    window.clearTimeout(noteTimer);
+    noteEl.textContent = note?.message ?? "";
+    noteEl.hidden = note === null;
+    if (note) {
+      noteTimer = window.setTimeout(() => (noteEl.hidden = true), NOTE_MS);
+      if (readOut) announce(note.message);
+    }
+  };
+
+  const select = (selected: RingId | "height" | null) => {
+    if (selected === state.selected) return;
+    emit({ selected });
+    announce(describe(selected));
+  };
+
+  const hover = (hovered: RingId | Gap | null) => {
+    if (sameHover(hovered, state.hovered)) return;
+    emit({ hovered });
+  };
+
+  /** Rings top to bottom, by id: the order Page Up / Page Down walk, after the height line. */
+  const order = (): (RingId | "height")[] => ["height", ...sortRings(state.measurements).rings.filter((r) => Number.isFinite(r.position)).map((r) => r.id)];
+
+  const insert = (gap: Gap) => {
+    const edit = insertRing(state.measurements, gap);
+    showNote(edit.note);
+    if (edit.id === null) return;
+    emit({ measurements: edit.measurements, lastEdited: edit.id, selected: edit.id, hovered: null });
+    announce(`Ring added. ${describe(edit.id)}`);
+  };
+
+  /** Delete ring `id` (asked first or not already); `next` is selected after it, if it's still there. */
+  const remove = (id: RingId, next: RingId | "height" | null) => {
+    const edit = deleteRing(state.measurements, id);
+    showNote(edit.note);
+    if (edit.measurements === state.measurements) return;
+    emit({ measurements: edit.measurements, selected: next, hovered: null });
+    announce(next === null ? "Ring deleted" : `Ring deleted. ${describe(next)}`);
+  };
+
+  // Nudges: each one shows at once; the 3D view and the template rebuild at most every `NUDGE_REBUILD_MS`.
+  let lastRebuild = 0;
+  let rebuildTimer = 0;
+  const nudged = (edit: RingEdit, edited: RingId | null, readout: string) => {
+    const patch = { measurements: edit.measurements, ...(edited === null ? {} : { lastEdited: edited }) };
+    window.clearTimeout(rebuildTimer);
+    const since = performance.now() - lastRebuild;
+    if (since >= NUDGE_REBUILD_MS) {
+      lastRebuild = performance.now();
+      emit(patch);
+    } else {
+      emit(patch, true);
+      rebuildTimer = window.setTimeout(() => {
+        lastRebuild = performance.now();
+        options.change({ measurements: state.measurements }, false);
+      }, NUDGE_REBUILD_MS - since);
+    }
+    showNote(edit.note, false);
+    announce(edit.note ? `${readout}. ${edit.note.message}` : readout);
+  };
+
+  const nudge = (key: string) => {
+    const { selected, measurements: m } = state;
+    // One step along the display unit's grid; the target is on the grid already, so snapping leaves it there.
+    const snap = { units, snap: true };
+    const vertical = key === "ArrowUp" || key === "ArrowDown";
+    const step = (mm: number) => nudgeLength(mm, key === "ArrowUp" || key === "ArrowRight" ? 1 : -1, units);
+    if (selected === "height") {
+      if (!vertical) return;
+      const edit = dragHeight(m, step(m.height), snap);
+      nudged(edit, null, `Height ${tapeLength(edit.measurements.height, units)}`);
+      return;
+    }
+    const ring = m.rings.find((r) => r.id === selected);
+    if (!ring || !(m.height > 0)) return;
+    if (vertical) {
+      const edit = dragRing(m, ring.id, { above: step(ring.position * m.height) }, snap);
+      const moved = edit.measurements.rings.find((r) => r.id === ring.id)!;
+      nudged(edit, ring.id, `At ${tapeLength(moved.position * m.height, units)}`);
+    } else {
+      const edit = dragRing(m, ring.id, { circumference: step(ring.circumference) }, snap);
+      const sized = edit.measurements.rings.find((r) => r.id === ring.id)!;
+      nudged(edit, ring.id, `${tapeLength(sized.circumference, units)} around`);
+    }
   };
 
   const setZoom = (next: number) => {
@@ -162,22 +340,60 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
   };
 
   /** Take the measurements a drag asked for: refit (or rescale, for the height), redraw and pass them on. */
-  const apply = (d: Drag, measurements: RingMeasurements, live: boolean) => {
+  const apply = (d: Drag, measurements: RingMeasurements, isLive: boolean) => {
     const edited = d.ring?.id ?? null;
-    state = { measurements, lastEdited: edited ?? state.lastEdited };
-    if (d.kind === "height" && live && d.fit.ok) {
+    state = { ...state, measurements, lastEdited: edited ?? state.lastEdited };
+    if (d.kind === "height" && isLive && d.fit.ok) {
       // The rings keep their fractions and circumferences, so the profile only stretches up or down.
       const k = measurements.height / d.start.height;
       fit = { ...d.fit, profile: d.fit.profile.map((p) => ({ radius: p.radius, height: p.height * k })) };
       fitKey = "";
     } else refit();
     render();
-    onEdit(measurements, edited, live);
+    options.change({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, isLive);
+  };
+
+  /** The pointer's place in the view, px. */
+  const local = (e: PointerEvent): Point2 => {
+    const box = svg.getBoundingClientRect();
+    return { x: e.clientX - box.left, y: e.clientY - box.top };
+  };
+  /** The gap (by ring ids) whose band holds `p`, if a ring can go there. */
+  const gapAt = (p: Point2): Gap | null => {
+    const g = shown?.gaps.find(({ band }) => p.x >= band.x1 && p.x <= band.x2 && p.y >= band.y1 && p.y <= band.y2);
+    return g ? { above: idAt(g.above), below: idAt(g.below) } : null;
+  };
+  /** The ring (its id) a hit element belongs to. */
+  const ringOf = (el: Element | null) => {
+    const ring = el?.closest<SVGElement>("[data-ring]")?.dataset.ring;
+    return ring === undefined ? null : idAt(Number(ring));
   };
 
   svg.addEventListener("pointerdown", (e) => {
-    const handle = (e.target as Element).closest<SVGElement>("[data-handle]");
-    if (!handle || !shown || e.button !== 0 || drag) return;
+    if (!shown || e.button !== 0 || drag) return;
+    pointerDown = true;
+    const target = e.target as Element;
+    const handle = target.closest<SVGElement>("[data-handle]");
+    const removeHit = target.closest<SVGElement>("[data-remove]");
+    if (removeHit) {
+      // The click asks (see below); keep the selection meanwhile.
+      e.preventDefault();
+      svg.focus();
+      return;
+    }
+    if (!handle) {
+      if (ball) return;
+      const ring = target.closest("[data-select]") ? ringOf(target) : null;
+      if (ring !== null) {
+        select(ring);
+        return;
+      }
+      const gap = gapAt(local(e));
+      if (gap) insert(gap);
+      // Empty space clears the selection.
+      else select(null);
+      return;
+    }
     e.preventDefault();
     svg.focus();
     svg.setPointerCapture(e.pointerId);
@@ -186,27 +402,35 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
     const index = kind === "height" ? null : Number(handle.dataset.ring);
     const start = state.measurements;
     // A ball is measured by the first ring.
-    const ring = index === null ? null : start.rings[kind === "ball" ? 0 : index] ?? null;
+    const ring = index === null ? null : (start.rings[kind === "ball" ? 0 : index] ?? null);
     drag = { kind, index, ring, start, fit, x0: e.clientX, y0: e.clientY, scale: shown.scale, next: null };
     heldScale = shownScale;
     svg.classList.add("bp-dragging");
-    render();
+    // Dragging a handle selects its ring or the height line.
+    if (kind === "ring" && ring) select(ring.id);
+    else if (kind === "height") select("height");
+    else render();
   });
 
   svg.addEventListener("pointermove", (e) => {
-    if (!drag) return;
+    if (!drag) {
+      if (ball) return;
+      const ring = ringOf(e.target as Element);
+      hover(ring ?? gapAt(local(e)));
+      return;
+    }
     const d = drag;
     // The pointer's travel in mm: right is wider, up is higher.
     const dx = (e.clientX - d.x0) / d.scale;
     const up = (d.y0 - e.clientY) / d.scale;
-    const options = { units, snap: !e.altKey };
+    const snap = { units, snap: !e.altKey };
     const { start, ring } = d;
     const edit =
       d.kind === "height"
-        ? dragHeight(start, start.height + up, options)
+        ? dragHeight(start, start.height + up, snap)
         : d.kind === "ball"
-          ? dragBall(start, ring!.id, ring!.circumference + 2 * Math.PI * dx, options)
-          : dragRing(start, ring!.id, { above: ring!.position * start.height + up, circumference: ring!.circumference + 2 * Math.PI * dx }, options);
+          ? dragBall(start, ring!.id, ring!.circumference + 2 * Math.PI * dx, snap)
+          : dragRing(start, ring!.id, { above: ring!.position * start.height + up, circumference: ring!.circumference + 2 * Math.PI * dx }, snap);
     d.next = edit.measurements;
     // One refit per animation frame, however often the pointer moves.
     if (!frame) {
@@ -215,6 +439,9 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
         if (drag?.next) apply(drag, drag.next, true);
       });
     }
+  });
+  svg.addEventListener("pointerleave", () => {
+    if (!drag && !ball) hover(null);
   });
 
   const endDrag = () => {
@@ -230,6 +457,27 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
   };
   svg.addEventListener("pointerup", endDrag);
   svg.addEventListener("pointercancel", endDrag);
+  // A pointer let go anywhere (e.g. over a dialog) is no longer down.
+  window.addEventListener("pointerup", () => (pointerDown = false), true);
+
+  // The selected ring's ×: delete it, asking first unless asking is turned off.
+  svg.addEventListener("click", (e) => {
+    const removeHit = (e.target as Element).closest("[data-remove]");
+    const id = removeHit && ringOf(removeHit);
+    const ring = rings().find((r) => r.id === id);
+    if (id === null || !ring) return;
+    const what = `the ring at ${tapeLength(ring.position * state.measurements.height, units)}`;
+    void options.confirmDelete(what).then((ok) => {
+      if (ok) remove(id, null);
+    });
+  });
+
+  // Tabbing in with nothing selected selects the top ring.
+  svg.addEventListener("focus", () => {
+    if (pointerDown || ball || state.selected !== null) return;
+    const top = order()[1];
+    if (top !== undefined) select(top);
+  });
 
   root.querySelector(".bp-zoom")!.addEventListener("click", (e) => {
     const kind = (e.target as Element).closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
@@ -246,9 +494,29 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
     { passive: false },
   );
   svg.addEventListener("keydown", (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.key === "+" || e.key === "=") setZoom(zoom * ZOOM_STEP);
     else if (e.key === "-" || e.key === "_") setZoom(zoom / ZOOM_STEP);
-    else return;
+    else if (drag || ball) return;
+    else if (e.key === "Escape") {
+      if (state.selected === null) return;
+      select(null);
+    } else if (e.key === "PageUp" || e.key === "PageDown") {
+      const list = order();
+      const at = list.indexOf(state.selected ?? Number.NaN);
+      const next = at < 0 ? (e.key === "PageUp" ? 0 : Math.min(1, list.length - 1)) : at + (e.key === "PageUp" ? -1 : 1);
+      select(list[Math.max(0, Math.min(list.length - 1, next))]);
+    } else if (e.key.startsWith("Arrow")) {
+      if (state.selected === null) return;
+      nudge(e.key);
+    } else if (e.key === "Delete") {
+      const { selected } = state;
+      if (selected === null || selected === "height") return;
+      // The ring below takes its place in the selection, or the one above at the bottom.
+      const list = order().filter((r) => r !== "height");
+      const at = list.indexOf(selected);
+      remove(selected, list[at + 1] ?? list[at - 1] ?? null);
+    } else return;
     e.preventDefault();
   });
   new ResizeObserver(render).observe(svg);
@@ -269,6 +537,11 @@ export function mountBlueprintView(root: HTMLElement, onEdit: BlueprintEdit): Bl
   };
 }
 
+function sameHover(a: RingId | Gap | null, b: RingId | Gap | null): boolean {
+  if (a === null || b === null || typeof a === "number" || typeof b === "number") return a === b;
+  return a.above === b.above && a.below === b.below;
+}
+
 /** The drawing as SVG elements, back to front. */
 function draw(d: BlueprintDrawing): SVGElement[] {
   const out: SVGElement[] = [];
@@ -282,6 +555,15 @@ function draw(d: BlueprintDrawing): SVGElement[] {
   if (d.ruler.units) ruler.append(text(d.ruler.units.x, d.ruler.units.y, d.ruler.units.text, "bp-ruler-label", "end"));
   out.push(ruler);
 
+  // The hovered gap's band, behind the pumpkin.
+  if (d.ghost) {
+    const gap = d.gaps.find((g) => g.above === d.ghost!.gap.above && g.below === d.ghost!.gap.below);
+    if (gap) {
+      const { x1, x2, y1, y2 } = gap.band;
+      out.push(el("rect", { class: "bp-gap", x: x1, y: y1, width: x2 - x1, height: y2 - y1 }));
+    }
+  }
+
   if (d.circle) out.push(el("circle", { class: "bp-profile", cx: d.circle.cx, cy: d.circle.cy, r: d.circle.r }));
   if (d.profile) {
     const { right, left, rough } = d.profile;
@@ -289,9 +571,26 @@ function draw(d: BlueprintDrawing): SVGElement[] {
     out.push(el("path", { class: rough ? "bp-profile bp-profile-rough" : "bp-profile", d: `M${points.map(xy).join("L")}Z` }));
   }
 
+  // The ring a click there would add.
+  if (d.ghost) {
+    const g = d.ghost;
+    const ghost = el("g", { class: "bp-ghost" });
+    if (g.label.leader) {
+      const { x1, x2, y } = g.label.leader;
+      ghost.append(el("line", { class: "bp-leader", x1, y1: y, x2, y2: y }));
+    }
+    ghost.append(
+      el("line", { class: "bp-ghost-line", x1: g.x1, y1: g.y, x2: g.x2, y2: g.y }),
+      label(g.label, "bp-ghost-label"),
+      el("circle", { class: "bp-plus", cx: g.plus.x, cy: g.plus.y, r: 9 }),
+      el("path", { class: "bp-plus-icon", d: crossIcon(g.plus.x, g.plus.y, 4.5, false) }),
+    );
+    out.push(ghost);
+  }
+
   if (d.height) {
     const h = d.height;
-    const g = el("g", { class: "bp-height" });
+    const g = el("g", { class: h.selected ? "bp-height bp-selected" : "bp-height" });
     g.append(
       el("line", { class: "bp-height-line", x1: h.x1, y1: h.y, x2: h.x2, y2: h.y }),
       label(h.label, "bp-height-label"),
@@ -302,21 +601,39 @@ function draw(d: BlueprintDrawing): SVGElement[] {
     out.push(g);
   }
 
-  // A ball has one ring, sized sideways only.
+  // A ball has one ring, sized sideways only, and nothing to select.
   const ringHandle = d.circle ? "ball" : "ring";
   for (const r of d.rings) {
-    const g = el("g", { class: "bp-ring", "data-ring": r.index });
+    const classes = ["bp-ring", r.selected ? "bp-selected" : "", r.hovered ? "bp-hovered" : ""].filter(Boolean).join(" ");
+    const g = el("g", { class: classes, "data-ring": r.index });
     g.append(el("line", { class: "bp-ring-line", x1: r.x1, y1: r.y, x2: r.x2, y2: r.y }));
     if (r.label.leader) {
       const { x1, x2, y } = r.label.leader;
       g.append(el("line", { class: "bp-leader", x1, y1: y, x2, y2: y }));
     }
+    const ringLabel = label(r.label, "bp-ring-label");
+    g.append(ringLabel);
+    if (!d.circle) {
+      ringLabel.setAttribute("data-select", "");
+      // A wider, invisible line to click.
+      g.append(el("line", { class: "bp-hit-line", x1: r.x1, y1: r.y, x2: r.x2, y2: r.y, "data-select": "" }));
+    }
     g.append(
-      label(r.label, "bp-ring-label"),
       pill(r.handle),
       el("path", { class: "bp-icon", d: moveIcon(r.handle.x, r.handle.y) }),
       hit(r.handle, { "data-handle": ringHandle, "data-ring": r.index }),
     );
+    if (r.remove) {
+      const x = el("g", { class: "bp-remove", "data-remove": "" });
+      const title = el("title", {});
+      title.textContent = "Delete this ring";
+      x.append(
+        title,
+        el("circle", { class: "bp-remove-bg", cx: r.remove.x, cy: r.remove.y, r: 10 }),
+        el("path", { class: "bp-remove-icon", d: crossIcon(r.remove.x, r.remove.y, 4, true) }),
+      );
+      g.append(x);
+    }
     out.push(g);
   }
   return out;
@@ -363,6 +680,11 @@ function moveIcon(x: number, y: number, k = 7): string {
 /** An up/down arrow glyph centred on (x, y). */
 function upDownIcon(x: number, y: number, k = 7): string {
   return `M${x},${y - k}V${y + k}M${x - 3},${y - k + 3}L${x},${y - k}L${x + 3},${y - k + 3}M${x - 3},${y + k - 3}L${x},${y + k}L${x + 3},${y + k - 3}`;
+}
+
+/** A + (or, turned, a ×) of half-size `k` centred on (x, y). */
+function crossIcon(x: number, y: number, k: number, turned: boolean): string {
+  return turned ? `M${x - k},${y - k}L${x + k},${y + k}M${x + k},${y - k}L${x - k},${y + k}` : `M${x - k},${y}H${x + k}M${x},${y - k}V${y + k}`;
 }
 
 function el(name: string, attrs: Record<string, string | number>): SVGElement {

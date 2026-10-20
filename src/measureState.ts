@@ -1,4 +1,4 @@
-import type { RingId, RingMeasurements } from "./ringEdits";
+import type { Gap, RingId, RingMeasurements } from "./ringEdits";
 
 /**
  * The shared measurement state that the Measure form and the Blueprint view both render from. Every edit, from
@@ -9,6 +9,10 @@ export interface MeasureState {
   measurements: RingMeasurements;
   /** The ring edited last (dragged, typed or added), which a shape-fit failure blames; null: none since the page loaded. */
   lastEdited: RingId | null;
+  /** The ring selected (its id), the height line, or nothing. A ring id that's gone selects nothing. */
+  selected: RingId | "height" | null;
+  /** The ring (its id) or the gap the pointer is over, or nothing. */
+  hovered: RingId | Gap | null;
 }
 
 /** Who changed the state, and whether a drag is still going. */
@@ -16,8 +20,8 @@ export interface MeasureChange {
   /** Where the edit came from, so that side isn't redrawn under the carver. */
   source: "form" | "view";
   /**
-   * A drag still in progress: views follow it, but the 3D view and the template wait for the drag to end, which
-   * comes as a last change with `live: false`.
+   * A drag (or held arrow key) still in progress: views follow it, but the 3D view and the template wait for it
+   * to end, which comes as a last change with `live: false`. A change of selection or hover alone rebuilds nothing.
    */
   live: boolean;
 }
