@@ -92,8 +92,9 @@ Outputs:
 - Implementation: a side profile spun around the vertical axis, round seen from above.
   - The height is measured directly: from the table to the underside of a book laid flat on the pumpkin's shoulders. Nothing about it is solved for.
   - Each ring is a circumference (radius = circumference ÷ 2π) at a position along the height, 0 at the table and 1 at the top. The form takes it as a height above the table and stores the fraction, so changing the height keeps the rings in proportion. One ring by default, at mid-height.
-  - The profile is the smoothest one through every ring at its height. The ring with the largest circumference is the widest part of the pumpkin: the profile only grows down to it and only shrinks after it, so nothing bulges past it, and it never folds back up. With one ring at mid-height it is the ellipsoid with semi-axes C/2π, C/2π, H/2.
-  - A new ring goes in the middle of the largest gap between rings (the bottom and top count as edges), with the circumference the fitted shape already has there, so adding it changes nothing until it is measured.
+  - The profile is the smoothest one through every ring at its height. The ring with the largest circumference is the widest part of the pumpkin: the profile only grows down to it and only shrinks after it, so nothing bulges past it, and it never folds back up. With one ring at mid-height it is the ellipsoid with semi-axes C/2π, C/2π, H/2. The top and bottom are never pointed: where a narrow ring would make one so, the profile comes out slightly blunter there instead.
+  - The profile is also available on its own, without the 3D surface built from it, so it can be refitted quickly while the carver edits a ring. When no smooth profile passes through the rings, the warning is about the rings as a whole: the fit can't tell which ring is to blame.
+  - A new ring takes the circumference the profile already has at its height, so adding it changes nothing until it is measured. When nothing fits, it takes a blend of the rings on either side, or a copy of the one ring next to it at the bottom or top. The form puts it in the middle of the largest gap between rings (the bottom and top count as edges).
 - The stem and its dimple are ignored: the model's top is a smooth pole.
 
 ### Projection

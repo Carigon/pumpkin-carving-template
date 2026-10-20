@@ -20,9 +20,11 @@ corrupt saved settings, unit drift).
 ## Decision
 
 - Core geometry is tested only through `buildTemplate`. No test imports from `src/core/` other than
-  its public index. `nextRing` (the ring the form adds, read off the current fit) is part of that public
-  index and is tested there: where it puts the ring, and that `buildTemplate`'s shape doesn't change when it is
-  added. `createTemplateBuilder` (the same build, keeping the fitted surface between calls, plus the quick
+  its public index. `fitProfile` (the profile alone, with no mesh, quick enough to refit during a drag) is part
+  of that public index and is tested there: its profile and warnings match `buildTemplate`'s. So is `ringAt`
+  (the circumference a new ring at a given height takes, read off the current fit): that `buildTemplate`'s shape
+  doesn't change when such a ring is added, and that it blends the neighbouring rings when nothing fits. Where a
+  new ring goes is the caller's choice. `createTemplateBuilder` (the same build, keeping the fitted surface between calls, plus the quick
   projection-only preview) is in the index too; its tests check it matches `buildTemplate` and when the mesh is reused.
 - Thin, pure helpers in the layers around the core (input, PDF layout, settings, small UI helpers)
   may have direct unit tests at their own public functions, as long as those tests check behaviour
