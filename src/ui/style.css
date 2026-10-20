@@ -902,6 +902,22 @@ body {
   outline-offset: 1px;
 }
 
+/* A gap the rules won't take a ring in (too narrow, or 20 rings already): greyed, its title saying why. */
+.controls .card .insert-ring[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.insert-ring[aria-disabled="true"]::before,
+.insert-ring[aria-disabled="true"] .insert-plus {
+  background: var(--muted);
+}
+
+.controls .card .insert-ring[aria-disabled="true"]:hover,
+.controls .card .insert-ring[aria-disabled="true"].hovered,
+.controls .card .insert-ring[aria-disabled="true"]:focus-visible {
+  opacity: 0.6;
+}
+
 /* Touch screens can't hover: the + always shows (the line only while focused). */
 @media (hover: none) {
   .controls .card .insert-ring {

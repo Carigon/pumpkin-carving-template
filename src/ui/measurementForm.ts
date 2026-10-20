@@ -1,6 +1,7 @@
 import type { TemplateWarning, Units } from "../core";
 import { tapeLength } from "../displayUnits";
 import {
+  canInsert,
   deleteRing,
   insertRing,
   sortRings,
@@ -85,7 +86,8 @@ type Column = "above" | "around" | "across";
  * Blueprint view: its height above the table, its circumference (Around) and its diameter (Across). It renders
  * from the shared measurements (`show`) and every edit goes through the ring-edit rules: keystrokes reach
  * `onChange` as they're typed, and on commit (blur or Enter) the value is clamped, with a note when it is, and the
- * rows re-sort. Insert buttons in every gap add a ring there; a row's × removes it, asking first.
+ * rows re-sort. Insert buttons in every gap add a ring there (disabled, saying why, where `canInsert` refuses one);
+ * a row's × removes it, asking first.
  * `onChange` gets the new measurements and the ring edited (typed in or added; null for the height or a removed
  * ring). Focusing a row's field selects its ring in the view, and hovering a row or an insert button points at
  * its ring or gap there (`links`); the view's selection and hover show here (`showLinks`).
@@ -254,7 +256,13 @@ export function mountMeasurementForm(
     for (const { gap, button } of gaps.values()) {
       const top = gap.above === null ? "the top" : at(gap.above);
       const bottom = gap.below === null ? "the table" : at(gap.below);
-      button.setAttribute("aria-label", `Add a ring between ${top} and ${bottom}`);
+      // A gap the rules refuse keeps its button, disabled and saying why (clicking it shows the note too).
+      const refusal = canInsert(current, gap);
+      const label = `Add a ring between ${top} and ${bottom}`;
+      button.setAttribute("aria-label", refusal ? `${label}. ${refusal.message}` : label);
+      button.setAttribute("aria-disabled", String(refusal !== null));
+      if (refusal) button.title = refusal.message;
+      else button.removeAttribute("title");
     }
     const show = (el: HTMLElement, on: RingId | "height" | "rings") => {
       el.textContent = note?.on === on ? note.message : "";
