@@ -2,8 +2,8 @@ import type { Units } from "../core";
 import { lengthFields } from "./lengthFields";
 
 const DEFAULT_CELLS = 6;
-/** Grid width seen from the front, in mm (5 in): small enough to stay inside 60° on a basketball (29.5 in around). */
-const DEFAULT_GRID_WIDTH_MM = 127;
+/** Grid width seen from the front, in mm: small enough to stay inside 60° on a basketball (29.5 in around). */
+const DEFAULT_GRID_WIDTH_MM = 125;
 
 export interface GridPanel {
   /** Grid squares across (and down) in test-grid mode. */

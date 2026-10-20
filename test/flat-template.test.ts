@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, type Design, type Point2 } from "../src/core";
+import { buildTemplate, defaultMargin, type Design, type Point2 } from "../src/core";
 
 function designOf(...paths: [number, number][][]): Design {
   const all = paths.flat();
@@ -45,8 +45,8 @@ function bboxOf(points: Point2[]) {
 /** mm per inch and per cm. */
 const IN = 25.4;
 const CM = 10;
-/** The default paper margin between the design and the cut-out edge (3/4 in). */
-const MARGIN = 19.05;
+/** The default paper margin between the design and the cut-out edge, in mm. */
+const MARGIN = defaultMargin();
 
 /** A sphere `circumference` mm around. */
 const sphereAround = (circumference: number) => ({ height: circumference / Math.PI, rings: [{ circumference, position: 0.5 }] });
@@ -141,11 +141,11 @@ describe("scale of the flat template", () => {
     near(box.maxY, 1 * IN);
   });
 
-  // A huge sphere and design measured in inches, and one measured in cm: the margin is 3/4 in whatever their size.
+  // A huge sphere and design measured in inches, and one measured in cm: the margin is 20 mm whatever their size.
   it.each([
     ["4 in wide on a sphere 2000 in around", IN],
     ["4 cm wide on a sphere 2000 cm around", CM],
-  ] as const)("the cut-out outline is the design's outline grown by 3/4 in (a design %s)", (_, unit) => {
+  ] as const)("the cut-out outline is the design's outline grown by 20 mm (a design %s)", (_, unit) => {
     const { template } = buildTemplate({
       measurements: sphereAround(2000 * unit),
       design: designOf([[0, 0], [4, 0], [4, 2], [0, 2]]),
@@ -170,7 +170,7 @@ describe("scale of the flat template", () => {
 
     const outline = template!.cutOutline;
     const design = template!.designPaths;
-    // Every point of the edge is 3/4 in from the design (to 0.05 in): the edge hugs the L all the way round.
+    // Every point of the edge is the margin from the design (to 0.05 in): the edge hugs the L all the way round.
     for (const p of outline) expect(Math.abs(distanceToPaths(p, design) - MARGIN)).toBeLessThan(0.05 * IN);
     // The design sits inside the edge; the notch doesn't.
     for (const p of design.flat()) expect(insidePolygon(p, outline)).toBe(true);

@@ -10,8 +10,8 @@ export interface CutOptions {
   line: boolean;
 }
 
-/** Margins the carver can choose, in mm (1/4 in to 3 in). */
-const MARGIN_RANGE_MM = [6.35, 76.2] as const;
+/** Margins the carver can choose, in mm. */
+const MARGIN_RANGE_MM = [5, 75] as const;
 
 export interface SlitPanel {
   options(): SlitOptions;

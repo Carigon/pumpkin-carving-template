@@ -1,8 +1,8 @@
 import { nextRing, type PumpkinMeasurements, type TemplateWarning, type Units } from "../core";
 import { lengthFields } from "./lengthFields";
 
-/** In mm: 9 in and 30 in. */
-const DEFAULTS_MM = { height: 228.6, circumference: 762 };
+/** In mm. */
+const DEFAULTS_MM = { height: 230, circumference: 760 };
 
 /** Saved values to put back; null = an empty field. Ring positions are fractions of the height. */
 export interface SavedMeasurements {
