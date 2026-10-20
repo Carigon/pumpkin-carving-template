@@ -1,3 +1,4 @@
+import { ballMeasurements } from "./input/calibrationGrid";
 import { sortRings, withRingIds, type Gap, type RingId, type RingMeasurements } from "./ringEdits";
 
 /** Saved measurements to start from; null is an empty field. Ring positions are fractions of the height. */
@@ -19,6 +20,17 @@ export function startingMeasurements(saved: SavedMeasurements = {}): RingMeasure
   const height = saved.height === undefined ? DEFAULTS.height : value(saved.height);
   const rings = saved.rings?.map((r) => ({ position: value(r.position), circumference: value(r.circumference) })) ?? DEFAULTS.rings;
   return sortRings(withRingIds({ height, rings }));
+}
+
+/**
+ * What the shape is built and drawn from: the measurements, or in test-grid mode the ball measured by the first
+ * ring alone (keeping that ring's id).
+ */
+export function shapeMeasurements(m: RingMeasurements, ball: boolean): RingMeasurements {
+  if (!ball) return m;
+  const first = m.rings[0];
+  const sphere = ballMeasurements(first?.circumference ?? Number.NaN);
+  return { height: sphere.height, rings: sphere.rings.map((r) => ({ ...r, id: first?.id ?? 0 })) };
 }
 
 /** What's selected: a ring (its id), the height line, or nothing. */

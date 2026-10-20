@@ -1,4 +1,4 @@
-import { fitProfile, type Point2, type ProfileFit, type PumpkinMeasurements, type Units } from "../core";
+import { fitProfile, type Point2, type ProfileFit, type Units } from "../core";
 import {
   blueprintView,
   clampZoom,
@@ -8,11 +8,9 @@ import {
   MIN_ZOOM,
   type BlueprintDrawing,
   type BlueprintLabel,
-  type GapRef,
 } from "../blueprintView";
 import { tapeLength } from "../displayUnits";
-import { ballMeasurements } from "../input/calibrationGrid";
-import { editPatch, sameHoverTarget, type HoverTarget, type MeasureState, type Selection } from "../measureState";
+import { editPatch, sameHoverTarget, shapeMeasurements, type HoverTarget, type MeasureState, type Selection } from "../measureState";
 import {
   deleteRing,
   dragBall,
@@ -70,8 +68,6 @@ export interface BlueprintOptions {
 /** A handle being dragged. */
 interface Drag {
   kind: "ring" | "ball" | "height";
-  /** The dragged ring's index in the drawn measurements (none for the height). */
-  index: number | null;
   /** The ring dragged, as it was when the drag began (none for the height). */
   ring: RingWithId | null;
   /** The measurements and fit when the drag began: the rules' limits and a height drag's profile come from them. */
@@ -144,9 +140,8 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   let thaw = 0;
 
   /** What's drawn: the measurements, or in test-grid mode the ball measured by the first ring. */
-  function drawn(): PumpkinMeasurements {
-    const { measurements } = state;
-    return ball ? ballMeasurements(measurements.rings[0]?.circumference ?? Number.NaN) : measurements;
+  function drawn(): RingMeasurements {
+    return shapeMeasurements(state.measurements, ball);
   }
 
   const refit = () => {
@@ -158,23 +153,6 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   };
 
   const size = () => ({ width: svg.clientWidth, height: svg.clientHeight });
-  const rings = () => state.measurements.rings;
-  const indexOf = (id: RingId | null) => (id === null ? -1 : rings().findIndex((r) => r.id === id));
-  /** A ring's id from a drawn index. */
-  const idAt = (index: number | null) => (index === null ? null : (rings()[index]?.id ?? null));
-  /** The selection as the drawing takes it: an index, the height, or none. */
-  const selectedRef = () => {
-    const { selected } = state;
-    if (selected === "height") return "height" as const;
-    const i = indexOf(selected);
-    return i < 0 ? null : i;
-  };
-  const hoveredRef = (): number | GapRef | null => {
-    const { hovered } = state;
-    if (hovered === null) return null;
-    if (typeof hovered === "number") return indexOf(hovered) < 0 ? null : indexOf(hovered);
-    return { above: hovered.above === null ? null : indexOf(hovered.above), below: hovered.below === null ? null : indexOf(hovered.below) };
-  };
 
   const render = () => {
     buttons.in.disabled = buttons.fit.disabled = zoom >= 1;
@@ -184,7 +162,6 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     if (view.width === 0 || view.height === 0) return;
     const measurements = drawn();
     shownScale = heldScale ?? fitScale({ measurements, fit, size: view, units });
-    const blamed = indexOf(state.lastEdited);
     shown = blueprintView({
       measurements,
       fit,
@@ -193,11 +170,11 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
       size: view,
       units,
       fitScale: shownScale,
-      blame: ball || blamed < 0 ? null : blamed,
-      readout: drag ? (drag.kind === "height" ? "height" : drag.index) : null,
-      selected: selectedRef(),
+      blame: ball ? null : state.lastEdited,
+      readout: drag ? (drag.kind === "height" ? "height" : (drag.ring?.id ?? null)) : null,
+      selected: state.selected,
       // No ghost ring while a handle is dragged.
-      hovered: drag ? null : hoveredRef(),
+      hovered: drag ? null : state.hovered,
     });
     svg.replaceChildren(...draw(shown));
     banner.textContent = shown.banner ?? "";
@@ -225,7 +202,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   };
   const describe = (selected: Selection) => {
     if (selected === null) return "Nothing selected";
-    return describeSelection(state.measurements, selected === "height" ? "height" : indexOf(selected), units);
+    return describeSelection(state.measurements, selected, units);
   };
 
   /** A refused insert or delete, or a nudge held back by a rule: shown briefly, and read out. */
@@ -361,12 +338,12 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   /** The gap (by ring ids) whose band holds `p`, if a ring can go there. */
   const gapAt = (p: Point2): Gap | null => {
     const g = shown?.gaps.find(({ band }) => p.x >= band.x1 && p.x <= band.x2 && p.y >= band.y1 && p.y <= band.y2);
-    return g ? { above: idAt(g.above), below: idAt(g.below) } : null;
+    return g ? { above: g.above, below: g.below } : null;
   };
   /** The ring (its id) a hit element belongs to. */
   const ringOf = (el: Element | null) => {
     const ring = el?.closest<SVGElement>("[data-ring]")?.dataset.ring;
-    return ring === undefined ? null : idAt(Number(ring));
+    return ring === undefined ? null : Number(ring);
   };
 
   svg.addEventListener("pointerdown", (e) => {
@@ -399,11 +376,11 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     svg.setPointerCapture(e.pointerId);
     cancelAnimationFrame(thaw);
     const kind = handle.dataset.handle as Drag["kind"];
-    const index = kind === "height" ? null : Number(handle.dataset.ring);
+    const id = kind === "height" ? null : Number(handle.dataset.ring);
     const start = state.measurements;
-    // A ball is measured by the first ring.
-    const ring = index === null ? null : (start.rings[kind === "ball" ? 0 : index] ?? null);
-    drag = { kind, index, ring, start, fit, x0: e.clientX, y0: e.clientY, scale: shown.scale, next: null };
+    // A ball's handle carries the id of the first ring, which measures it.
+    const ring = start.rings.find((r) => r.id === id) ?? null;
+    drag = { kind, ring, start, fit, x0: e.clientX, y0: e.clientY, scale: shown.scale, next: null };
     heldScale = shownScale;
     svg.classList.add("bp-dragging");
     // Dragging a handle selects its ring or the height line.
@@ -464,7 +441,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
   svg.addEventListener("click", (e) => {
     const removeHit = (e.target as Element).closest("[data-remove]");
     const id = removeHit && ringOf(removeHit);
-    const ring = rings().find((r) => r.id === id);
+    const ring = state.measurements.rings.find((r) => r.id === id);
     if (id === null || !ring) return;
     const what = `the ring at ${tapeLength(ring.position * state.measurements.height, units)}`;
     void options.confirmDelete(what).then((ok) => {
@@ -600,7 +577,7 @@ function draw(d: BlueprintDrawing): SVGElement[] {
   const ringHandle = d.circle ? "ball" : "ring";
   for (const r of d.rings) {
     const classes = ["bp-ring", r.selected ? "bp-selected" : "", r.hovered ? "bp-hovered" : ""].filter(Boolean).join(" ");
-    const g = el("g", { class: classes, "data-ring": r.index });
+    const g = el("g", { class: classes, "data-ring": r.id });
     g.append(el("line", { class: "bp-ring-line", x1: r.x1, y1: r.y, x2: r.x2, y2: r.y }));
     if (r.label.leader) {
       const { x1, x2, y } = r.label.leader;
@@ -616,7 +593,7 @@ function draw(d: BlueprintDrawing): SVGElement[] {
     g.append(
       pill(r.handle),
       el("path", { class: "bp-icon", d: moveIcon(r.handle.x, r.handle.y) }),
-      hit(r.handle, { "data-handle": ringHandle, "data-ring": r.index }),
+      hit(r.handle, { "data-handle": ringHandle, "data-ring": r.id }),
     );
     if (r.remove) {
       const x = el("g", { class: "bp-remove", "data-remove": "" });
