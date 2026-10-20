@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTemplate, nextRing, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
+import { buildTemplate, fitProfile, nextRing, type PumpkinMeasurements, type SurfaceParameters } from "../src/core";
 
 /** Millimetres per inch and per centimetre. */
 const IN = 25.4;
@@ -166,6 +166,23 @@ describe("pumpkin profile through rings at known heights", () => {
       expect(Math.abs(Math.hypot(x, z) - radiusAt(surface!, y))).toBeLessThan(2 * 0.25);
     }
     expect(template!.stretch.max).toBeLessThan(0.06);
+  });
+});
+
+describe("fitting the profile alone", () => {
+  it.each(pumpkins)("%s: gives the same profile as the template builder", (_name, m) => {
+    const fit = fitProfile(m);
+
+    expect(fit.ok).toBe(true);
+    if (!fit.ok) return;
+    expect(fit.profile).toEqual(buildTemplate({ measurements: m }).surface!.profile);
+  });
+
+  it.each(pumpkins)("%s: gives each ring's circumference at its height", (_name, m) => {
+    const fit = fitProfile(m);
+
+    if (!fit.ok) throw new Error("no fit");
+    for (const ring of m.rings) expect((2 * Math.PI * fit.radiusAt(ring.position)) / ring.circumference).toBeCloseTo(1, 6);
   });
 });
 

@@ -1,5 +1,7 @@
 // Public API of the core. Tests go through `buildTemplate` (and the builder that keeps the surface between calls).
 export { buildTemplate, createTemplateBuilder, defaultMargin, defaultSlits, type TemplateBuilder } from "./buildTemplate";
+// The profile alone, quick enough to refit while a ring is dragged.
+export { fitProfile } from "./surface/fitSurface";
 // Filling in a new ring from the current fit, for the measurement form.
 export { nextRing } from "./rings";
 export type * from "./types";

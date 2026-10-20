@@ -32,11 +32,11 @@ export interface Profile {
   coefficients: Float64Array;
 }
 
-export type ProfileFit =
+export type ProfileSolution =
   /** `ellipsoid`: the fitted shape is the ellipsoid through the widest ring. */
   | { ok: true; profile: Profile; ellipsoid: boolean }
-  /** `ring`: the ring to blame (the widest). */
-  | { ok: false; ring: number };
+  /** No smooth profile passes through the rings. Which ring is to blame can't be told. */
+  | { ok: false };
 
 /** Places down the meridian where the shape rules are enforced. */
 const NODES = 256;
@@ -63,7 +63,7 @@ export function profileAt({ height, coefficients: a }: Profile, phi: number) {
 }
 
 /** Fit the profile through `rings` (distinct positions strictly between 0 and 1, positive radii). */
-export function fitProfile(height: number, rings: ProfileRing[]): ProfileFit {
+export function solveProfile(height: number, rings: ProfileRing[]): ProfileSolution {
   const w = rings.reduce((best, r, i) => (r.radius > rings[best].radius ? i : best), 0);
   const R = rings[w].radius;
   const K = MODES;
@@ -112,7 +112,7 @@ export function fitProfile(height: number, rings: ProfileRing[]): ProfileFit {
   }));
 
   const x = (unimodal(rings, w) ? minimumNorm(weight, equalities, rising) : null) ?? minimumNorm(weight, equalities, capped);
-  if (!x) return { ok: false, ring: w };
+  if (!x) return { ok: false };
   const coefficients = new Float64Array(K + 1);
   coefficients[0] = R * x.reduce((sum, xj, j) => sum - xj * Math.cos((j + 1) * fw), Q0);
   for (let j = 0; j < K; j++) coefficients[j + 1] = R * x[j];
@@ -121,7 +121,7 @@ export function fitProfile(height: number, rings: ProfileRing[]): ProfileFit {
   // Off the axis between the poles, and not pointed at them.
   const q0 = profileAt(profile, 0).dRadius, qPi = -profileAt(profile, Math.PI).dRadius;
   if (!(q0 > 0 && qPi > 0) || nodes.some((phi, m) => m > 0 && m < NODES && !(profileAt(profile, phi).radius > 0))) {
-    return { ok: false, ring: w };
+    return { ok: false };
   }
   return { ok: true, profile, ellipsoid: x.every((xj) => Math.abs(xj) < 1e-9) };
 }
