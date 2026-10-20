@@ -760,6 +760,37 @@ body {
   border-radius: 4px;
 }
 
+/*
+ * The ring (or the Height) selected in the Blueprint view: an accent bar at the left and a light tint, reaching a
+ * little past the fields. A row hovered here or its line hovered in the view gets a fainter tint.
+ */
+.ring,
+.height-row {
+  position: relative;
+  margin-inline: -0.5rem;
+  padding-inline: 0.5rem;
+  border-radius: 4px;
+}
+
+.ring.hovered {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.ring.selected,
+.height-row.selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.ring.selected::before,
+.height-row.selected::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 4px 0 0 4px;
+  background: var(--accent);
+}
+
 .ring.flash {
   animation: ring-flash 0.8s ease-out;
 }
@@ -857,6 +888,7 @@ body {
 }
 
 .controls .card .insert-ring:hover,
+.controls .card .insert-ring.hovered,
 .controls .card .insert-ring:focus-visible {
   opacity: 1;
 }

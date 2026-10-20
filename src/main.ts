@@ -56,10 +56,8 @@ const measures = createMeasureStore({
   selected: null,
   hovered: null,
 });
-const form = mountMeasurementForm($("measurements"), (measurements, edited) =>
-  measures.set({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, { source: "form", live: false }),
-);
-// Asking before a ring's × deletes it, as the header's settings menu says; "Don't ask again" unticks it there.
+// Asking before a ring's × (the form's or the view's) deletes it, as the header's settings menu says; "Don't ask
+// again" unticks it there.
 const confirmDelete = mountDeleteConfirm(document.body, {
   asking: () => header.askBeforeDeletingRing(),
   stopAsking() {
@@ -67,6 +65,16 @@ const confirmDelete = mountDeleteConfirm(document.body, {
     persist();
   },
 });
+const fromForm: MeasureChange = { source: "form", live: false };
+const form = mountMeasurementForm(
+  $("measurements"),
+  (measurements, edited) => measures.set({ measurements, ...(edited === null ? {} : { lastEdited: edited }) }, fromForm),
+  {
+    select: (selected) => measures.set({ selected }, fromForm),
+    hover: (hovered) => measures.set({ hovered }, fromForm),
+    confirmDelete,
+  },
+);
 const blueprint = mountBlueprintView(viewport.blueprintView, {
   change: (patch, live) => measures.set(patch, { source: "view", live }),
   confirmDelete,
@@ -218,13 +226,15 @@ function changeUnits(): void {
 /**
  * The shared state changed. The side that made the change already shows it; the other follows. During a drag
  * (or a held arrow key) only the views follow: the 3D view and the template rebuild when it ends. A change of
- * selection or hover alone rebuilds nothing.
+ * selection or hover alone rebuilds nothing. The form shows the selection and hover from either side, scrolling to
+ * a ring selected in the view (focus stays where it is).
  */
 function followMeasures(state: MeasureState, change: MeasureChange): void {
   if (state.measurements !== followed) {
     followed = state.measurements;
     if (change.source !== "form") form.show(state.measurements);
   }
+  form.showLinks(state.selected, state.hovered, change.source === "view");
   if (!change.live && state.measurements !== rebuilt) update();
   else if (change.source !== "view") blueprint.show(state, header.mode() === "test-grid");
 }
@@ -282,7 +292,8 @@ function update(): void {
 
 function showWarnings(next: TemplateWarning[]): void {
   warnings = next;
-  form.showWarnings(warnings);
+  // A failed fit marks the row of the ring edited last; none since the page loaded marks no row.
+  form.showWarnings(warnings, measures.get().lastEdited);
   designPanel.showWarnings(warnings);
   slitPanel.showWarnings(warnings);
   renderTabs();
