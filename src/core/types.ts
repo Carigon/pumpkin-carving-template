@@ -99,7 +99,7 @@ export interface FrontLimitWarning {
   message: string;
 }
 
-/** Some design points fall outside the pumpkin's outline as seen from the front, so they have nowhere to land. */
+/** Some design points fall outside the pumpkin's profile as seen from the front, so they have nowhere to land. */
 export interface OutsideSilhouetteWarning {
   kind: "outside-silhouette";
   /** Number of design points that miss the pumpkin. */

@@ -60,7 +60,7 @@ export function mountViewport(root: HTMLElement): Viewport {
         </summary>
         <ul class="legend-detail">
           <li>Gold: the design is past about 60° from the front, where the template is hard to follow.</li>
-          <li>Red dots: design points outside the pumpkin's outline seen from the front; they have nowhere to land.</li>
+          <li>Red dots: design points outside the pumpkin's profile seen from the front; they have nowhere to land.</li>
           <li>Crimson tint: where the paper has to stretch or squeeze to lie on the pumpkin (faint from about 3 %,
             solid from 15 %). Lines there won't land exactly. A smaller design or more, deeper slits reduce it.</li>
           <li>Drag to orbit, scroll to zoom.</li>
