@@ -1,4 +1,25 @@
-import type { RingId, RingMeasurements } from "./ringEdits";
+import { sortRings, withRingIds, type RingId, type RingMeasurements } from "./ringEdits";
+
+/** Saved measurements to start from; null is an empty field. Ring positions are fractions of the height. */
+export interface SavedMeasurements {
+  /** In mm. */
+  height?: number | null;
+  rings?: { position: number | null; circumference: number | null }[];
+}
+
+/** In mm: 9 in tall, one 30 in ring at mid-height. */
+const DEFAULTS = { height: 228.6, rings: [{ position: 0.5, circumference: 762 }] };
+
+/**
+ * The measurements to start from: the saved ones, or the defaults where nothing was saved, with ring ids
+ * 0, 1, 2… and sorted top to bottom. Empty saved values are NaN, for the core to warn about.
+ */
+export function startingMeasurements(saved: SavedMeasurements = {}): RingMeasurements {
+  const value = (x: number | null) => x ?? Number.NaN;
+  const height = saved.height === undefined ? DEFAULTS.height : value(saved.height);
+  const rings = saved.rings?.map((r) => ({ position: value(r.position), circumference: value(r.circumference) })) ?? DEFAULTS.rings;
+  return sortRings(withRingIds({ height, rings }));
+}
 
 /**
  * The shared measurement state that the Measure form and the Blueprint view both render from. Every edit, from

@@ -16,7 +16,8 @@ export (`test/calibration-grid.test.ts`), the unit-switching length fields
 (`test/length-fields.test.ts`), the step model `steps` (`test/steps.test.ts`, `test/step-badges.test.ts`) and
 the Paper view's geometry `paperView` (`test/paper-view.test.ts`), the Blueprint view's geometry `blueprintView`
 (`test/blueprint-view.test.ts`) and the ring-edit rules that drags and typed values share (`dragRing`,
-`dragHeight`, `dragBall`, `sortRings` in `src/ringEdits.ts`: `test/ring-edits.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
+`dragHeight`, `dragBall`, `sortRings` in `src/ringEdits.ts`: `test/ring-edits.test.ts`; the Measure form's typed
+values, `typeRingHeight`, `typeCircumference` and `typeHeight`: `test/typed-edits.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).
 
 ## Decision

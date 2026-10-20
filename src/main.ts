@@ -13,7 +13,7 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
-import { createMeasureStore, type MeasureChange, type MeasureState } from "./measureState";
+import { createMeasureStore, startingMeasurements, type MeasureChange, type MeasureState } from "./measureState";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
 import { stepInMode, steps, type Step, type StepId } from "./steps";
@@ -94,9 +94,10 @@ measures.subscribe(followMeasures);
 function restore(): void {
   const saved = loadSettings(browserStorage());
   header.restore(saved);
-  form.restore(saved.measurements ?? {});
+  const measurements = startingMeasurements(saved.measurements);
   // Nothing edited yet: a shape that doesn't fit on load isn't blamed on a ring.
-  measures.set({ measurements: form.read(), lastEdited: null }, { source: "form", live: false });
+  measures.set({ measurements, lastEdited: null }, { source: "form", live: false });
+  form.show(measurements);
   gridPanel.restore(saved);
   designPanel.restorePlacement(saved.placement ?? {});
   slitPanel.restore(saved.slits ?? {}, saved.cut);
@@ -170,6 +171,7 @@ function renderTabs(list = stepList()): void {
 /** Show the current mode's inputs and keep the carver on the same step (Design and Grid stand in for each other). */
 function syncMode(): void {
   app.classList.toggle("ball-mode", header.mode() === "test-grid");
+  form.setBall(header.mode() === "test-grid");
   step = stepInMode(step, header.mode());
 }
 

@@ -1,4 +1,4 @@
-import type { PumpkinMeasurements, Ring, Units } from "./core";
+import { ringAt, type PumpkinMeasurements, type Ring, type Units } from "./core";
 import { formatLength } from "./displayUnits";
 
 /**
@@ -20,7 +20,7 @@ export interface RingMeasurements extends PumpkinMeasurements {
 }
 
 /** Which rule held a value back. */
-export type ClampLimit = "ring-size" | "height" | "margin" | "shape-ratio";
+export type ClampLimit = "ring-size" | "height" | "margin" | "shape-ratio" | "ring-count" | "gap";
 
 /** Why an edit didn't land where it was asked to, for the carver. */
 export interface ClampNote {
@@ -156,6 +156,47 @@ export function dragHeight(start: RingMeasurements, target: number, options: Edi
   return { measurements: { height, rings: start.rings }, note };
 }
 
+/** The most rings a pumpkin has (the saved settings' cap). */
+const MAX_RINGS = 20;
+
+/** A gap between two neighbouring rings in top-to-bottom order.
+ *  above: null means the gap reaches the top (the height).
+ *  below: null means it reaches the table (0). */
+export interface Gap {
+  above: RingId | null;
+  below: RingId | null;
+}
+
+/** Insert at the gap's midpoint with ringAt's circumference. Refused (measurements
+ *  unchanged, id null, note says why) for a gap narrower than 2·MARGIN or a 21st ring.
+ *  The new ring's id is (largest existing id) + 1. Result is sorted. */
+export function insertRing(m: RingMeasurements, gap: Gap): RingEdit & { id: RingId | null } {
+  const at = (id: RingId | null, edge: number) => (id === null ? edge : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
+  const top = at(gap.above, 1);
+  const bottom = at(gap.below, 0);
+  if (m.rings.length >= MAX_RINGS) {
+    return { measurements: m, id: null, note: { limit: "ring-count", message: `A pumpkin has at most ${MAX_RINGS} rings.` } };
+  }
+  if (!((top - bottom) * m.height >= 2 * MARGIN)) {
+    return { measurements: m, id: null, note: { limit: "gap", message: "This gap is too narrow for another ring." } };
+  }
+  const position = (top + bottom) / 2;
+  const id = Math.max(-1, ...m.rings.map((r) => r.id)) + 1;
+  const rings = [...m.rings, { id, position, circumference: ringAt(m, position) }];
+  return { measurements: sortRings({ height: m.height, rings }), id, note: null };
+}
+
+/** Delete any ring but the last. Refused (unchanged, note says why) for the last
+ *  ring or when the shape ratio would leave 0.2–5. */
+export function deleteRing(m: RingMeasurements, id: RingId): RingEdit {
+  const rings = m.rings.filter((r) => r.id !== id);
+  if (rings.length === 0) return { measurements: m, note: { limit: "ring-count", message: "The last ring can't be removed." } };
+  const widest = Math.max(0, ...rings.map((r) => r.circumference).filter(Number.isFinite)) / Math.PI;
+  const ratio = m.height / widest;
+  if (widest > 0 && (ratio < SHAPE_RATIO.min || ratio > SHAPE_RATIO.max)) return { measurements: m, note: shapeNote() };
+  return { measurements: { height: m.height, rings }, note: null };
+}
+
 /** A limit on a value, with the note to give when it holds the value back. */
 interface Bound {
   value: number;
@@ -194,4 +235,59 @@ function shapeNote(): ClampNote {
     limit: "shape-ratio",
     message: `The pumpkin is kept no more than ${SHAPE_RATIO.max} times as tall as it is wide, or as wide as it is tall.`,
   };
+}
+
+/*
+ * Typed edits: a value the carver typed in the Measure form, committed (on blur or Enter). Typed values never
+ * snap. A typed ring may pass its neighbours (the form re-sorts the rows) and land within the margin of another
+ * ring, which is accepted with a soft warning.
+ */
+
+/** A typed edit's outcome; `warning` is a soft warning on a value accepted as typed. */
+export interface TypedEdit extends RingEdit {
+  warning: string | null;
+}
+
+/**
+ * Type ring `id`'s height above the table, mm: kept the margin above the table and below the top. Within the
+ * margin of another ring it's accepted with a soft warning; on another ring's height it's left for the core's
+ * error.
+ */
+export function typeRingHeight(m: RingMeasurements, id: RingId, above: number, units: Units): TypedEdit {
+  const H = m.height;
+  const note = (): ClampNote => ({
+    limit: "margin",
+    message: `Rings are kept ${formatLength(MARGIN, units)} from the table and the top.`,
+  });
+  const clamped = clampTo(above, [{ value: MARGIN, note }], [{ value: Math.max(MARGIN, H - MARGIN), note }]);
+  const position = clamped.value / H;
+  const rings = m.rings.map((r) => (r.id === id ? { ...r, position } : r));
+  // The core's own tolerance for two rings at one height, which it reports as an error.
+  const gaps = m.rings.filter((r) => r.id !== id && Number.isFinite(r.position)).map((r) => Math.abs(r.position - position));
+  const close = gaps.some((g) => g >= 1e-9 && g * H < MARGIN);
+  const warning = close ? `This ring is within ${formatLength(MARGIN, units)} of another.` : null;
+  return { measurements: { height: H, rings }, note: clamped.note, warning };
+}
+
+/**
+ * Type ring `id`'s circumference, mm (a typed diameter d arrives as d·π): kept within the ring size limits and,
+ * unless it is the test-grid ball, the shape ratio, as a drag is.
+ */
+export function typeCircumference(
+  m: RingMeasurements,
+  id: RingId,
+  circumference: number,
+  { units, ball }: { units: Units; ball: boolean },
+): RingEdit {
+  const options = { units, snap: false };
+  return ball ? dragBall(m, id, circumference, options) : dragRing(m, id, { circumference }, options);
+}
+
+/**
+ * Type the pumpkin's height, mm, from the measurements as they were before the carver started typing: held as a
+ * dragged height is (20–1000 mm, the shape ratio and the tightest gap), with every ring keeping its fraction and
+ * circumference.
+ */
+export function typeHeight(m: RingMeasurements, height: number, units: Units): RingEdit {
+  return dragHeight(m, height, { units, snap: false });
 }
