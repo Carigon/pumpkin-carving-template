@@ -4,6 +4,10 @@ Turning a flat carving design and a pumpkin's tape-measure measurements into a p
 
 ## Measuring the pumpkin
 
+**Display units**:
+Inches or centimetres: the carver's choice for every length they read or type. Switching never changes a measurement.
+_Avoid_: Measurement units
+
 **Height**:
 The straight vertical distance from the table to the underside of a book laid flat on the pumpkin's shoulders; the stem is left out.
 
