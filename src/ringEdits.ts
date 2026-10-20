@@ -179,25 +179,38 @@ export function dragHeight(start: RingMeasurements, target: number, options: Edi
   return { measurements: { height, rings: start.rings }, note };
 }
 
+/** Where `gap` runs, as fractions of the height: from `top` down to `bottom` (NaN for a ring with no height yet). */
+function gapSpan(m: RingMeasurements, gap: Gap): { top: number; bottom: number } {
+  const at = (id: RingId | null, end: number) => (id === null ? end : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
+  return { top: at(gap.above, 1), bottom: at(gap.below, 0) };
+}
+
+/**
+ * Why `gap` can't take a new ring, or null when it can: the pumpkin already has `MAX_RINGS` rings, or the gap is
+ * narrower than twice the margin. The rules `insertRing` refuses by, for whoever offers a gap.
+ */
+export function canInsert(m: RingMeasurements, gap: Gap): ClampNote | null {
+  if (m.rings.length >= MAX_RINGS) return { limit: "ring-count", message: `A pumpkin can have up to ${MAX_RINGS} rings.` };
+  const { top, bottom } = gapSpan(m, gap);
+  if ((top - bottom) * m.height < 2 * MARGIN) {
+    return { limit: "gap", message: "That gap is too narrow for another ring: rings are kept a little apart." };
+  }
+  return null;
+}
+
 /**
  * Insert a ring at the middle of `gap`, with the circumference the shape already has there (`ringAt`), so the
  * shape doesn't change until the carver measures it. Refused (the measurements as they were, id null, and a note
- * saying why) for a gap narrower than twice the margin or a ring past `MAX_RINGS`. The new ring's id is the largest
- * one so far plus 1; the rings come back sorted top to bottom.
+ * saying why) where `canInsert` says no. The new ring's id is the largest one so far plus 1; the rings come back
+ * sorted top to bottom.
  */
 export function insertRing(m: RingMeasurements, gap: Gap): RingEdit & { id: RingId | null } {
   const refused = (note: ClampNote | null) => ({ measurements: m, note, id: null });
-  if (m.rings.length >= MAX_RINGS) {
-    return refused({ limit: "ring-count", message: `A pumpkin can have up to ${MAX_RINGS} rings.` });
-  }
-  const at = (id: RingId | null, end: number) => (id === null ? end : (m.rings.find((r) => r.id === id)?.position ?? Number.NaN));
-  const top = at(gap.above, 1);
-  const bottom = at(gap.below, 0);
+  const refusal = canInsert(m, gap);
+  if (refusal) return refused(refusal);
+  const { top, bottom } = gapSpan(m, gap);
   const H = m.height;
   if (!(H > 0) || !Number.isFinite(top) || !Number.isFinite(bottom)) return refused(null);
-  if ((top - bottom) * H < 2 * MARGIN) {
-    return refused({ limit: "gap", message: "That gap is too narrow for another ring: rings are kept a little apart." });
-  }
   const position = (top + bottom) / 2;
   const circumference = ringAt(m, position);
   if (!Number.isFinite(circumference)) return refused(null);

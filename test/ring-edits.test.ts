@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fitProfile, ringAt } from "../src/core";
-import { deleteRing, dragBall, dragHeight, dragRing, insertRing, nudgeLength, sortRings, withRingIds, type RingMeasurements } from "../src/ringEdits";
+import { canInsert, deleteRing, dragBall, dragHeight, dragRing, insertRing, nudgeLength, sortRings, withRingIds, type RingMeasurements } from "../src/ringEdits";
 
 /** mm per inch. */
 const IN = 25.4;
@@ -262,6 +262,22 @@ describe("ring edits", () => {
     expect(refused.note?.message).toMatch(/20/);
     const nineteen = withRingIds({ height: 600, rings: rings.slice(0, 19) });
     expect(insertRing(nineteen, { above: null, below: 18 }).id).toBe(19);
+  });
+
+  it("tell whether a gap takes a ring, giving the reason insertRing refuses it when it doesn't", () => {
+    expect(canInsert(pumpkin, { above: 1, below: 0 })).toBeNull();
+    expect(canInsert(pumpkin, { above: null, below: 1 })).toBeNull();
+    expect(canInsert(pumpkin, { above: 0, below: null })).toBeNull();
+
+    const close = withRingIds({ height: 200, rings: [{ position: 0.5, circumference: 500 }, { position: 0.545, circumference: 480 }] });
+    const narrow = canInsert(close, { above: 1, below: 0 });
+    expect(narrow?.limit).toBe("gap");
+    expect(narrow).toEqual(insertRing(close, { above: 1, below: 0 }).note);
+
+    const full = withRingIds({ height: 600, rings: Array.from({ length: 20 }, (_, i) => ({ position: (i + 1) / 21, circumference: 500 })) });
+    const count = canInsert(full, { above: null, below: 19 });
+    expect(count?.limit).toBe("ring-count");
+    expect(count).toEqual(insertRing(full, { above: null, below: 19 }).note);
   });
 
   it("delete any ring but the last", () => {

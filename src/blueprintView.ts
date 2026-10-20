@@ -1,7 +1,7 @@
 import { ringAt, type Point2, type ProfileFit, type PumpkinMeasurements, type Units } from "./core";
 import { fromMm, tapeLength, toMm } from "./displayUnits";
 import type { HoverTarget, Selection } from "./measureState";
-import { MARGIN, MAX_RINGS, type Gap, type RingId, type RingMeasurements } from "./ringEdits";
+import { canInsert, type Gap, type RingId, type RingMeasurements } from "./ringEdits";
 
 /** What the Blueprint view is drawn from. Lengths in mm, sizes in px. */
 export interface BlueprintInput {
@@ -112,7 +112,7 @@ export interface BlueprintDrawing {
   rings: BlueprintRing[];
   /** The height line across the top, with its handle in line with the widest ring's; null with no height or a ball. */
   height: { y: number; x1: number; x2: number; handle: Point2; label: BlueprintLabel; selected: boolean } | null;
-  /** The gaps a ring can go in (wide enough, and fewer than `MAX_RINGS` rings), top to bottom; none on a ball. */
+  /** The gaps a ring can go in (those `canInsert` allows), top to bottom; none on a ball. */
   gaps: BlueprintGap[];
   /** The ring the hovered gap would get; null when no offered gap is hovered. */
   ghost: BlueprintGhost | null;
@@ -235,13 +235,10 @@ export function blueprintView(input: BlueprintInput): BlueprintDrawing {
   // Each gap down the pumpkin wide enough for a ring, its area spanning the pumpkin at its widest.
   const widest = Math.max(widestRing, ...(fit.ok ? fit.profile.map((p) => p.radius) : []));
   const stops = [{ id: null, position: 1 }, ...valid, { id: null, position: 0 }];
-  const open =
-    measurements.rings.length >= MAX_RINGS
-      ? []
-      : stops.slice(1).flatMap((below, i) => {
-          const above = stops[i];
-          return (above.position - below.position) * H < 2 * MARGIN ? [] : [{ above, below }];
-        });
+  const open = stops.slice(1).flatMap((below, i) => {
+    const above = stops[i];
+    return canInsert(measurements, { above: above.id, below: below.id }) ? [] : [{ above, below }];
+  });
   const gaps: BlueprintGap[] = open.map(({ above, below }) => ({
     above: above.id,
     below: below.id,
