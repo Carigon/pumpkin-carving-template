@@ -28,6 +28,8 @@ export interface Settings {
   filled: boolean;
   /** The step the carver was last on. */
   step: StepId;
+  /** Whether deleting a ring with its × asks first (the header's settings menu, or "Don't ask again"). */
+  askBeforeDeletingRing: boolean;
 }
 
 /** Whatever survived validation of the stored settings. A missing value means "keep the default". */
@@ -44,6 +46,8 @@ export interface RestoredSettings {
   filled?: boolean;
   /** Always there when settings were saved: an unknown step restores to Measure. */
   step?: StepId;
+  /** Always there when settings were saved: a missing or corrupt value restores to on. */
+  askBeforeDeletingRing?: boolean;
 }
 
 /** The part of `Storage` (e.g. `localStorage`) the settings need. */
@@ -86,6 +90,7 @@ export function saveSettings(storage: SettingsStorage | undefined, s: Settings):
     paper: s.paper,
     filled: s.filled,
     step: s.step,
+    askBeforeDeletingRing: s.askBeforeDeletingRing,
   };
   try {
     storage?.setItem(KEY, JSON.stringify(picked));
@@ -134,6 +139,7 @@ function validate(s: Record<string, unknown>): RestoredSettings {
     filled: typeof s.filled === "boolean" ? s.filled : undefined,
     // The app starts in pumpkin mode when the saved mode is unusable.
     step: stepInMode(oneOf(s.step, STEP_IDS) ?? "measure", mode ?? "pumpkin"),
+    askBeforeDeletingRing: s.askBeforeDeletingRing !== false,
   });
 }
 

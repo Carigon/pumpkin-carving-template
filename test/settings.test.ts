@@ -33,6 +33,7 @@ const full: Settings = {
   paper: "a4",
   filled: true,
   step: "template",
+  askBeforeDeletingRing: false,
 };
 
 /** Storage holding `stored` as the saved settings. */
@@ -93,6 +94,7 @@ describe("settings", () => {
       placement: { width: 150 },
       slits: { maxDepth: 40 },
       step: "measure",
+      askBeforeDeletingRing: true,
     });
   });
 
@@ -164,6 +166,20 @@ describe("settings", () => {
 
     it("a saved Grid step opens as Design when the mode can't be read (the app starts in pumpkin mode)", () => {
       expect(loadSettings(saved({ ...full, mode: "teapot", step: "grid" })).step).toBe("design");
+    });
+  });
+
+  describe("ask before deleting a ring", () => {
+    it.each([true, false])("round-trips %s", (ask) => {
+      const storage = memoryStorage();
+      saveSettings(storage, { ...full, askBeforeDeletingRing: ask });
+      expect(loadSettings(storage).askBeforeDeletingRing).toBe(ask);
+    });
+
+    it.each([["yes"], [1], [null], [{}], [undefined]])("a missing or corrupt value %j restores to on, keeping the rest", (ask) => {
+      const restored = loadSettings(saved({ ...full, askBeforeDeletingRing: ask }));
+      expect(restored.askBeforeDeletingRing).toBe(true);
+      expect(restored.paper).toBe("a4");
     });
   });
 });

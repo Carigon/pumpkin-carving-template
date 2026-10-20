@@ -43,7 +43,7 @@ app.innerHTML = `
 
 const $ = (id: string) => app.querySelector<HTMLElement>(`#${id}`)!;
 const infoEl = $("surface-info");
-const header = mountHeader($("header"), changeMode, changeUnits);
+const header = mountHeader($("header"), changeMode, changeUnits, persist);
 const viewport = mountViewport($("viewport"));
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
@@ -124,6 +124,7 @@ function persist(): void {
     cut: slitPanel.cut(),
     ...exportPanel.options(),
     step,
+    askBeforeDeletingRing: header.askBeforeDeletingRing(),
   });
 }
 

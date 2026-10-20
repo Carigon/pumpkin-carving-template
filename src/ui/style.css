@@ -80,6 +80,66 @@ body {
   white-space: nowrap;
 }
 
+/* The settings button, at the header's right end, and its menu of app-wide preferences. */
+.app-settings {
+  position: relative;
+  margin-left: auto;
+}
+
+.settings-button {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-button svg {
+  fill: currentColor;
+  fill-rule: evenodd;
+}
+
+.settings-button:hover,
+.settings-button[aria-expanded="true"] {
+  color: var(--fg);
+}
+
+.settings-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 3;
+  display: grid;
+  gap: 0.5rem;
+  min-width: 14rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+}
+
+.settings-menu[hidden] {
+  display: none;
+}
+
+.settings-menu label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
 .viewport {
   position: relative;
   min-height: 0;
