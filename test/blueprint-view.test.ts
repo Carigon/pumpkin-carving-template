@@ -14,7 +14,14 @@ const size = { width: 800, height: 600 };
 /** The Blueprint view of `measurements` in a view of `size` px, through the public `fitProfile`. */
 function draw(
   measurements: PumpkinMeasurements = pumpkin,
-  options: { zoom?: number; units?: Units; ball?: boolean; size?: { width: number; height: number } } = {},
+  options: {
+    zoom?: number;
+    units?: Units;
+    ball?: boolean;
+    size?: { width: number; height: number };
+    blame?: number | null;
+    readout?: number | "height";
+  } = {},
 ): BlueprintDrawing {
   return blueprintView({
     measurements,
@@ -23,6 +30,8 @@ function draw(
     zoom: options.zoom ?? 1,
     size: options.size ?? size,
     units: options.units ?? "in",
+    blame: options.blame,
+    readout: options.readout,
   });
 }
 
@@ -224,6 +233,29 @@ describe("Blueprint view geometry", () => {
     // The rings and height still show, to edit.
     expect(drawing.rings).toHaveLength(3);
     expect(drawing.height).not.toBeNull();
+  });
+
+  it("names the ring edited last by its height in a failed fit's banner", () => {
+    const blamed = draw(noShape, { blame: 2 });
+    expect(blamed.banner).toMatch(/^No smooth pumpkin shape passes through the ring at 4 ⅛ in\. /);
+    expect(draw(noShape, { blame: 0, units: "cm" }).banner).toMatch(/through the ring at 5\.7 cm\. /);
+    // On a page load nothing has been edited yet, and a ring that's gone can't be named.
+    expect(draw(noShape, { blame: null }).banner).toMatch(/through these rings\./);
+    expect(draw(noShape, { blame: 5 }).banner).toMatch(/through these rings\./);
+    expect(draw(pumpkin, { blame: 0 }).banner).toBeNull();
+  });
+
+  it("while a handle is dragged, labels its value to 0.1 as the readout", () => {
+    const ring = draw(pumpkin, { readout: 1 }).rings;
+    expect(ring.map((r) => [r.label.text, r.label.at])).toEqual([
+      ["22.0 in", "at 7.2 in"],
+      ["32 in", "at 3 ⅝ in"],
+    ]);
+    expect(draw(pumpkin, { readout: 1 }).height!.label.text).toBe("height 9 in");
+    expect(draw(pumpkin, { readout: "height", units: "cm" }).height!.label.text).toBe("height 22.9 cm");
+    expect(draw({ ...pumpkin, height: 9.06 * IN }, { readout: "height" }).height!.label.text).toBe("height 9.1 in");
+    const ball = draw(ballMeasurements(30.3 * IN), { ball: true, readout: 0 });
+    expect(ball.rings[0].label.text).toBe("30.3 in");
   });
 
   it("draws the profile, with no banner, when it fits", () => {

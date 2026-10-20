@@ -1,4 +1,5 @@
 import { ringAt, type PumpkinMeasurements, type TemplateWarning, type Units } from "../core";
+import type { RingId, RingMeasurements } from "../ringEdits";
 import { lengthFields } from "./lengthFields";
 
 /** In mm: 9 in and 30 in. */
@@ -24,10 +25,15 @@ export interface SavedMeasurements {
 
 export interface MeasurementForm {
   /**
-   * Current measurements, in mm. Empty fields read as NaN so the builder reports them; ring rows left completely
-   * empty are skipped.
+   * Current measurements, in mm, each ring with its row's id. Empty fields read as NaN so the builder reports
+   * them; ring rows left completely empty are skipped.
    */
-  read(): PumpkinMeasurements;
+  read(): RingMeasurements;
+  /**
+   * Follow measurements edited elsewhere (e.g. a drag in the Blueprint view): the height, and each ring whose
+   * row has its id. Doesn't call `onChange`.
+   */
+  show(measurements: RingMeasurements): void;
   /** Show impossible-measurement warnings next to the height and the matching rings; clears the others. */
   showWarnings(warnings: TemplateWarning[]): void;
   /** Show every length (height and rings) in `units` display units. Doesn't call `onChange`. */
@@ -37,6 +43,8 @@ export interface MeasurementForm {
 }
 
 interface RingRow {
+  /** The ring's id in the shared measurement state. */
+  id: RingId;
   el: HTMLElement;
   name: HTMLElement;
   /** Height above the table. */
@@ -53,9 +61,13 @@ interface RingRow {
  * Measurement form: the height, and tape rings each at a height above the table. The display units are chosen in
  * the header and set with `setUnits`.
  * Ring heights are kept as fractions of the height, so changing the height keeps the rings in proportion.
- * Calls `onChange` with the current measurements on every edit.
+ * Calls `onChange` with the current measurements on every edit, and the ring edited (typed in or added; null for
+ * the height or a removed ring).
  */
-export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMeasurements) => void): MeasurementForm {
+export function mountMeasurementForm(
+  root: HTMLElement,
+  onChange: (m: RingMeasurements, edited: RingId | null) => void,
+): MeasurementForm {
   root.innerHTML = `
     <form class="measurements card" novalidate>
       <h2>Measurements</h2>
@@ -142,6 +154,7 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
       <div class="warning" id="r-${id}-warning" role="alert" hidden></div>
     `;
     const row: RingRow = {
+      id,
       el,
       name: el.querySelector<HTMLElement>(".ring-name")!,
       above: el.querySelector<HTMLInputElement>(`#r-${id}-h`)!,
@@ -161,7 +174,7 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
       rows.splice(rows.indexOf(row), 1);
       el.remove();
       refresh();
-      onChange(read());
+      onChange(read(), null);
     });
     rows.push(row);
     list.append(el);
@@ -185,12 +198,13 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
     }
   };
 
-  const read = (): PumpkinMeasurements => {
+  const read = (): RingMeasurements => {
     const filled = rows.filter((r) => r.above.value.trim() !== "" || r.circumference.value.trim() !== "");
     readRows = filled;
     return {
       height: height(),
       rings: filled.map((r) => ({
+        id: r.id,
         position: r.above.value.trim() === "" ? Number.NaN : r.position,
         circumference: lengths.value(r.circumference),
       })),
@@ -205,9 +219,10 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
     const position = largestGapMiddle(m);
     const circumference = ringAt(m, position);
     // Exact, so the shape doesn't change until the carver types a measurement (the field shows it rounded).
-    addRow(position, Number.isFinite(circumference) ? circumference : null).circumference.focus();
+    const row = addRow(position, Number.isFinite(circumference) ? circumference : null);
+    row.circumference.focus();
     refresh();
-    onChange(read());
+    onChange(read(), row.id);
   });
   form.addEventListener("input", (e) => {
     const target = e.target as HTMLInputElement;
@@ -215,12 +230,23 @@ export function mountMeasurementForm(root: HTMLElement, onChange: (m: PumpkinMea
     const row = rows.find((r) => r.above === target);
     if (row) row.position = heightOk() ? lengths.value(row.above) / height() : Number.NaN;
     refresh();
-    onChange(read());
+    onChange(read(), rows.find((r) => r.above === target || r.circumference === target)?.id ?? null);
   });
   form.addEventListener("submit", (e) => e.preventDefault());
 
   return {
     read,
+    show(m) {
+      if (Number.isFinite(m.height)) lengths.set(heightInput, m.height);
+      for (const ring of m.rings) {
+        const row = rows.find((r) => r.id === ring.id);
+        if (!row) continue;
+        if (Number.isFinite(ring.position)) row.position = ring.position;
+        if (Number.isFinite(ring.circumference)) lengths.set(row.circumference, ring.circumference);
+      }
+      followHeight();
+      refresh();
+    },
     setUnits: (next) => lengths.setUnits(next),
     restore({ height: savedHeight, rings }) {
       if (savedHeight !== undefined) {

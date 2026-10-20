@@ -877,6 +877,26 @@ body {
   pointer-events: none;
 }
 
+/* A handle's hit area: wider than its pill, invisible. */
+.bp-hit {
+  fill: transparent;
+  cursor: move;
+  touch-action: none;
+}
+
+.bp-hit[data-handle="height"] {
+  cursor: ns-resize;
+}
+
+.bp-hit[data-handle="ball"] {
+  cursor: ew-resize;
+}
+
+.bp-dragging,
+.bp-dragging .bp-hit {
+  cursor: grabbing;
+}
+
 /* Why there's no smooth profile, across the top (clear of the view switcher and the status badge). */
 .bp-banner {
   position: absolute;
