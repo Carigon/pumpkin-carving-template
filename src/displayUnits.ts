@@ -25,3 +25,19 @@ export function shownLength(mm: number, units: Units): string {
 export function formatLength(mm: number, units: Units): string {
   return `${shownLength(mm, units)} ${units}`;
 }
+
+/** Eighths of an inch as fraction glyphs. */
+const EIGHTHS = ["", "⅛", "¼", "⅜", "½", "⅝", "¾", "⅞"];
+
+/**
+ * A length in mm as read off a tape, with the unit: inches to the nearest ⅛ as a fraction (e.g. "32 ¾ in"),
+ * centimetres to 0.1 (e.g. "83.2 cm").
+ */
+export function tapeLength(mm: number, units: Units): string {
+  if (units === "cm") return `${fromMm(mm, units).toFixed(1)} cm`;
+  const eighths = Math.round(fromMm(mm, units) * 8);
+  const whole = Math.floor(eighths / 8);
+  const fraction = EIGHTHS[eighths - whole * 8];
+  if (!fraction) return `${whole} in`;
+  return whole === 0 ? `${fraction} in` : `${whole} ${fraction} in`;
+}

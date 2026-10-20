@@ -44,6 +44,17 @@ export interface ProfilePoint {
   height: number;
 }
 
+/** The pumpkin's profile fitted to its measurements, or why there is none. */
+export type ProfileFit =
+  | {
+      ok: true;
+      /** From stem to base, finely sampled: the same as `SurfaceParameters.profile`. */
+      profile: ProfilePoint[];
+      /** The profile's radius at a position (0 = bottom, 1 = top), in mm. */
+      radiusAt(position: number): number;
+    }
+  | { ok: false; warnings: MeasurementWarning[] };
+
 /** Derived surface parameters, for the preview and the PDF info block. Lengths in mm. */
 export interface SurfaceParameters {
   /** "ellipsoid" when the smoothest shape through the rings is one (e.g. a single ring at mid-height), else "revolved". */
@@ -88,7 +99,7 @@ export interface FrontLimitWarning {
   message: string;
 }
 
-/** Some design points fall outside the pumpkin's outline as seen from the front, so they have nowhere to land. */
+/** Some design points fall outside the pumpkin's profile as seen from the front, so they have nowhere to land. */
 export interface OutsideSilhouetteWarning {
   kind: "outside-silhouette";
   /** Number of design points that miss the pumpkin. */

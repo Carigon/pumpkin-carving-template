@@ -11,6 +11,8 @@ export interface Viewport {
   readonly canvas: HTMLCanvasElement;
   /** The Trace view's element, where the trace panel puts the crop image and the traced result. */
   readonly traceView: HTMLElement;
+  /** The Blueprint view's element, where the pumpkin's profile is drawn flat against a ruler. */
+  readonly blueprintView: HTMLElement;
   /** The Paper view's element, where the flat template is drawn on its pages. */
   readonly paperView: HTMLElement;
   /** Show a small status badge over the viewport (e.g. "Updating stretch tint…"); null hides it. */
@@ -29,6 +31,7 @@ export interface Viewport {
 /** The switcher's label for each view, in the order the switcher lists them. */
 const VIEW_LABELS: Record<View, string> = {
   "3d": "3D",
+  blueprint: "Blueprint",
   trace: "Trace",
   paper: "Paper",
 };
@@ -60,13 +63,14 @@ export function mountViewport(root: HTMLElement): Viewport {
         </summary>
         <ul class="legend-detail">
           <li>Gold: the design is past about 60° from the front, where the template is hard to follow.</li>
-          <li>Red dots: design points outside the pumpkin's outline seen from the front; they have nowhere to land.</li>
+          <li>Red dots: design points outside the pumpkin's profile seen from the front; they have nowhere to land.</li>
           <li>Crimson tint: where the paper has to stretch or squeeze to lie on the pumpkin (faint from about 3 %,
             solid from 15 %). Lines there won't land exactly. A smaller design or more, deeper slits reduce it.</li>
           <li>Drag to orbit, scroll to zoom.</li>
         </ul>
       </details>
     </div>
+    <div class="view view-blueprint" data-view="blueprint"></div>
     <div class="view view-trace" data-view="trace"></div>
     <div class="view view-paper" data-view="paper"></div>
     <div class="view-switcher" role="radiogroup" aria-label="View" hidden></div>
@@ -109,6 +113,7 @@ export function mountViewport(root: HTMLElement): Viewport {
   return {
     canvas: root.querySelector<HTMLCanvasElement>(".preview-canvas")!,
     traceView: views.trace,
+    blueprintView: views.blueprint,
     paperView: views.paper,
     setStatus(text) {
       status.textContent = text ?? "";

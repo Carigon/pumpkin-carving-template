@@ -23,10 +23,28 @@ describe("step model", () => {
   it.each([
     { mode: "pumpkin", tracing: false, hasImage: false, warnings: [] },
     { mode: "test-grid", tracing: false, hasImage: false, warnings: [] },
-  ] as const)("without an image Measure and Design/Grid show only the 3D view ($mode)", (state) => {
-    for (const step of steps(state).filter((s) => s.id !== "template")) {
-      expect(step.defaultView).toBe("3d");
-      expect(step.views).toEqual(["3d"]);
+  ] as const)("without an image Design/Grid shows only the 3D view ($mode)", (state) => {
+    const step = steps(state).find((s) => s.id === "design" || s.id === "grid")!;
+    expect(step.defaultView).toBe("3d");
+    expect(step.views).toEqual(["3d"]);
+  });
+
+  it.each([
+    { mode: "pumpkin", tracing: false, hasImage: false, warnings: [] },
+    { mode: "pumpkin", tracing: true, hasImage: true, warnings: [] },
+    { mode: "test-grid", tracing: false, hasImage: false, warnings: [] },
+  ] as const)("Measure opens on the Blueprint view and can switch to 3D ($mode)", (state) => {
+    const measure = steps(state).find((s) => s.id === "measure")!;
+    expect(measure.defaultView).toBe("blueprint");
+    expect(measure.views).toEqual(["3d", "blueprint"]);
+  });
+
+  it.each([
+    { mode: "pumpkin", tracing: true, hasImage: true, warnings: [] },
+    { mode: "test-grid", tracing: false, hasImage: false, warnings: [] },
+  ] as const)("only the Measure step offers Blueprint ($mode)", (state) => {
+    for (const step of steps(state).filter((s) => s.id !== "measure")) {
+      expect(step.views).not.toContain("blueprint");
     }
   });
 

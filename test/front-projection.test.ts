@@ -133,7 +133,7 @@ describe.each([
     it("are reported, counted, and left off the surface while the rest still project", () => {
       const { design, warnings } = buildTemplate({
         measurements: sphere,
-        // A diamond whose left and right tips (x = ±12 in) fall outside the sphere's outline (radius R ≈ 9.55 in).
+        // A diamond whose left and right tips (x = ±12 in) fall outside the sphere's profile (radius R ≈ 9.55 in).
         design: designOf([[-12, 0], [0, -1], [12, 0], [0, 1]]),
         placement: { width: 24 * IN, verticalOffset: 0, rotation: 0 },
       });
@@ -146,7 +146,7 @@ describe.each([
       const points = design!.paths[0].points;
       expect(points.map((p) => p.surface === null)).toEqual([true, false, true, false]);
       expect(points[0].angleFromFront).toBeNull();
-      // The drawn line misses along the stretches past the outline too, but the count stays with the design's own points.
+      // The drawn line misses along the stretches past the profile too, but the count stays with the design's own points.
       expect(design!.paths[0].line.filter((p) => p.surface === null).length).toBeGreaterThan(2);
     });
 

@@ -14,15 +14,21 @@ PDF page layout and tiling (`test/pdf-layout.test.ts`), raster preparation befor
 (`test/raster-prep.test.ts`), settings storage (`test/settings.test.ts`), the calibration grid's PDF
 export (`test/calibration-grid.test.ts`), the unit-switching length fields
 (`test/length-fields.test.ts`), the step model `steps` (`test/steps.test.ts`, `test/step-badges.test.ts`) and
-the Paper view's geometry `paperView` (`test/paper-view.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
+the Paper view's geometry `paperView` (`test/paper-view.test.ts`), the Blueprint view's geometry `blueprintView`
+(`test/blueprint-view.test.ts`) and the ring-edit rules that drags and typed values share (`dragRing`,
+`dragHeight`, `dragBall`, `sortRings`, `canInsert`, `insertRing`, `deleteRing`, `nudgeLength` in `src/ringEdits.ts`: `test/ring-edits.test.ts`; the Measure form's typed
+values, `typeRingHeight`, `typeCircumference` and `typeHeight`: `test/typed-edits.test.ts`; and which of its rows a
+measurement warning marks, `placeMeasureWarnings`: `test/measure-warnings.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).
 
 ## Decision
 
 - Core geometry is tested only through `buildTemplate`. No test imports from `src/core/` other than
-  its public index. `nextRing` (the ring the form adds, read off the current fit) is part of that public
-  index and is tested there: where it puts the ring, and that `buildTemplate`'s shape doesn't change when it is
-  added. `createTemplateBuilder` (the same build, keeping the fitted surface between calls, plus the quick
+  its public index. `fitProfile` (the profile alone, with no mesh, quick enough to refit during a drag) is part
+  of that public index and is tested there: its profile and warnings match `buildTemplate`'s. So is `ringAt`
+  (the circumference a new ring at a given height takes, read off the current fit): that `buildTemplate`'s shape
+  doesn't change when such a ring is added, and that it blends the neighbouring rings when nothing fits. Where a
+  new ring goes is the caller's choice. `createTemplateBuilder` (the same build, keeping the fitted surface between calls, plus the quick
   projection-only preview) is in the index too; its tests check it matches `buildTemplate` and when the mesh is reused.
 - Thin, pure helpers in the layers around the core (input, PDF layout, settings, small UI helpers)
   may have direct unit tests at their own public functions, as long as those tests check behaviour
