@@ -41,6 +41,8 @@ const HIT_RADIUS = 22;
 const THAW_MS = 220;
 /** While an arrow key is held, the 3D view and the template rebuild at most this often, ms. */
 const NUDGE_REBUILD_MS = 250;
+/** A run of nudges ends this long after the last one if no key release ends it first, ms. */
+const NUDGE_IDLE_MS = 600;
 /** How long the live region waits for held keys to settle before reading out, ms. */
 const ANNOUNCE_MS = 400;
 /** How long a refused insert or delete's note stays up, ms. */
@@ -91,8 +93,9 @@ interface Drag {
  * Clicking a ring's line or label selects it (as does dragging its handle); the selected ring shows a × that
  * deletes it, asking first. Hovering a gap shows where a ring would go, and clicking adds it there.
  * The view is one Tab stop: Page Up / Page Down move the selection through the height line and the rings, the
- * arrows nudge it by one snap step, Delete deletes the selected ring without asking, Escape clears the selection,
- * and a polite live region reads out the selection and nudged values.
+ * arrows nudge it by one snap step (a held key holds the scale still, as a drag does), Delete deletes the
+ * selected ring without asking, Escape clears the selection, and a polite live region reads out the selection
+ * and nudged values.
  * Zoom (0.25× to 1×, anchored at the bottom middle) comes from the stacked buttons, the scroll wheel and the +/−
  * keys while the view has focus; it isn't saved. The geometry is `blueprintView`; this only draws it as SVG at
  * the element's size in px and handles the pointer and keys.
@@ -245,10 +248,32 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     announce(next === null ? "Ring deleted" : `Ring deleted. ${describe(next)}`);
   };
 
-  // Nudges: each one shows at once; the 3D view and the template rebuild at most every `NUDGE_REBUILD_MS`.
+  // Nudges: each one shows at once; the 3D view and the template rebuild at most every `NUDGE_REBUILD_MS`. Like a
+  // drag, a run of nudges (a held arrow key) holds the scale still, easing to the new fit when it ends: on the
+  // key's release, or after `NUDGE_IDLE_MS` with no nudge if the release never comes here (e.g. focus left).
   let lastRebuild = 0;
   let rebuildTimer = 0;
+  let nudging = false;
+  let nudgeIdle = 0;
+  const endNudges = () => {
+    window.clearTimeout(nudgeIdle);
+    if (!nudging) return;
+    nudging = false;
+    // A drag begun meanwhile holds the scale until it ends.
+    if (!drag) thawScale();
+  };
+  const holdScaleForNudges = () => {
+    if (!nudging) {
+      cancelAnimationFrame(thaw);
+      // Mid-ease, hold where it got to.
+      heldScale ??= Number.isFinite(shownScale) ? shownScale : null;
+      nudging = true;
+    }
+    window.clearTimeout(nudgeIdle);
+    nudgeIdle = window.setTimeout(endNudges, NUDGE_IDLE_MS);
+  };
   const nudged = (edit: RingEdit, edited: RingId | null, readout: string) => {
+    holdScaleForNudges();
     const patch = editPatch(edit.measurements, edited);
     window.clearTimeout(rebuildTimer);
     const since = performance.now() - lastRebuild;
@@ -493,6 +518,11 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     } else return;
     e.preventDefault();
   });
+  // Letting go of an arrow key (or leaving the view) ends a run of nudges.
+  svg.addEventListener("keyup", (e) => {
+    if (e.key.startsWith("Arrow")) endNudges();
+  });
+  svg.addEventListener("blur", endNudges);
   new ResizeObserver(render).observe(svg);
 
   return {
