@@ -24,7 +24,7 @@ import type { DocumentLayout, Mark } from "./layout";
 export async function renderPdf(layout: DocumentLayout): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(layout.title);
-  doc.setCreator("sphereprojection");
+  doc.setCreator("pumpkin-carving-template");
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
