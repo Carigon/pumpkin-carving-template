@@ -1,0 +1,2 @@
+# Keep LF in the working tree on Windows too, so diffs and scripted edits see one line ending.
+* text=auto eol=lf
