@@ -34,6 +34,16 @@ _Avoid_: Aspect ratio, proportions
 The ring most recently dragged, nudged, typed in or added. When no smooth profile passes through the rings, the failure is blamed on it; after a page load there is none, and nothing is blamed.
 _Avoid_: Active ring, current ring, last ring (the ring that can't be deleted)
 
+## Design
+
+**Auto-trace**:
+Turning a photo or scanned stencil into a design automatically, by finding its dark areas.
+_Avoid_: Trace (on its own), vectorize
+
+**Hand-trace**:
+Building a design by placing points around each carve area over a photo, starting from nothing.
+_Avoid_: Manual trace, drawing, outlining
+
 ## Viewport
 
 **View**:
