@@ -210,7 +210,7 @@ describe("the ring at a height", () => {
   });
 
   it.each([
-    ["the default ring", { height: 9 * IN, rings: [{ position: 0.5, circumference: 30 * IN }] } as PumpkinMeasurements],
+    ["the default ring", { height: 9 * IN, rings: [{ position: 0.5, circumference: 30 * IN }] }],
     ...pumpkins,
   ])("added to the rings, doesn't change the shape (%s)", (_name, m) => {
     const before = buildTemplate({ measurements: m }).surface!;

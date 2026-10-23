@@ -1,7 +1,7 @@
 import type { TemplateWarning } from "../core";
 
 /** Which panel shows each kind of warning (measurement warnings sit next to their own field instead). */
-export const WARNING_PANEL: Record<TemplateWarning["kind"], "measurements" | "design" | "slits"> = {
+const WARNING_PANEL: Record<TemplateWarning["kind"], "measurements" | "design" | "slits"> = {
   "impossible-measurement": "measurements",
   "outside-silhouette": "design",
   "past-front-limit": "design",

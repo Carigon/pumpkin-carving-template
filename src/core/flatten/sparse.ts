@@ -8,7 +8,7 @@ export interface CsrMatrix {
 
 /** Accumulates entries (duplicates add up), then freezes them into CSR. */
 export function sparseBuilder(n: number) {
-  const rows: Map<number, number>[] = Array.from({ length: n }, () => new Map());
+  const rows: Map<number, number>[] = Array.from({ length: n }, () => new Map<number, number>());
   return {
     add(i: number, j: number, v: number) {
       rows[i].set(j, (rows[i].get(j) ?? 0) + v);

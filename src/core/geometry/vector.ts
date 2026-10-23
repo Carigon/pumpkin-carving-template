@@ -5,8 +5,6 @@ import type { Point2 } from "../types";
 
 export const distance = (a: Point2, b: Point2): number => Math.hypot(a.x - b.x, a.y - b.y);
 
-export const midpoint = (a: Point2, b: Point2): Point2 => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-
 /** Average of the points. */
 export function centroid(points: Point2[]): Point2 {
   const n = points.length || 1;

@@ -52,7 +52,7 @@ describe("settings", () => {
     const storage = memoryStorage();
     saveSettings(storage, full);
     expect(Object.keys(storage.data)).toEqual([KEY]);
-    const stored = JSON.parse(storage.data[KEY]);
+    const stored = JSON.parse(storage.data[KEY]) as Settings;
     expect(stored.measurements.height).toBe(250);
     expect(stored.cut.margin).toBe(25);
     expect(stored.units).toBe("cm");

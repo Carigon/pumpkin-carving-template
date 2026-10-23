@@ -17,7 +17,7 @@ export interface SlitPlanOptions {
 }
 
 /** Candidate slits tried for each new slit, spread evenly around the cut-out edge. */
-export const CANDIDATES = 8;
+const CANDIDATES = 8;
 /** Moving a slit's start along the edge costs this much per unit length, against 1 for running through the paper. */
 const SHIFT_COST = 0.5;
 /** A slit's path through the paper may be at most this many times the depth, so it can't snake along gaps. */

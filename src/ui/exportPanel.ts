@@ -58,8 +58,7 @@ export function mountExportPanel(root: HTMLElement, units: () => Units, onChange
     status.textContent = message;
   };
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
+  async function exportPdf() {
     // The template as it was when the button was pressed, even if an edit comes in while pdf-lib loads.
     const current = source;
     if (!current || exporting) return;
@@ -80,6 +79,10 @@ export function mountExportPanel(root: HTMLElement, units: () => Units, onChange
       exporting = false;
       refreshButton();
     }
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    void exportPdf();
   });
 
   form.addEventListener("change", () => onChange());

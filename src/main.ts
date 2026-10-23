@@ -89,7 +89,7 @@ const blueprint = mountBlueprintView(viewport.blueprintView, {
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
 const slitPanel = mountSlitPanel($("slits"), update);
-const exportPanel = mountExportPanel($("export"), header.units, changePaper);
+const exportPanel = mountExportPanel($("export"), () => header.units(), changePaper);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs
 // (file, tracing, width) hide; move up/down and rotation apply to the grid too.
 const designStep = $("step-design");

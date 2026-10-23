@@ -15,7 +15,7 @@ export const circle = (cx: number, cy: number, r: number): [number, number][] =>
   Array.from({ length: 24 }, (_, k) => [cx + r * Math.cos((k * Math.PI) / 12), cy + r * Math.sin((k * Math.PI) / 12)]);
 
 /** Even-odd point-in-polygon test. */
-export function insidePolygon(p: Point2, polygon: Point2[]): boolean {
+function insidePolygon(p: Point2, polygon: Point2[]): boolean {
   let inside = false;
   polygon.forEach((a, i) => {
     const b = polygon[(i + 1) % polygon.length];
@@ -61,7 +61,7 @@ export const onSphere = (angle: number, heading: number): [number, number] => [
   R * Math.sin(angle) * Math.sin(heading),
 ];
 /** A small round carve area about 0.6 in across, `angle` from the front of `sphere` along `heading`. */
-export const dot = (angle: number, heading: number): [number, number][] => {
+const dot = (angle: number, heading: number): [number, number][] => {
   const [cx, cy] = onSphere(angle, heading);
   return circle(cx, cy, 0.3 * IN);
 };
