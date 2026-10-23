@@ -8,7 +8,7 @@ import type { Paper } from "../paper";
  * only change what goes on which page, not how it is drawn.
  */
 
-export const PAPER_SIZES: Record<Paper, [number, number]> = {
+const PAPER_SIZES: Record<Paper, [number, number]> = {
   letter: [612, 792],
   a4: [595.28, 841.89],
 };

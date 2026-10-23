@@ -2,10 +2,12 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+**History lives in the archived repo.** The project moved to `Carigon/pumpkin-carving-template` in October 2026. Every spec, ticket and decision before that (issues and PRs #1–#60, which commit messages, comments and ADRs cite by number) is in the read-only `Carigon/sphereprojection`: read those with `--repo Carigon/sphereprojection`. New issues go in this repo, whose numbering restarts at #1.
+
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
+- **Create an issue**: write the body to a file in your scratchpad with the Write tool, then `gh issue create --title "..." --body-file <path>`.
+- **Read an issue**: `gh issue view <number> --json title,body,state,labels,comments` (`--json` and `--comments` can't be combined).
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`

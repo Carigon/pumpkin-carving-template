@@ -23,7 +23,7 @@ const input: TemplateInput = {
 describe("the template builder", () => {
   it("builds the same template as buildTemplate", () => {
     expect(createTemplateBuilder().build(input)).toEqual(buildTemplate(input));
-  }, 30_000);
+  });
 
   it("builds in steps, reporting each slit as it is placed, to the same template", () => {
     const slitted: TemplateInput = { measurements: sphere, ...ring(30, between), slits: { count: 2, depth: 2 * IN } };
@@ -35,7 +35,7 @@ describe("the template builder", () => {
     expect(progress).toEqual([{ slits: 1 }, { slits: 2 }]);
     expect(next.value).toEqual(buildTemplate(slitted));
     expect(next.value.template!.slits).toHaveLength(2);
-  }, 30_000);
+  });
 
   it("previews the projected design without flattening it", () => {
     const full = buildTemplate(input);

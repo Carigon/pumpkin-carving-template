@@ -144,7 +144,7 @@ export function* flattenDesign({ surface, projection, center, paths, margin, sli
 }
 
 /** The design paths plus the design center, which the paper must cover for the center cross. */
-export function withCenter(paths: Point2[][]): Point2[][] {
+function withCenter(paths: Point2[][]): Point2[][] {
   return [...paths, [{ x: 0, y: 0 }]];
 }
 

@@ -4,7 +4,7 @@ Status: accepted
 
 ## Context
 
-The spec names one test seam: the template builder (`buildTemplate`). Every core geometry test goes
+The spec (issue #1 in the archived `Carigon/sphereprojection`) names one test seam: the template builder (`buildTemplate`). Every core geometry test goes
 through it and checks only its output, so the mesh, the ARAP solver, the ellipsoid fit, the cut-out
 edge and slit placement can be rewritten freely. The spec also lists PDF layout, the UI and tracing as
 "not tested automatically".

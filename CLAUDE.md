@@ -8,11 +8,13 @@ Node is managed by **fnm** (installed via Chocolatey). The version is pinned in 
 
 Shell state doesn't persist between tool calls, so prefix every node/npm command. If `fnm use` says the version isn't installed, run `fnm install` (reads `.node-version`).
 
+`npm run check` is the full gate CI runs on PRs; the pre-commit hook runs its fast half, `npm run check:static`.
+
 ## Agent skills
 
 ### Issue tracker
 
-Issues and specs live in this repo's GitHub Issues (via `gh`). See `docs/agents/issue-tracker.md`.
+GitHub Issues via `gh`; history before October 2026 is in an archived repo. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

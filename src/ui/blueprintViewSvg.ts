@@ -197,7 +197,7 @@ export function mountBlueprintView(root: HTMLElement, options: BlueprintOptions)
     announceTimer = window.setTimeout(() => {
       // A trailing no-break space every other time, so the same words twice still change and are read twice.
       toggle = !toggle;
-      live.textContent = toggle ? text : `${text} `;
+      live.textContent = toggle ? text : text + String.fromCharCode(0xa0);
     }, ANNOUNCE_MS);
   };
   const describe = (selected: Selection) => {

@@ -101,7 +101,7 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
     onChange,
   );
 
-  file.addEventListener("change", async () => {
+  async function load() {
     const f = file.files?.[0];
     if (!f) return;
     if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
@@ -117,7 +117,8 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
     const count = read ? `${read.paths.length} shape${read.paths.length === 1 ? "" : "s"} loaded.` : "";
     showStatus([count, ...notes].filter(Boolean).join(" "), read === null);
     onChange();
-  });
+  }
+  file.addEventListener("change", () => void load());
   rotationRange.addEventListener("input", () => {
     rotation.value = rotationRange.value;
   });

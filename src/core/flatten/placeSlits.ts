@@ -16,7 +16,7 @@ const AUTO_TARGET = 0.03;
 /** ...or the next slit lowers the RMS stretch by less than this fraction... */
 const AUTO_MIN_GAIN = 0.03;
 /** ...or it has placed this many. */
-export const MAX_SLITS = 24;
+const MAX_SLITS = 24;
 /** ARAP iterations when scoring a candidate slit, warm-started from the layout without it. */
 const TRIAL_ITERATIONS = 5;
 

@@ -1,7 +1,7 @@
 import type { ProjectedDesign, TemplateWarning } from "../types";
 
 /** Beyond this angle from the front, the design is badly foreshortened on the skin. */
-export const FRONT_LIMIT_DEGREES = 60;
+const FRONT_LIMIT_DEGREES = 60;
 
 /** Warnings about where the projected design lands. */
 export function designWarnings(design: ProjectedDesign): TemplateWarning[] {
