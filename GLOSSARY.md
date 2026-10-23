@@ -44,10 +44,18 @@ _Avoid_: Trace (on its own), vectorize
 Building a design by placing points around each carve area over a photo, starting from nothing.
 _Avoid_: Manual trace, drawing, outlining
 
+**Tracing method**:
+Auto-trace or hand-trace: how the loaded photo becomes the design, chosen per photo. The design is the chosen method's result; the other method's work is kept, not used.
+_Avoid_: Trace mode, trace type
+
 ## Viewport
 
 **View**:
-One of the ways the viewport shows the work: 3D, Trace, Blueprint or Paper.
+One of the ways the viewport shows the work: 3D, Photo, Blueprint or Paper.
+
+**Photo view**:
+The view showing the loaded photo with the chosen tracing method's work on it: the crop and result for auto-trace, the points being placed for hand-trace.
+_Avoid_: Trace view
 
 **Blueprint view**:
 The view for editing the pumpkin's shape directly: the profile drawn flat on both sides against a ruler, with each ring as a line you can drag.
