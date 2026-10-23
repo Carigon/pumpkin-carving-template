@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fast checks before every commit; the slow test suite runs in CI (.github/workflows/check.yml).
+# Node comes from fnm, which agent shells and GUI git clients don't load, so activate it here.
+if ! command -v npm >/dev/null 2>&1 && command -v fnm >/dev/null 2>&1; then
+  eval "$(fnm env --shell bash)" && fnm use --silent-if-unchanged >/dev/null
+fi
+npm run --silent check:static

@@ -25,7 +25,7 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm run check
       # Pages serves the site under /<repo-name>/, so asset URLs need that prefix.
       - run: npm run build -- --base=/${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v5
