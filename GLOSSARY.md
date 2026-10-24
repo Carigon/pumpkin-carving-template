@@ -44,6 +44,27 @@ _Avoid_: Trace (on its own), vectorize
 Building a design by placing points around each carve area over a photo, starting from nothing.
 _Avoid_: Manual trace, drawing, outlining
 
+**Carve area**:
+A region of the design that gets cut out of the pumpkin. One carve area can come from several shapes: an eye shape with a pupil shape inside it is one ring-shaped carve area.
+_Avoid_: Hole, cut-out
+
+**Shape**:
+One run of points the carver draws in a hand-trace, open while it's being drawn and closed once finished. A shape drawn inside another keeps that part uncarved.
+_Avoid_: Path, outline, contour
+
+**Point**:
+One place a shape's edge passes through, placed by the carver.
+_Avoid_: Anchor, node, vertex
+
+**Corner point**:
+A point where the edge may change direction sharply. For now every point is a corner point and every edge between points is straight.
+
+**Smooth point**:
+A point the edge passes through without a kink, its two handles on one line. Not yet available.
+
+**Handle**:
+A control pulled out of a point that sets which way, and how far, the edge curves as it leaves the point. Not yet available.
+
 **Tracing method**:
 Auto-trace or hand-trace: how the loaded photo becomes the design, chosen per photo. The design is the chosen method's result; the other method's work is kept, not used.
 _Avoid_: Trace mode, trace type
