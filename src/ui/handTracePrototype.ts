@@ -884,7 +884,10 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     renderAll();
   }).observe(svg);
 
-  function setPhoto(src: CanvasImageSource & { width: number; height: number }): void {
+  /** What the shapes are traced over: the sample drawing, a blank page, or a photo loaded in the Design step. */
+  let base: "sample" | "blank" | "photo" = params.get("base") === "blank" ? "blank" : "sample";
+  /** Swapping between the sample and the blank page (same size) keeps the shapes; a new photo clears them. */
+  function setPhoto(src: CanvasImageSource & { width: number; height: number }, keep = false): void {
     const k = Math.min(1, MAX_PHOTO / Math.max(src.width, src.height));
     const c = document.createElement("canvas");
     c.width = Math.max(1, Math.round(src.width * k));
@@ -894,6 +897,10 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     photoImg.setAttribute("href", c.toDataURL("image/jpeg", 0.9));
     photoImg.setAttribute("width", String(W));
     photoImg.setAttribute("height", String(H));
+    if (keep) {
+      log(`now tracing over: ${base}`);
+      return renderAll();
+    }
     shapes = [];
     undoStack = [];
     redoStack = [];
@@ -906,7 +913,11 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     log(`photo ${W}×${H} loaded`);
     renderAll();
   }
-  window.addEventListener("prototype-photo", (e) => setPhoto((e as CustomEvent<ImageBitmap>).detail));
+  window.addEventListener("prototype-photo", (e) => {
+    base = "photo";
+    setParam("base", null);
+    setPhoto((e as CustomEvent<ImageBitmap>).detail);
+  });
 
   // ---- Rendering -------------------------------------------------------------------------------------------
   const axisShown = () => {
@@ -1068,8 +1079,9 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     noteEl.hidden = open === 0;
     noteEl.textContent = `${open} shape${open === 1 ? " isn't" : "s aren't"} closed and won't be carved`;
 
-    bar.innerHTML = `<button type="button" data-bar="prev">‹</button><span>${variant} · ${VARIANTS[variant].name}</span>
+    bar.innerHTML = `<button type="button" data-bar="prev">‹</button><span class="ht-bar-name">${variant} · ${VARIANTS[variant].name}</span>
       <button type="button" data-bar="next">›</button><button type="button" data-bar="full" title="Full screen">${full ? "⤡" : "⤢"}</button>
+      <button type="button" data-bar="base" title="What to trace over">${base === "blank" ? "Sample" : "Blank"}</button>
       <button type="button" data-bar="tune" title="Tune">⚙</button><button type="button" data-bar="info" title="State">ⓘ</button>`;
   }
 
@@ -1167,7 +1179,12 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       });
       renderAll();
     } else if (act === "tune") tuneEl.hidden = !tuneEl.hidden;
-    else if (act === "info") {
+    else if (act === "base") {
+      const keep = base !== "photo";
+      base = base === "blank" ? "sample" : "blank";
+      setParam("base", base === "blank" ? "blank" : null);
+      setPhoto(base === "blank" ? blankPage() : samplePhoto(), keep);
+    } else if (act === "info") {
       showDetail = !showDetail;
       stateEl.classList.toggle("detail", showDetail);
       renderAll();
@@ -1218,7 +1235,21 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     location.reload();
   });
 
-  setPhoto(samplePhoto());
+  setPhoto(base === "blank" ? blankPage() : samplePhoto());
+}
+
+/** A blank page the sample's size, with a faint grid so panning and zooming still read. */
+function blankPage(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  [c.width, c.height] = [1200, 1500];
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#fbfaf7";
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = "#ebe7de";
+  g.lineWidth = 2;
+  for (let x = 0; x <= c.width; x += 100) g.strokeRect(x, -1, 0, c.height + 2);
+  for (let y = 0; y <= c.height; y += 100) g.strokeRect(-1, y, c.width + 2, 0);
+  return c;
 }
 
 /** Distance from `p` to the segment `a`–`b`. */
@@ -1349,8 +1380,9 @@ function injectStyle(): void {
   .ht-proto-bar { position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex;
     align-items: center; gap: 4px; padding: 3px 6px; border-radius: 18px; background: #6d28d9; color: #fff;
     box-shadow: 0 2px 10px rgb(0 0 0 / 0.4); font: 12px system-ui, sans-serif; white-space: nowrap; }
+  .ht-bar-name { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; }
   .ht-proto-bar button { font: inherit; font-size: 15px; color: #fff; background: rgb(255 255 255 / 0.15); border: 0;
-    border-radius: 12px; min-width: 30px; height: 28px; touch-action: manipulation; }
+    border-radius: 12px; min-width: 30px; height: 28px; padding: 0 6px; touch-action: manipulation; }
   .ht-state { position: fixed; top: 44px; left: 6px; z-index: 99; max-width: calc(100vw - 12px); padding: 2px 8px;
     border-radius: 8px; background: rgb(109 40 217 / 0.85); color: #fff; font: 11px ui-monospace, monospace;
     pointer-events: none; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
