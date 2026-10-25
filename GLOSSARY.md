@@ -65,6 +65,26 @@ A point the edge passes through without a kink, its two handles on one line. Not
 **Handle**:
 A control pulled out of a point that sets which way, and how far, the edge curves as it leaves the point. Not yet available.
 
+**Open shape**:
+A shape that isn't closed. It's kept, but it isn't carved until the carver closes it.
+_Avoid_: Unfinished shape, path
+
+**Shape being drawn**:
+The one shape new points are added to in draw mode, from its first point until the carver closes it or ends it open. At most one at a time.
+_Avoid_: Current shape, active shape
+
+**Draw mode**:
+The hand-trace mode for placing points: each tap adds a point to the shape being drawn, or starts a new one. Other shapes can't be selected or changed.
+_Avoid_: Pen mode, pen tool
+
+**Edit mode**:
+The hand-trace mode for changing what's already drawn: selecting, moving, inserting and deleting points and shapes. No new points are placed by tapping.
+_Avoid_: Select mode, node tool
+
+**Insert marker**:
+The small target in the middle of each edge of the selected shape that adds a point there when tapped or dragged.
+_Avoid_: Midpoint handle (a handle shapes a curve)
+
 **Tracing method**:
 Auto-trace or hand-trace: how the loaded photo becomes the design, chosen per photo. The design is the chosen method's result; the other method's work is kept, not used.
 _Avoid_: Trace mode, trace type
