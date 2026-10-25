@@ -311,6 +311,19 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   function closeShape(how: string): void {
     const s = drawing();
     if (!s || s.points.length < 3) return void (log(`${how} → can't close (needs 3 points)`), renderAll());
+    // A mirrored shape whose closed outline runs along the axis (two points in a row on it, the closing edge
+    // included) is half of one symmetric shape, wherever it was started: start the half just after that edge,
+    // so it runs axis to axis, and the edge drops out when the reflection joins on.
+    const n = s.points.length;
+    const along = s.mirror === "twin" ? s.points.findIndex((p, i) => onAxis(p) && onAxis(s.points[(i + 1) % n])) : -1;
+    if (along >= 0) {
+      return change(`${how} → close #${s.id} with an edge on the axis → symmetric`, () => {
+        s.points = [...s.points.slice(along + 1), ...s.points.slice(0, along + 1)];
+        s.mirror = "symmetric";
+        s.closed = true;
+        drawingId = null;
+      });
+    }
     change(`${how} → close #${s.id}${s.mirror === "twin" ? " as twin" : ""}`, () => {
       s.closed = true;
       drawingId = null;
