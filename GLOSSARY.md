@@ -85,8 +85,16 @@ _Avoid_: Select mode, node tool
 The small target in the middle of each edge of the selected shape that adds a point there when tapped or dragged.
 _Avoid_: Midpoint handle (a handle shapes a curve)
 
+**Cleanup**:
+Straightening, cropping and toning the loaded photo before it's traced. Its straightening and cropping are shared by both tracing methods; its toning only changes what a hand-trace is placed over.
+_Avoid_: Preprocessing, photo editing
+
+**Frame**:
+The four-sided outline the carver drags onto the photo during cleanup; what's inside it, squared up, becomes the cleaned-up photo. Its handles are the frame corners.
+_Avoid_: Quad, crop box, corners (a corner point belongs to a shape)
+
 **Symmetry axis**:
-The fixed vertical line through the centre of the photo, as cleaned up, that mirrored shapes are reflected about.
+The fixed vertical line through the centre of the cleaned-up photo that mirrored shapes are reflected about.
 _Avoid_: Mirror line, centre line
 
 **Symmetry**:
@@ -118,7 +126,7 @@ _Avoid_: Trace mode, trace type
 One of the ways the viewport shows the work: 3D, Photo, Blueprint or Paper.
 
 **Photo view**:
-The view showing the loaded photo with the chosen tracing method's work on it: the crop and result for auto-trace, the points being placed for hand-trace.
+The view showing the loaded photo: its cleanup, then the chosen tracing method's work on the cleaned-up photo (the result for auto-trace, the points being placed for hand-trace).
 _Avoid_: Trace view
 
 **Blueprint view**:
