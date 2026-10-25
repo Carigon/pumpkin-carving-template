@@ -14,6 +14,7 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
+import { mountHandTracePrototype } from "./ui/handTracePrototype";
 import {
   createMeasureStore,
   editPatch,
@@ -88,6 +89,8 @@ const blueprint = mountBlueprintView(viewport.blueprintView, {
 });
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
+// PROTOTYPE (#14): hand-tracing by touch over the loaded photo.
+mountHandTracePrototype(viewport.handTraceView);
 const slitPanel = mountSlitPanel($("slits"), update);
 const exportPanel = mountExportPanel($("export"), () => header.units(), changePaper);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs

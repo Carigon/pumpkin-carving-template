@@ -4,8 +4,29 @@
     {
       "name": "dev",
       "runtimeExecutable": "fnm",
-      "runtimeArgs": ["exec", "node", "node_modules/vite/bin/vite.js", "--port", "5173", "--strictPort"],
+      "runtimeArgs": [
+        "exec",
+        "node",
+        "node_modules/vite/bin/vite.js",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
       "port": 5173
+    },
+    {
+      "name": "dev-lan",
+      "runtimeExecutable": "fnm",
+      "runtimeArgs": [
+        "exec",
+        "node",
+        "node_modules/vite/bin/vite.js",
+        "--host",
+        "--port",
+        "5174",
+        "--strictPort"
+      ],
+      "port": 5174
     }
   ]
 }

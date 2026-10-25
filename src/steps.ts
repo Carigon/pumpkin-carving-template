@@ -11,7 +11,7 @@ export type Mode = "pumpkin" | "test-grid";
 export type StepId = "measure" | "design" | "grid" | "template";
 
 /** What the viewport can show. */
-export type View = "3d" | "blueprint" | "trace" | "paper";
+export type View = "3d" | "blueprint" | "trace" | "paper" | "handtrace";
 
 export interface Step {
   id: StepId;
@@ -66,9 +66,9 @@ function designStep(state: StepState): StepViews {
   return {
     id: "design",
     title: "Design",
-    defaultView: state.tracing ? "trace" : "3d",
-    // Trace only while there's an image to show, so the switcher never lands on an empty view.
-    views: state.tracing || state.hasImage ? ["3d", "trace"] : ["3d"],
+    // PROTOTYPE (#14): the Hand-trace view, always offered (a sample photo stands in) and shown first.
+    defaultView: "handtrace",
+    views: state.tracing || state.hasImage ? ["handtrace", "3d", "trace"] : ["handtrace", "3d"],
   };
 }
 

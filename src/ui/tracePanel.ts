@@ -218,6 +218,8 @@ export function mountTracePanel(
         return;
       }
       root.hidden = false;
+      // PROTOTYPE (#14): hand the photo to the Hand-trace view.
+      window.dispatchEvent(new CustomEvent("prototype-photo", { detail: image }));
       const scale = Math.min(1, 1200 / Math.max(image.width, image.height));
       cropCanvas.width = Math.max(1, Math.round(image.width * scale));
       cropCanvas.height = Math.max(1, Math.round(image.height * scale));

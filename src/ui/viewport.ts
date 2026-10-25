@@ -15,6 +15,8 @@ export interface Viewport {
   readonly blueprintView: HTMLElement;
   /** The Paper view's element, where the flat template is drawn on its pages. */
   readonly paperView: HTMLElement;
+  /** PROTOTYPE (#14): the Hand-trace view's element. */
+  readonly handTraceView: HTMLElement;
   /** Show a small status badge over the viewport (e.g. "Updating stretch tint…"); null hides it. */
   setStatus(text: string | null): void;
   /** Show a placeholder message over the 3D view; null hides it. */
@@ -30,6 +32,7 @@ export interface Viewport {
 
 /** The switcher's label for each view, in the order the switcher lists them. */
 const VIEW_LABELS: Record<View, string> = {
+  handtrace: "Hand-trace",
   "3d": "3D",
   blueprint: "Blueprint",
   trace: "Trace",
@@ -73,6 +76,7 @@ export function mountViewport(root: HTMLElement): Viewport {
     <div class="view view-blueprint" data-view="blueprint"></div>
     <div class="view view-trace" data-view="trace"></div>
     <div class="view view-paper" data-view="paper"></div>
+    <div class="view view-handtrace" data-view="handtrace"></div>
     <div class="view-switcher" role="radiogroup" aria-label="View" hidden></div>
     <div class="status-badge" role="status" hidden></div>
   `;
@@ -115,6 +119,7 @@ export function mountViewport(root: HTMLElement): Viewport {
     traceView: views.trace,
     blueprintView: views.blueprint,
     paperView: views.paper,
+    handTraceView: views.handtrace,
     setStatus(text) {
       status.textContent = text ?? "";
       status.hidden = text === null;
