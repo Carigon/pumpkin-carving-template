@@ -85,6 +85,29 @@ _Avoid_: Select mode, node tool
 The small target in the middle of each edge of the selected shape that adds a point there when tapped or dragged.
 _Avoid_: Midpoint handle (a handle shapes a curve)
 
+**Symmetry axis**:
+The fixed vertical line through the centre of the photo, as cleaned up, that mirrored shapes are reflected about.
+_Avoid_: Mirror line, centre line
+
+**Symmetry**:
+The hand-trace setting that makes each shape started while it's on a mirrored shape. Turning it on or off never changes shapes already drawn.
+_Avoid_: Mirror mode
+
+**Mirrored shape**:
+A shape whose reflection about the symmetry axis is part of the design. Either side can be edited, and the other follows.
+
+**Reflection**:
+The side of a mirrored shape the carver didn't place: always the exact mirror image of the side they did.
+_Avoid_: Mirror copy, ghost
+
+**Twin**:
+A mirrored shape drawn wholly on one side of the symmetry axis, so its reflection is a separate shape on the other side, like a pair of eyes.
+_Avoid_: Mirrored pair, copy
+
+**Symmetric shape**:
+A mirrored shape that spans the symmetry axis: the carver draws one half and its reflection completes it into a single shape, like a mouth or a nose.
+_Avoid_: Fused shape, half shape
+
 **Tracing method**:
 Auto-trace or hand-trace: how the loaded photo becomes the design, chosen per photo. The design is the chosen method's result; the other method's work is kept, not used.
 _Avoid_: Trace mode, trace type
