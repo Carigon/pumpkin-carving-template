@@ -41,7 +41,7 @@ Turning a photo or scanned stencil into a design automatically, by finding its d
 _Avoid_: Trace (on its own), vectorize
 
 **Hand-trace**:
-Building a design by placing points around each carve area over a photo, starting from nothing.
+Building a design by placing and adjusting points around each carve area: from nothing over a photo or a blank page, or starting from a loaded design's shapes.
 _Avoid_: Manual trace, drawing, outlining
 
 **Carve area**:
@@ -111,6 +111,10 @@ _Avoid_: Mirrored pair, copy
 **Symmetric shape**:
 A mirrored shape that spans the symmetry axis: the carver draws one half, meeting the axis along an edge or at both ends, and its reflection completes it into a single shape, like a mouth or a nose.
 _Avoid_: Fused shape, half shape
+
+**Hand-trace file**:
+An SVG download of a hand-trace that reopens as one, its photo and work included. Changed in another program, it opens as a plain SVG design instead.
+_Avoid_: Export, backup, project file
 
 **Tracing method**:
 Auto-trace or hand-trace: how the loaded photo becomes the design, chosen per photo. The design is the chosen method's result; the other method's work is kept, not used.
