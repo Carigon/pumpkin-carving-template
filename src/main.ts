@@ -89,7 +89,7 @@ const blueprint = mountBlueprintView(viewport.blueprintView, {
 });
 const gridPanel = mountGridPanel($("grid"), update);
 const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
-// PROTOTYPE (#14): hand-tracing by touch over the loaded photo.
+// PROTOTYPE (#14, #21): hand-tracing by touch over the loaded photo, with curves and handles.
 mountHandTracePrototype(viewport.handTraceView);
 const slitPanel = mountSlitPanel($("slits"), update);
 const exportPanel = mountExportPanel($("export"), () => header.units(), changePaper);

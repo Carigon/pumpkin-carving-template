@@ -1,57 +1,100 @@
 /**
- * PROTOTYPE — throwaway, for "Placing and adjusting points on a phone" (issue #14, map #4). Not production code:
- * no tests, no a11y, minimal error handling. Lives on the `prototype/hand-trace-touch` branch only.
+ * PROTOTYPE — throwaway, for "Placing and dragging handles on a phone" (issue #21, map #4), extending the touch
+ * prototype of "Placing and adjusting points on a phone" (#14). Not production code: no tests, no a11y, minimal
+ * error handling. Lives on the `prototype/hand-trace-handles` branch only.
  *
- * Three touch interaction models for hand-tracing, on a Hand-trace view in the Design step, switchable via
- * `?variant=A|B|C` and the floating bar at the top (← → keys too). All three edit the same in-memory shapes, so
- * one trace can be carried across variants to compare them:
- * - A "Modes + loupe": a Draw | Edit switch. In draw, touching shows where the point goes; holding or dragging
- *   brings up a loupe; lifting places it. In the page, with an action bar along the bottom of the view.
- * - B "Modeless": no mode switch. Tap places (an implicit drawing session), hold for a loupe, drag pans; a
- *   floating pill offers what fits the current state. Full screen.
- * - C "Crosshair": draw mode pans the photo under a fixed crosshair and a big thumb button adds the point (or
- *   closes, ends, moves, carries on, depending on what's under it). Edit works like A's. Full screen, with the
- *   controls on a rail down the right edge.
- * Shared: pinch to zoom and pan; a second finger cancels a one-finger action; two-finger tap undoes, three-finger
- * tap redoes; live symmetry about the photo's vertical centre line (snap and clamp at the axis). ⚙ tunes hit size,
- * loupe zoom, hold delay and loupe size (kept in the URL) and can draw the hit areas; ⤢ flips full screen.
- * Points are in the photo's pixels (y down), not the real design space. With no photo loaded, a drawn sample
- * stands in; loading an image in the Design step replaces it (and clears the shapes).
+ * #14 chose its modeless model (variant B there): tap places, hold for a loupe, drag pans, a floating pill offers
+ * what fits the state. This adds curves as "Curves in v1" (#19) decided them: corner and smooth points, handles stored
+ * as offsets, automatic handles on a smooth point until one is dragged, Smooth / Corner in the pill, a double-tap on a
+ * point to toggle, a handle dragged back onto its point removed, a symmetric shape's smooth axis point holding its
+ * handle at right angles to the axis.
+ *
+ * The variants (`?variant=A|B|C`, the floating bar, ← →) are presets of the two biggest open choices; ⚙ mixes them:
+ * - A "Selected point only": only the selected point's handles show; a corner gets handles by Smooth, then Corner.
+ * - B "Neighbours + stubs": the selected point's handles, plus its neighbours' handles on the same two edges; a
+ *   selected corner shows stubs to pull a handle out of.
+ * - C "Whole shape + pill": every handle on the selected shape, point or shape selected; a "+ Handles" pill action
+ *   gives a corner handles along its edges, to drag from there.
+ * ⚙ also sets hit priority between handles and points, the loupe on handle drags, and the double-tap window.
+ * "∿ Curves" beside Symmetry makes placed points smooth. "Demo" in the bar loads curved shapes as if imported (a round
+ * eye, a crescent with corner tips, a symmetric smile) to try the handles on straight away. Shapes are drawn with
+ * corner points as squares and smooth points as circles.
+ *
+ * Not as decided, to keep it small: deleting a point keeps its neighbours' handles instead of refitting; an edge
+ * joining a symmetric shape's off-axis end to its reflection has no insert marker; moving a point doesn't clamp its
+ * handle tips. Points are in the photo's pixels (y down), not the real design space.
  */
 
 type Pt = { x: number; y: number };
+type Kind = "corner" | "smooth";
+type Side = "in" | "out";
+/** A placed point. Handles are offsets from it; a side without one is straight, or automatic on a smooth point. */
+interface Anchor {
+  x: number;
+  y: number;
+  kind: Kind;
+  in?: Pt;
+  out?: Pt;
+}
 type Mirror = "none" | "twin" | "symmetric";
 interface Shape {
   id: number;
-  points: Pt[];
+  points: Anchor[];
   closed: boolean;
   mirror: Mirror;
 }
 type VariantKey = "A" | "B" | "C";
-type Mode = "draw" | "edit";
 type Selection = { kind: "point"; id: number; index: number } | { kind: "shape"; id: number } | null;
 
+/** For each side of a drawn node: the source point's handle it shows, and whether reflected. */
+type SideMap = Record<Side, { side: Side; mirror: boolean }>;
 /** A point as drawn on screen: a placed point, or its reflection. */
-interface Handle {
+interface Dot {
   p: Pt;
   id: number;
   index: number;
   reflected: boolean;
 }
-/** An edge as drawn; inserting on it puts a source point at `insertAt`. */
+/** An outline node as drawn, with its handles as they act (automatic ones worked out, reflections reflected). */
+interface ONode extends Dot {
+  kind: Kind;
+  in?: Pt;
+  out?: Pt;
+  map: SideMap;
+}
+interface Outline {
+  nodes: ONode[];
+  closed: boolean;
+}
+/** A segment as drawn; inserting on it splits source segment `insertAt` (-1: a join, no marker). */
 interface Edge {
   a: Pt;
+  c1: Pt;
+  c2: Pt;
   b: Pt;
   id: number;
   insertAt: number;
-  reflected: boolean;
 }
 interface Geo {
-  outlines: { pts: Pt[]; closed: boolean }[];
-  handles: Handle[];
+  outlines: Outline[];
   edges: Edge[];
 }
-type Hit = { kind: "point"; h: Handle } | { kind: "marker"; e: Edge } | { kind: "shape"; id: number } | { kind: "empty" };
+/** A handle as drawn, or a stub to pull one out of a corner, with the source handle it edits. */
+interface Knob {
+  base: Pt;
+  tip: Pt;
+  id: number;
+  index: number;
+  side: Side;
+  mirror: boolean;
+  stub: boolean;
+}
+type Hit =
+  | { kind: "point"; d: ONode }
+  | { kind: "knob"; k: Knob }
+  | { kind: "marker"; e: Edge }
+  | { kind: "shape"; id: number }
+  | { kind: "empty" };
 
 interface Action {
   loupe: boolean;
@@ -78,14 +121,20 @@ interface MultiGesture {
   moved: boolean;
   prev: { c: Pt; d: number } | null;
 }
-interface Policy {
-  hit(p: Pt): Hit;
-  down?(g: OneGesture): void;
-  tap(hit: Hit, p: Pt): void;
-  hold(g: OneGesture): Action | null;
-  drag(g: OneGesture): Action;
+/** The first tap of a possible double-tap, with the state from before it so a double-tap can take it back. */
+interface TapRecord {
+  t: number;
+  at: Pt;
+  dot: Dot | null;
+  shapes: string;
+  drawingId: number | null;
+  undo: number;
+  redo: string[];
 }
 
+type Show = "point" | "neighbours" | "shape";
+type Pull = "smooth" | "stub" | "pill";
+type Priority = "nearest" | "handles" | "points";
 interface Tuning {
   /** Hit radius on screen, px. */
   hit: number;
@@ -95,41 +144,86 @@ interface Tuning {
   hold: number;
   /** Loupe diameter, px. */
   loupe: number;
-  /** One-finger drag on empty space in edit mode (A, C). */
-  emptyDrag: "pan" | "nothing";
+  /** Which handles show. */
+  show: Show;
+  /** How a handle is pulled out of a corner that has none. */
+  pull: Pull;
+  /** Which wins when a handle and a point are both in reach. */
+  priority: Priority;
+  /** The loupe on handle drags. */
+  hloupe: boolean;
+  /** Double-tap window, ms; 0 turns double-tap off. */
+  dbl: number;
   showHits: boolean;
 }
 
-const VARIANTS: Record<VariantKey, { name: string; full: boolean }> = {
-  A: { name: "Modes + loupe", full: false },
-  B: { name: "Modeless, floating pill", full: true },
-  C: { name: "Crosshair + Add button", full: true },
+const VARIANTS: Record<VariantKey, { name: string; show: Show; pull: Pull }> = {
+  A: { name: "Selected point only", show: "point", pull: "smooth" },
+  B: { name: "Neighbours + stubs", show: "neighbours", pull: "stub" },
+  C: { name: "Whole shape + pill", show: "shape", pull: "pill" },
 };
 const KEYS = Object.keys(VARIANTS) as VariantKey[];
-const DEFAULTS: Tuning = { hit: 22, zoom: 3, hold: 300, loupe: 130, emptyDrag: "pan", showHits: false };
+const SHOWS: readonly Show[] = ["point", "neighbours", "shape"];
+const PULLS: readonly Pull[] = ["smooth", "stub", "pill"];
+const PRIORITIES: readonly Priority[] = ["nearest", "handles", "points"];
+const SIDES: readonly Side[] = ["in", "out"];
+const DEFAULTS = { hit: 22, zoom: 3, hold: 300, loupe: 130, priority: "nearest" as Priority, dbl: 300 };
 const SLOP = 9;
 const TAP_MS = 350;
 const MAX_PHOTO = 2400;
 const UNDO_DEPTH = 200;
+/** A handle dragged within this many screen px of its point is removed. */
+const RETRACT = 10;
+/** How far out a stub sits from its corner, screen px. */
+const STUB = 40;
+const ZERO: Pt = { x: 0, y: 0 };
 
 const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
+const add = (a: Pt, b: Pt): Pt => ({ x: a.x + b.x, y: a.y + b.y });
+const sub = (a: Pt, b: Pt): Pt => ({ x: a.x - b.x, y: a.y - b.y });
+const scale = (a: Pt, k: number): Pt => ({ x: a.x * k, y: a.y * k });
+const len = (a: Pt) => Math.hypot(a.x, a.y);
+const unit = (a: Pt): Pt => (len(a) > 1e-9 ? scale(a, 1 / len(a)) : { x: 0, y: 0 });
 const mid = (a: Pt, b: Pt): Pt => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const opposite = (s: Side): Side => (s === "in" ? "out" : "in");
+/** A handle offset as seen in the reflection. */
+const reflOff = (o: Pt | undefined): Pt | undefined => o && { x: -o.x, y: o.y };
 const f = (n: number) => n.toFixed(1);
+const bez = (e: Edge, t: number): Pt => {
+  const u = 1 - t;
+  const [k0, k1, k2, k3] = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+  return { x: k0 * e.a.x + k1 * e.c1.x + k2 * e.c2.x + k3 * e.b.x, y: k0 * e.a.y + k1 * e.c1.y + k2 * e.c2.y + k3 * e.b.y };
+};
+const curved = (e: Edge) => dist(e.a, e.c1) > 1e-6 || dist(e.b, e.c2) > 1e-6;
+/** A segment as a polyline, in whatever mapping. */
+const flat = (e: Edge, map: (p: Pt) => Pt = (p) => p): Pt[] =>
+  curved(e) ? Array.from({ length: 17 }, (_, i) => map(bez(e, i / 16))) : [map(e.a), map(e.b)];
+/** Set a handle, or remove it when absent or of no length. */
+function setOff(a: Anchor, side: Side, o: Pt | undefined): void {
+  if (o && len(o) > 1e-6) a[side] = o;
+  else delete a[side];
+}
 
 export function mountHandTracePrototype(root: HTMLElement): void {
   injectStyle();
   const params = new URLSearchParams(location.search);
   let variant: VariantKey = KEYS.find((k) => k === params.get("variant")) ?? "A";
+  const pick = <T extends string>(key: string, options: readonly T[], fallback: T): T =>
+    options.find((o) => o === params.get(key)) ?? fallback;
   const tuning: Tuning = {
     hit: Number(params.get("hit")) || DEFAULTS.hit,
     zoom: Number(params.get("zoom")) || DEFAULTS.zoom,
     hold: Number(params.get("hold")) || DEFAULTS.hold,
     loupe: Number(params.get("loupe")) || DEFAULTS.loupe,
-    emptyDrag: params.get("emptyDrag") === "nothing" ? "nothing" : "pan",
+    show: pick("show", SHOWS, VARIANTS[variant].show),
+    pull: pick("pull", PULLS, VARIANTS[variant].pull),
+    priority: pick("priority", PRIORITIES, DEFAULTS.priority),
+    hloupe: params.get("hloupe") !== "0",
+    dbl: params.has("dbl") ? Number(params.get("dbl")) : DEFAULTS.dbl,
     showHits: params.get("showHits") === "1",
   };
-  let full = VARIANTS[variant].full;
+  let full = true;
 
   root.innerHTML = `
     <div class="ht-root">
@@ -137,7 +231,6 @@ export function mountHandTracePrototype(root: HTMLElement): void {
         <g class="ht-photo"><image id="ht-photo-img" preserveAspectRatio="none" /></g>
         <g class="ht-over"></g>
       </svg>
-      <div class="ht-crosshair" hidden></div>
       <div class="ht-loupe" hidden>
         <svg><g class="ht-lphoto"><use href="#ht-photo-img" /></g><g class="ht-lover"></g></svg>
         <div class="ht-loupe-cross"></div>
@@ -160,7 +253,6 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   const photoG = root.querySelector<SVGGElement>(".ht-photo")!;
   const photoImg = root.querySelector<SVGImageElement>("#ht-photo-img")!;
   const overG = root.querySelector<SVGGElement>(".ht-over")!;
-  const crossEl = root.querySelector<HTMLElement>(".ht-crosshair")!;
   const loupeEl = root.querySelector<HTMLElement>(".ht-loupe")!;
   const loupeSvg = loupeEl.querySelector("svg")!;
   const lPhotoG = loupeEl.querySelector<SVGGElement>(".ht-lphoto")!;
@@ -175,26 +267,23 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   let nextId = 1;
   let drawingId: number | null = null;
   let selection: Selection = null;
-  let mode: Mode = "draw";
   let symmetry = false;
+  let curves = params.get("curves") === "1";
   let undoStack: string[] = [];
   let redoStack: string[] = [];
   const logLines: string[] = [];
   let showDetail = false;
+  let lastTap: TapRecord | null = null;
 
   // Transient display state.
   let preview: Pt | null = null;
   let axisHot = false;
-  let crossSnapped = false;
-  /** C: a point picked up under the crosshair, following it as the photo pans. */
-  let carrying: { id: number; index: number; reflected: boolean; before: string } | null = null;
 
   const view = { s: 1, tx: 0, ty: 0 };
   let userMoved = false;
   const toScreen = (p: Pt): Pt => ({ x: p.x * view.s + view.tx, y: p.y * view.s + view.ty });
   const toDesign = (p: Pt): Pt => ({ x: (p.x - view.tx) / view.s, y: (p.y - view.ty) / view.s });
   const size = () => ({ w: svg.clientWidth, h: svg.clientHeight });
-  const centre = (): Pt => ({ x: size().w / 2, y: size().h / 2 });
 
   const ax = () => W / 2;
   const reflect = (p: Pt): Pt => ({ x: 2 * ax() - p.x, y: p.y });
@@ -207,34 +296,111 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     logLines.length = Math.min(logLines.length, 6);
   }
 
+  // ---- Geometry --------------------------------------------------------------------------------------------
+  const SAME: SideMap = { in: { side: "in", mirror: false }, out: { side: "out", mirror: false } };
+  const MIRRORED: SideMap = { in: { side: "in", mirror: true }, out: { side: "out", mirror: true } };
+  const SWAPPED: SideMap = { in: { side: "out", mirror: true }, out: { side: "in", mirror: true } };
+
+  /** A symmetric shape's end on the axis is one node with its reflection; the half holds the handle on its side. */
+  function axisEnd(s: Shape, i: number): Side | null {
+    const n = s.points.length;
+    if (s.mirror !== "symmetric") return null;
+    if (i === 0 && onAxis(s.points[0])) return "out";
+    if (i === n - 1 && onAxis(s.points[n - 1])) return "in";
+    return null;
+  }
+
   function geometry(s: Shape): Geo {
     const pts = s.points;
     const n = pts.length;
-    const handles: Handle[] = pts.map((p, index) => ({ p, id: s.id, index, reflected: false }));
-    const edges: Edge[] = [];
-    for (let i = 0; i + 1 < n; i++) edges.push({ a: pts[i], b: pts[i + 1], id: s.id, insertAt: i + 1, reflected: false });
+    const node = (a: Anchor, index: number, map: SideMap, reflected = false): ONode =>
+      reflected
+        ? { p: reflect(a), kind: a.kind, in: reflOff(a[map.in.side]), out: reflOff(a[map.out.side]), id: s.id, index, reflected, map }
+        : { p: { x: a.x, y: a.y }, kind: a.kind, in: a.in, out: a.out, id: s.id, index, reflected, map };
+    let outlines: Outline[];
     if (s.mirror === "symmetric") {
-      // The carver's half joined to its reversed reflection; a join has no length where that end is on the axis.
-      const r = pts.map(reflect);
-      for (let i = 0; i < n; i++) if (!onAxis(pts[i])) handles.push({ p: r[i], id: s.id, index: i, reflected: true });
-      for (let i = 0; i + 1 < n; i++) edges.push({ a: r[i], b: r[i + 1], id: s.id, insertAt: i + 1, reflected: true });
-      if (!onAxis(pts[n - 1])) edges.push({ a: pts[n - 1], b: r[n - 1], id: s.id, insertAt: n, reflected: false });
-      if (!onAxis(pts[0])) edges.push({ a: r[0], b: pts[0], id: s.id, insertAt: 0, reflected: false });
-      const outline = [...pts];
-      for (let i = n - 1; i >= 0; i--) if (!onAxis(pts[i])) outline.push(r[i]);
-      return { outlines: [{ pts: outline, closed: true }], handles, edges };
+      // The carver's half joined to its reversed reflection. An end on the axis is one node whose other handle is
+      // its own reflected; an end off the axis is joined to its reflection by an edge.
+      const nodes = pts.map((a, i) => {
+        const own = axisEnd(s, i);
+        if (!own) return node(a, i, SAME);
+        const other = opposite(own);
+        const nd = node(a, i, { ...SAME, [other]: { side: own, mirror: true } });
+        nd[other] = reflOff(a[own]);
+        return nd;
+      });
+      for (let i = n - 1; i >= 0; i--) if (!axisEnd(s, i)) nodes.push(node(pts[i], i, SWAPPED, true));
+      outlines = [{ nodes, closed: true }];
+    } else {
+      outlines = [{ nodes: pts.map((a, i) => node(a, i, SAME)), closed: s.closed }];
+      if (s.mirror === "twin") outlines.push({ nodes: pts.map((a, i) => node(a, i, MIRRORED, true)), closed: s.closed });
     }
-    if (s.closed && n >= 2) edges.push({ a: pts[n - 1], b: pts[0], id: s.id, insertAt: n, reflected: false });
-    const outlines = [{ pts, closed: s.closed }];
-    if (s.mirror === "twin") {
-      const r = pts.map(reflect);
-      r.forEach((p, index) => handles.push({ p, id: s.id, index, reflected: true }));
-      for (const e of [...edges]) edges.push({ ...e, a: reflect(e.a), b: reflect(e.b), reflected: true });
-      outlines.push({ pts: r, closed: s.closed });
-    }
-    return { outlines, handles, edges };
+    for (const o of outlines) resolveAuto(o);
+    const edges = outlines.flatMap((o) =>
+      segments(o).map(([u, v]) => ({
+        a: u.p,
+        c1: add(u.p, u.out ?? ZERO),
+        c2: add(v.p, v.in ?? ZERO),
+        b: v.p,
+        id: s.id,
+        insertAt: u.index === v.index ? -1 : Math.abs(u.index - v.index) === 1 ? Math.max(u.index, v.index) : n,
+      })),
+    );
+    return { outlines, edges };
+  }
+  const segments = (o: Outline): [ONode, ONode][] => {
+    const m = o.nodes.length;
+    const out: [ONode, ONode][] = [];
+    for (let k = 0; k + 1 < m; k++) out.push([o.nodes[k], o.nodes[k + 1]]);
+    if (o.closed && m > 2) out.push([o.nodes[m - 1], o.nodes[0]]);
+    return out;
+  };
+  const neighbour = (o: Outline, k: number, side: Side): ONode | null => {
+    const m = o.nodes.length;
+    const j = side === "out" ? k + 1 : k - 1;
+    if (j >= 0 && j < m) return o.nodes[j];
+    return o.closed && m > 2 ? o.nodes[(j + m) % m] : null;
+  };
+  /**
+   * A smooth point without stored handles works them out from its neighbours: along previous → next, a third of
+   * the way to each. One stored handle (an open end, or a symmetric shape's axis end) sets the line for the other.
+   */
+  function resolveAuto(o: Outline): void {
+    o.nodes.forEach((nd, k) => {
+      if (nd.kind !== "smooth" || (nd.in && nd.out)) return;
+      const prev = neighbour(o, k, "in");
+      const next = neighbour(o, k, "out");
+      let dir: Pt | null = null;
+      if (nd.out) dir = unit(nd.out);
+      else if (nd.in) dir = scale(unit(nd.in), -1);
+      else if (prev && next) dir = unit(sub(next.p, prev.p));
+      else if (next) dir = unit(sub(next.p, nd.p));
+      else if (prev) dir = unit(sub(nd.p, prev.p));
+      if (!dir) return;
+      if (!nd.out && next) nd.out = scale(dir, dist(nd.p, next.p) / 3);
+      if (!nd.in && prev) nd.in = scale(dir, -dist(nd.p, prev.p) / 3);
+    });
+  }
+  /** Where a source point sits in its first outline. */
+  function locate(s: Shape, i: number): { o: Outline; k: number } {
+    const o = geometry(s).outlines[0];
+    return { o, k: o.nodes.findIndex((q) => q.index === i && !q.reflected) };
+  }
+  /** A point's handles as they act, automatic ones worked out, unreflected. */
+  function effective(s: Shape, i: number): { in?: Pt; out?: Pt } {
+    const { o, k } = locate(s, i);
+    return { in: o.nodes[k].in, out: o.nodes[k].out };
+  }
+  /** Store a smooth point's automatic handles, so a change nearby doesn't recompute them away. */
+  function freeze(s: Shape, i: number): void {
+    const a = s.points[i];
+    if (!a || a.kind !== "smooth" || (a.in && a.out)) return;
+    const e = effective(s, i);
+    const own = axisEnd(s, i);
+    for (const side of own ? [own] : SIDES) setOff(a, side, e[side]);
   }
 
+  // ---- Edits -----------------------------------------------------------------------------------------------
   const snapshot = () => JSON.stringify(shapes);
   function restore(json: string): void {
     shapes = JSON.parse(json) as Shape[];
@@ -290,7 +456,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   }
 
   function placePoint(p: Pt, snapped: boolean, how: string): void {
-    change(`${how} → place point`, () => {
+    change(`${how} → place ${curves ? "smooth" : "corner"} point`, () => {
       let s = drawing();
       if (!s) {
         s = { id: nextId++, points: [], closed: false, mirror: symmetry ? "twin" : "none" };
@@ -298,7 +464,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
         drawingId = s.id;
         logLines.unshift(`new shape #${s.id}${symmetry ? " (mirrored)" : ""}`);
       }
-      s.points.push(p);
+      s.points.push({ ...p, kind: curves ? "smooth" : "corner" });
       const offAxis = s.points.some((q) => !onAxis(q));
       if (s.mirror !== "none" && snapped && s.points.length >= 3 && onAxis(s.points[0]) && offAxis) {
         s.mirror = "symmetric";
@@ -335,19 +501,107 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     drawingId = null;
     renderAll();
   }
-  function carryOn(h: Handle, how: string): void {
-    const s = byId(h.id)!;
-    if (h.index === 0 && s.points.length > 1) s.points.reverse(); // carry on from the first end: same shape
+  function carryOn(d: Dot, how: string): void {
+    const s = byId(d.id)!;
+    if (d.index === 0 && s.points.length > 1) {
+      // Carry on from the first end: the same shape, run the other way, so each point's handles swap sides.
+      s.points.reverse();
+      s.points = s.points.map(({ in: i, out: o, ...rest }) => ({ ...rest, ...(o && { in: o }), ...(i && { out: i }) }));
+    }
     drawingId = s.id;
     selection = null;
     log(`${how} → carry on #${s.id}`);
     renderAll();
   }
-  function insertAt(e: Edge): number {
-    const s = byId(e.id)!;
-    const m = mid(e.a, e.b);
-    s.points.splice(e.insertAt, 0, e.reflected ? reflect(m) : m);
-    return e.insertAt;
+  /** Split source segment `k` (ending at point k, or the closing one when k = n) at its middle, exactly. */
+  function splitAt(s: Shape, k: number): number {
+    const n = s.points.length;
+    const [i, j] = [k - 1, k % n];
+    const [A, B] = [s.points[i], s.points[j]];
+    const [ea, eb] = [effective(s, i), effective(s, j)];
+    const [a, b] = [{ x: A.x, y: A.y }, { x: B.x, y: B.y }];
+    if (!ea.out && !eb.in) {
+      s.points.splice(k, 0, { ...mid(a, b), kind: "corner" });
+      return k;
+    }
+    // de Casteljau at t = 0.5: the outline doesn't move.
+    const [c1, c2] = [add(a, ea.out ?? ZERO), add(b, eb.in ?? ZERO)];
+    const [p01, p12, p23] = [mid(a, c1), mid(c1, c2), mid(c2, b)];
+    const [p012, p123] = [mid(p01, p12), mid(p12, p23)];
+    const m = mid(p012, p123);
+    freeze(s, i);
+    freeze(s, j);
+    setOff(A, "out", sub(p01, a));
+    setOff(B, "in", sub(p23, b));
+    s.points.splice(k, 0, { ...m, kind: "smooth", in: sub(p012, m), out: sub(p123, m) });
+    return k;
+  }
+  /** Smooth ⇄ Corner, by the rules of "Curves in v1". */
+  function toggleKind(s: Shape, i: number): Kind {
+    const a = s.points[i];
+    const e = effective(s, i);
+    const own = axisEnd(s, i);
+    if (a.kind === "smooth") {
+      // Corner keeps the handles where they are, now independent.
+      a.kind = "corner";
+      for (const side of own ? [own] : SIDES) setOff(a, side, e[side]);
+      return "corner";
+    }
+    a.kind = "smooth";
+    if (own) {
+      // A smooth axis point holds its handle at right angles to the axis.
+      const h = a[own];
+      setOff(a, own, h && { x: h.x, y: 0 });
+    } else if (a.in && a.out) {
+      // Average the two directions, keeping each length.
+      const d = unit(sub(unit(a.out), unit(a.in)));
+      a.out = scale(d, len(a.out));
+      a.in = scale(d, -len(a.in));
+    } // One handle or none: the rest is automatic.
+    return "smooth";
+  }
+  /** "+ Handles": give a corner the handles it lacks, along its edges, a third of the way to each neighbour. */
+  function addHandles(s: Shape, i: number): void {
+    const { o, k } = locate(s, i);
+    const nd = o.nodes[k];
+    const own = axisEnd(s, i);
+    for (const side of own ? [own] : SIDES) {
+      const q = neighbour(o, k, side);
+      if (nd[side] || !q) continue;
+      const toward = add(q.p, q[opposite(side)] ?? ZERO);
+      s.points[i][side] = scale(unit(sub(toward, nd.p)), dist(nd.p, q.p) / 3);
+    }
+  }
+  const canAddHandles = (s: Shape, i: number) => {
+    if (s.points[i].kind !== "corner") return false;
+    const { o, k } = locate(s, i);
+    const own = axisEnd(s, i);
+    return (own ? [own] : SIDES).some((side) => !o.nodes[k][side] && neighbour(o, k, side));
+  };
+  /**
+   * Set a handle by dragging it. A smooth point turns its other handle to stay in line, keeping its length; a
+   * smooth axis point keeps its handle at right angles to the axis. Dragged onto its point, the handle goes.
+   */
+  function setHandle(s: Shape, i: number, side: Side, o: Pt): string {
+    const a = s.points[i];
+    const own = axisEnd(s, i);
+    if (own) side = own;
+    if (own && a.kind === "smooth") o = { x: o.x, y: 0 };
+    const had = !!effective(s, i)[side];
+    if (len(o) * view.s < RETRACT) {
+      const e = effective(s, i);
+      delete a[side];
+      if (a.kind !== "smooth") return "handle retracted → that side straight";
+      a.kind = "corner";
+      if (!own) setOff(a, opposite(side), e[opposite(side)]);
+      return "handle retracted → that side straight, point now a corner";
+    }
+    if (a.kind === "smooth" && !own) {
+      const other = effective(s, i)[opposite(side)];
+      if (other) a[opposite(side)] = scale(unit(o), -len(other));
+    }
+    a[side] = o;
+    return had ? "handle moved" : "handle pulled out of a corner";
   }
   function deleteSelection(how: string): void {
     const sel = selection;
@@ -355,8 +609,10 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     const s = byId(sel.id)!;
     change(`${how} → delete ${sel.kind}`, () => {
       if (sel.kind === "point") {
+        const n = s.points.length;
+        for (const j of [sel.index - 1, sel.index + 1]) if (s.closed || (j >= 0 && j < n)) freeze(s, (j + n) % n);
         s.points.splice(sel.index, 1);
-        const distinct = s.mirror === "symmetric" ? geometry(s).outlines[0].pts.length : s.points.length;
+        const distinct = s.mirror === "symmetric" ? geometry(s).outlines[0].nodes.length : s.points.length;
         if (s.points.length === 0 || (s.closed && distinct < 3)) shapes = shapes.filter((q) => q !== s);
       } else shapes = shapes.filter((q) => q !== s);
       selection = null;
@@ -371,52 +627,106 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       selection = null;
     });
   }
-  function setMode(next: Mode, how: string): void {
-    if (next === mode) return;
-    if (next === "edit") drawingId = null;
-    else selection = null;
-    mode = next;
-    log(`${how} → ${next} mode`);
-    renderAll();
+  /** The demo shapes, fitted to whatever is being traced over. */
+  function loadDemo(): void {
+    const k = Math.min(W / 1200, H / 1500);
+    change("Demo → load curved shapes", () => {
+      for (const d of demoShapes()) {
+        const pts = d.points.map((a) => ({
+          ...a,
+          x: ax() + (a.x - 600) * k,
+          y: a.y * k,
+          ...(a.in && { in: scale(a.in, k) }),
+          ...(a.out && { out: scale(a.out, k) }),
+        }));
+        shapes.push({ ...d, id: nextId++, points: pts });
+      }
+      drawingId = null;
+      selection = null;
+    });
   }
-  const isOpenEnd = (h: Handle) => {
-    const s = byId(h.id)!;
-    return !s.closed && (h.index === 0 || h.index === s.points.length - 1);
-  };
 
   // ---- Hit testing -----------------------------------------------------------------------------------------
-  function hitTest(p: Pt, pointOk: (h: Handle) => boolean, markers: boolean, shapesOk: boolean): Hit {
+  /** The handles (and stubs) showing now, by the Show and Pull settings. None while a shape is being drawn. */
+  function knobs(): Knob[] {
+    if (drawingId !== null || !selection) return [];
+    const s = byId(selection.id);
+    if (!s) return [];
+    const selIdx = selection.kind === "point" ? selection.index : -1;
+    const list: Knob[] = [];
+    const push = (nd: ONode, side: Side, stubTip?: Pt) => {
+      const o = nd[side];
+      if (!stubTip && (!o || len(o) < 1e-6)) return;
+      const m = nd.map[side];
+      list.push({ base: nd.p, tip: stubTip ?? add(nd.p, o!), id: s.id, index: nd.index, side: m.side, mirror: m.mirror, stub: !!stubTip });
+    };
+    for (const o of geometry(s).outlines)
+      o.nodes.forEach((nd, k) => {
+        const mine = nd.index === selIdx;
+        if (tuning.show === "shape" || mine) for (const side of SIDES) push(nd, side);
+        else if (tuning.show === "neighbours" && selIdx >= 0)
+          for (const side of SIDES) if (neighbour(o, k, side)?.index === selIdx) push(nd, side);
+        if (mine && tuning.pull === "stub" && nd.kind === "corner")
+          for (const side of SIDES) {
+            const q = neighbour(o, k, side);
+            if (nd[side] || !q) continue;
+            const toward = add(q.p, q[opposite(side)] ?? ZERO);
+            push(nd, side, add(nd.p, scale(unit(sub(toward, nd.p)), STUB / view.s)));
+          }
+      });
+    return list;
+  }
+
+  function hitTest(p: Pt, editing: boolean): Hit {
     const r = tuning.hit;
-    let best: Handle | null = null;
-    let bestD = r;
     // The shape being drawn wins ties, then later shapes (drawn on top).
     const order = [...shapes].reverse().sort((a, b) => Number(b.id === drawingId) - Number(a.id === drawingId));
+    let dot: ONode | null = null;
+    let dotD = r;
     for (const s of order)
-      for (const h of geometry(s).handles) {
-        if (!pointOk(h)) continue;
-        const d = dist(toScreen(h.p), p);
-        if (d < bestD) [best, bestD] = [h, d];
+      for (const o of geometry(s).outlines)
+        for (const nd of o.nodes) {
+          const d = dist(toScreen(nd.p), p);
+          if (d < dotD) [dot, dotD] = [nd, d];
+        }
+    let knob: Knob | null = null;
+    let knobD = r;
+    if (editing)
+      for (const k of knobs()) {
+        const d = dist(toScreen(k.tip), p);
+        if (d < knobD) [knob, knobD] = [k, d];
       }
-    if (best) return { kind: "point", h: best };
+    if (dot || knob) {
+      const useKnob =
+        tuning.priority === "handles" ? !!knob : tuning.priority === "points" ? !dot : !!knob && (!dot || knobD <= dotD);
+      return useKnob ? { kind: "knob", k: knob! } : { kind: "point", d: dot! };
+    }
     const sel = selection && byId(selection.id);
-    if (markers && sel)
-      for (const e of visibleMarkers(sel)) if (dist(toScreen(mid(e.a, e.b)), p) < r) return { kind: "marker", e };
-    if (shapesOk) {
-      const d = toDesign(p);
-      for (const s of order) {
-        const g = geometry(s);
-        const nearEdge = g.edges.some((e) => segDist(p, toScreen(e.a), toScreen(e.b)) < r * 0.6);
-        if (nearEdge || g.outlines.some((o) => o.closed && inside(d, o.pts))) return { kind: "shape", id: s.id };
-      }
+    if (editing && sel) for (const e of visibleMarkers(sel)) if (dist(toScreen(bez(e, 0.5)), p) < r) return { kind: "marker", e };
+    const d = toDesign(p);
+    for (const s of order) {
+      const g = geometry(s);
+      const nearEdge = g.edges.some((e) => {
+        const pts = flat(e, toScreen);
+        return pts.some((q, i) => i > 0 && segDist(p, pts[i - 1], q) < r * 0.6);
+      });
+      if (nearEdge || g.outlines.some((o) => o.closed && inside(d, outlinePoly(o)))) return { kind: "shape", id: s.id };
     }
     return { kind: "empty" };
   }
-  /** Insert markers: hidden on edges too short on screen (Excalidraw hides them under 40 px). */
+  const outlinePoly = (o: Outline): Pt[] =>
+    segments(o).flatMap(([u, v]) => flat({ a: u.p, c1: add(u.p, u.out ?? ZERO), c2: add(v.p, v.in ?? ZERO), b: v.p, id: 0, insertAt: 0 }).slice(1));
+  /** Insert markers: hidden on edges shorter than about 48 px along the curve on screen. */
   const visibleMarkers = (s: Shape) =>
-    geometry(s).edges.filter((e) => dist(toScreen(e.a), toScreen(e.b)) >= Math.max(40, 2.2 * tuning.hit));
+    geometry(s).edges.filter((e) => {
+      if (e.insertAt < 0) return false;
+      const pts = flat(e, toScreen);
+      const length = pts.reduce((sum, q, i) => (i ? sum + dist(pts[i - 1], q) : 0), 0);
+      return length >= Math.max(48, 2.2 * tuning.hit);
+    });
 
   // ---- Actions ---------------------------------------------------------------------------------------------
-  function placeAction(g: OneGesture, loupe: boolean): Action {
+  function placeAction(g: OneGesture): Action {
     let snapped = false;
     let pt: Pt = toDesign(g.last);
     const update = (screen: Pt) => {
@@ -429,14 +739,14 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     };
     update(g.last);
     return {
-      loupe,
+      loupe: true,
       focus: () => pt,
       move: update,
       end(p) {
         update(p);
         preview = null;
         axisHot = false;
-        placePoint(pt, snapped, loupe ? "drag/hold + lift" : "tap");
+        placePoint(pt, snapped, "hold + lift");
       },
       cancel() {
         preview = null;
@@ -444,11 +754,11 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       },
     };
   }
-  function dragPointAction(g: OneGesture, h: Handle, before = snapshot(), how = "drag point"): Action {
+  function dragPointAction(g: OneGesture, h: Dot, before = snapshot(), how = "drag point"): Action {
     const s0 = byId(h.id)!;
     let snapped = onAxis(s0.points[h.index]);
-    const grab = { x: toScreen(h.p).x - g.start.x, y: toScreen(h.p).y - g.start.y };
-    if (mode === "edit" || variant === "B") selection = { kind: "point", id: h.id, index: h.index };
+    const grab = sub(toScreen(h.p), g.start);
+    selection = { kind: "point", id: h.id, index: h.index };
     const shown = () => {
       const p = byId(h.id)!.points[h.index];
       return h.reflected ? reflect(p) : p;
@@ -458,10 +768,10 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       focus: shown,
       move(screen) {
         const s = byId(h.id)!;
-        let raw = toDesign({ x: screen.x + grab.x, y: screen.y + grab.y });
+        let raw = toDesign(add(screen, grab));
         if (h.reflected) raw = reflect(raw);
         const r = constrain(s, s.mirror !== "none", raw, h.index, snapped);
-        s.points[h.index] = r.p;
+        Object.assign(s.points[h.index], r.p);
         snapped = r.snapped;
         axisHot = s.mirror !== "none" && snapped;
       },
@@ -478,12 +788,40 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   }
   function insertDragAction(g: OneGesture, e: Edge): Action {
     const before = snapshot();
-    const index = insertAt(e);
     const s = byId(e.id)!;
+    const at = bez(e, 0.5);
+    const index = splitAt(s, e.insertAt);
     const p = s.points[index];
-    const reflected = e.reflected && !(s.mirror === "symmetric" && onAxis(p));
-    const h: Handle = { p: reflected ? reflect(p) : p, id: e.id, index, reflected };
+    // The marker may have been on the reflection: drag whichever copy of the new point is under the finger.
+    const reflected = !onAxis(p) && dist(at, reflect(p)) < dist(at, p);
+    const h: Dot = { p: reflected ? reflect(p) : { x: p.x, y: p.y }, id: e.id, index, reflected };
     return dragPointAction({ ...g, start: toScreen(h.p) }, h, before, "drag insert marker → insert + move");
+  }
+  function dragKnobAction(g: OneGesture, k: Knob): Action {
+    const before = snapshot();
+    const grab = sub(toScreen(k.tip), g.start);
+    let tip = k.tip;
+    let what = "nothing";
+    if (selection?.kind !== "shape") selection = { kind: "point", id: k.id, index: k.index };
+    return {
+      loupe: tuning.hloupe,
+      focus: () => tip,
+      move(screen) {
+        // Each move starts again from before the drag, so a handle dragged in and out again isn't stuck retracted.
+        shapes = JSON.parse(before) as Shape[];
+        const s = byId(k.id)!;
+        const raw = toDesign(add(screen, grab));
+        const o = sub({ x: clamp(raw.x, 0, W), y: clamp(raw.y, 0, H) }, k.base);
+        what = setHandle(s, k.index, k.side, k.mirror ? reflOff(o)! : o);
+        const h = s.points[k.index][axisEnd(s, k.index) ?? k.side];
+        tip = h ? add(k.base, k.mirror ? reflOff(h)! : h) : k.base;
+      },
+      end() {
+        pushUndo(before);
+        log(`${k.stub ? "drag stub" : `drag handle${k.mirror ? " (on reflection)" : ""}`} → ${what}`);
+      },
+      cancel: () => restore(before),
+    };
   }
   function dragShapeAction(g: OneGesture, id: number): Action {
     const before = snapshot();
@@ -507,7 +845,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
           if (side > 0) dx = Math.max(dx, ax() - Math.min(...xs));
           else dx = Math.min(dx, ax() - Math.max(...xs));
         }
-        s.points = orig.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+        s.points = orig.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
       },
       end() {
         pushUndo(before);
@@ -531,219 +869,85 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       cancel() {},
     };
   }
-  const noop = (how: string): Action => ({ loupe: false, focus: () => null, move() {}, end: () => log(how), cancel() {} });
 
-  // ---- Policies --------------------------------------------------------------------------------------------
-  const drawFilter = (h: Handle) => h.id === drawingId || (drawingId === null && isOpenEnd(h));
-
-  /** A tap on a point of the shape being drawn, or on an open end with nothing being drawn (A and C draw). */
-  function drawPointTap(h: Handle, how: string, at: Pt | null): void {
-    const s = byId(h.id)!;
-    if (h.id !== drawingId) return carryOn(h, how);
-    if (h.index === s.points.length - 1) return endShape(`${how} on last point`);
-    if (h.index === 0) return closeShape(`${how} on first point`);
-    if (at) {
-      const r = constrain(s, s.mirror !== "none", toDesign(at), -1, false);
-      placePoint(r.p, r.snapped, `${how} on a middle point`);
-    }
+  // ---- Policy: what a touch does, by what's under it (#14's modeless model) ---------------------------------
+  /** A tap on a point of the shape being drawn. */
+  function drawPointTap(d: Dot, how: string, at: Pt): void {
+    const s = byId(d.id)!;
+    if (d.index === s.points.length - 1) return endShape(`${how} on last point`);
+    if (d.index === 0) return closeShape(`${how} on first point`);
+    const r = constrain(s, s.mirror !== "none", toDesign(at), -1, false);
+    placePoint(r.p, r.snapped, `${how} on a middle point`);
   }
-
-  const editPolicy: Policy = {
-    hit: (p) => hitTest(p, () => true, true, true),
-    tap(hit) {
+  function tap(hit: Hit, p: Pt): void {
+    const s = drawing();
+    if (s) {
+      if (hit.kind === "point" && hit.d.id === s.id) return drawPointTap(hit.d, "tap", p);
       if (hit.kind === "point") {
-        selection = { kind: "point", id: hit.h.id, index: hit.h.index };
-        log(`tap point → select point${hit.h.reflected ? " (on reflection)" : ""}`);
-      } else if (hit.kind === "marker") {
-        const e = hit.e;
-        return change("tap insert marker → insert", () => {
-          const index = insertAt(e);
-          selection = { kind: "point", id: e.id, index };
-        });
-      } else if (hit.kind === "shape") {
-        selection = { kind: "shape", id: hit.id };
-        log("tap shape → select shape");
-      } else {
-        selection = null;
-        log("tap empty → clear selection");
-      }
-      renderAll();
-    },
-    hold(g) {
-      if (g.hit.kind === "point") return dragPointAction(g, g.hit.h, undefined, "hold + drag point → move");
-      if (g.hit.kind === "marker") return insertDragAction(g, g.hit.e);
-      return null;
-    },
-    drag(g) {
-      const hit = g.hit;
-      if (hit.kind === "point") return dragPointAction(g, hit.h);
-      if (hit.kind === "marker") return insertDragAction(g, hit.e);
-      if (hit.kind === "shape" && selection?.kind === "shape" && selection.id === hit.id) return dragShapeAction(g, hit.id);
-      const what = hit.kind === "shape" ? "drag unselected shape" : "drag empty";
-      return tuning.emptyDrag === "pan" ? panAction(g, `${what} → pan`) : noop(`${what} → nothing`);
-    },
-  };
-
-  const policyA: Policy = {
-    hit: (p) => (mode === "edit" ? editPolicy.hit(p) : hitTest(p, drawFilter, false, false)),
-    down(g) {
-      if (mode !== "draw" || g.hit.kind !== "empty") return;
-      const s = drawing();
-      preview = constrain(s, s ? s.mirror !== "none" : symmetry, toDesign(g.start), -1, false).p;
-    },
-    tap(hit, p) {
-      if (mode === "edit") return editPolicy.tap(hit, p);
-      preview = null;
-      if (hit.kind === "point") return drawPointTap(hit.h, "tap", p);
-      const s = drawing();
-      const r = constrain(s, s ? s.mirror !== "none" : symmetry, toDesign(p), -1, false);
-      placePoint(r.p, r.snapped, "tap");
-    },
-    hold(g) {
-      if (mode === "edit") return editPolicy.hold(g);
-      if (g.hit.kind === "point")
-        return g.hit.h.id === drawingId ? dragPointAction(g, g.hit.h, undefined, "hold + drag point → move") : null;
-      return placeAction(g, true);
-    },
-    drag(g) {
-      if (mode === "edit") return editPolicy.drag(g);
-      if (g.hit.kind === "point" && g.hit.h.id === drawingId) return dragPointAction(g, g.hit.h);
-      return placeAction(g, true);
-    },
-  };
-
-  const policyB: Policy = {
-    hit: (p) => hitTest(p, () => true, drawingId === null, true),
-    tap(hit, p) {
-      const s = drawing();
-      if (s) {
-        if (hit.kind === "point" && hit.h.id === s.id) return drawPointTap(hit.h, "tap", p);
-        if (hit.kind === "point") {
-          drawingId = null;
-          selection = { kind: "point", id: hit.h.id, index: hit.h.index };
-          log("tap another shape's point while drawing → end drawing + select");
-          return renderAll();
-        }
-        const r = constrain(s, s.mirror !== "none", toDesign(p), -1, false);
-        return placePoint(r.p, r.snapped, "tap");
-      }
-      if (selection) {
-        if (hit.kind === "empty") {
-          selection = null;
-          log("tap empty → deselect (no point placed)");
-          return renderAll();
-        }
-        return editPolicy.tap(hit, p);
-      }
-      if (hit.kind === "empty") {
-        const r = constrain(null, symmetry, toDesign(p), -1, false);
-        return placePoint(r.p, r.snapped, "tap empty");
-      }
-      editPolicy.tap(hit, p);
-    },
-    hold(g) {
-      if (g.hit.kind === "point") return dragPointAction(g, g.hit.h, undefined, "hold + drag point → move");
-      if (g.hit.kind === "marker") return insertDragAction(g, g.hit.e);
-      if (drawingId !== null || !selection) return placeAction(g, true);
-      return null;
-    },
-    drag(g) {
-      const hit = g.hit;
-      if (hit.kind === "point") return dragPointAction(g, hit.h);
-      if (hit.kind === "marker") return insertDragAction(g, hit.e);
-      if (hit.kind === "shape" && selection?.kind === "shape" && selection.id === hit.id) return dragShapeAction(g, hit.id);
-      return panAction(g);
-    },
-  };
-
-  const policyC: Policy = {
-    hit: (p) => (mode === "edit" ? editPolicy.hit(p) : { kind: "empty" }),
-    tap(hit, p) {
-      if (mode === "edit") return editPolicy.tap(hit, p);
-      recentre(p);
-      log("tap → bring that spot under the crosshair");
-    },
-    hold: (g) => (mode === "edit" ? editPolicy.hold(g) : null),
-    drag: (g) => (mode === "edit" ? editPolicy.drag(g) : panAction(g, "drag → pan under crosshair")),
-  };
-  const policy = (): Policy => ({ A: policyA, B: policyB, C: policyC })[variant];
-
-  /** C: what the crosshair is over, by draw mode's rules. */
-  const crossTarget = (): Hit => hitTest(centre(), drawFilter, false, false);
-  function crossPrimary(): { label: string; act: string } {
-    if (carrying) return { label: "Drop", act: "drop" };
-    const t = crossTarget();
-    if (t.kind === "point") {
-      const s = byId(t.h.id)!;
-      if (t.h.id !== drawingId) return { label: "Carry on", act: "primary" };
-      if (t.h.index === s.points.length - 1) return { label: "End", act: "primary" };
-      if (t.h.index === 0) return { label: s.points.length >= 3 ? "Close" : "Add point", act: "primary" };
-      return { label: "Move point", act: "primary" };
-    }
-    return { label: "Add point", act: "primary" };
-  }
-  function crossPrimaryAct(): void {
-    const t = crossTarget();
-    if (t.kind === "point") {
-      const s = byId(t.h.id)!;
-      const isMiddle = t.h.id === drawingId && t.h.index > 0 && t.h.index < s.points.length - 1;
-      const tinyFirst = t.h.id === drawingId && t.h.index === 0 && s.points.length < 3 && s.points.length > 1;
-      if (isMiddle) {
-        carrying = { id: t.h.id, index: t.h.index, reflected: t.h.reflected, before: snapshot() };
-        recentre(toScreen(t.h.p));
-        log("Move point → picked up; pan, then Drop");
+        drawingId = null;
+        selection = { kind: "point", id: hit.d.id, index: hit.d.index };
+        log("tap another shape's point while drawing → end drawing + select");
         return renderAll();
       }
-      if (!tinyFirst) return drawPointTap(t.h, "button", null);
+      const r = constrain(s, s.mirror !== "none", toDesign(p), -1, false);
+      return placePoint(r.p, r.snapped, "tap");
     }
-    const s = drawing();
-    const r = constrain(s, s ? s.mirror !== "none" : symmetry, toDesign(centre()), -1, crossSnapped);
-    placePoint(r.p, r.snapped, "Add point button");
-  }
-  function crossDrop(): void {
-    if (!carrying) return;
-    pushUndo(carrying.before);
-    carrying = null;
-    log("Drop → point moved");
+    if (hit.kind === "knob") {
+      log(`tap ${hit.k.stub ? "stub" : "handle"} → nothing`);
+      return renderAll();
+    }
+    if (hit.kind === "empty") {
+      if (selection) {
+        selection = null;
+        log("tap empty → deselect (no point placed)");
+        return renderAll();
+      }
+      const r = constrain(null, symmetry, toDesign(p), -1, false);
+      return placePoint(r.p, r.snapped, "tap empty");
+    }
+    if (hit.kind === "marker") {
+      const e = hit.e;
+      return change("tap insert marker → insert", () => {
+        const index = splitAt(byId(e.id)!, e.insertAt);
+        selection = { kind: "point", id: e.id, index };
+      });
+    }
+    if (hit.kind === "point") {
+      selection = { kind: "point", id: hit.d.id, index: hit.d.index };
+      log(`tap point → select point${hit.d.reflected ? " (on reflection)" : ""}`);
+    } else {
+      selection = { kind: "shape", id: hit.id };
+      log("tap shape → select shape");
+    }
     renderAll();
   }
-  /** C draw: keep the preview (and a carried point) under the crosshair as the photo moves. */
-  function crossUpdate(): void {
-    if (variant !== "C" || mode !== "draw") return;
-    const c = toDesign(centre());
-    if (carrying) {
-      const s = byId(carrying.id);
-      if (!s) return void (carrying = null);
-      const raw = carrying.reflected ? reflect(c) : c;
-      const r = constrain(s, s.mirror !== "none", raw, carrying.index, crossSnapped);
-      s.points[carrying.index] = r.p;
-      crossSnapped = r.snapped;
-      axisHot = s.mirror !== "none" && r.snapped;
-      preview = null;
-      return;
-    }
-    const s = drawing();
-    const mirrored = s ? s.mirror !== "none" : symmetry;
-    const r = constrain(s, mirrored, c, -1, crossSnapped);
-    crossSnapped = r.snapped;
-    axisHot = mirrored && r.snapped;
-    preview = r.p;
+  /** A second tap on the same point: take back what the first tap did, and toggle the point's kind instead. */
+  function doubleTap(t: TapRecord): void {
+    const d = t.dot!;
+    shapes = JSON.parse(t.shapes) as Shape[];
+    drawingId = t.drawingId === d.id ? d.id : null;
+    undoStack.length = t.undo;
+    redoStack = t.redo;
+    selection = drawingId === null ? { kind: "point", id: d.id, index: d.index } : null;
+    const s = byId(d.id)!;
+    change(`double-tap point → first tap taken back, ${s.points[d.index].kind === "smooth" ? "Corner" : "Smooth"}`, () =>
+      toggleKind(s, d.index),
+    );
   }
-  function recentre(p: Pt): void {
-    const c = centre();
-    const [x0, y0] = [view.tx, view.ty];
-    const [dx, dy] = [c.x - p.x, c.y - p.y];
-    const t0 = performance.now();
-    const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / 160);
-      const e = 1 - (1 - k) * (1 - k);
-      view.tx = x0 + dx * e;
-      view.ty = y0 + dy * e;
-      render();
-      if (k < 1) requestAnimationFrame(step);
-    };
-    userMoved = true;
-    requestAnimationFrame(step);
+  function hold(g: OneGesture): Action | null {
+    if (g.hit.kind === "point") return dragPointAction(g, g.hit.d, undefined, "hold + drag point → move");
+    if (g.hit.kind === "knob") return dragKnobAction(g, g.hit.k);
+    if (g.hit.kind === "marker") return insertDragAction(g, g.hit.e);
+    if (drawingId !== null || !selection) return placeAction(g);
+    return null;
+  }
+  function drag(g: OneGesture): Action {
+    const hit = g.hit;
+    if (hit.kind === "point") return dragPointAction(g, hit.d);
+    if (hit.kind === "knob") return dragKnobAction(g, hit.k);
+    if (hit.kind === "marker") return insertDragAction(g, hit.e);
+    if (hit.kind === "shape" && selection?.kind === "shape" && selection.id === hit.id) return dragShapeAction(g, hit.id);
+    return panAction(g);
   }
 
   // ---- Pointer handling ------------------------------------------------------------------------------------
@@ -769,26 +973,18 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     const p = local(e);
     pointers.set(e.pointerId, { p, down: p });
     if (pointers.size === 1 && !gesture) {
-      const g: OneGesture = {
-        type: "one",
-        id: e.pointerId,
-        start: p,
-        last: p,
-        hit: policy().hit(p),
-        active: null,
-        t0: performance.now(),
-      };
+      const g: OneGesture = { type: "one", id: e.pointerId, start: p, last: p, hit: hitTest(p, drawingId === null), active: null, t0: performance.now() };
       g.timer = window.setTimeout(() => {
         if (gesture !== g || g.active) return;
-        g.active = policy().hold(g);
+        g.active = hold(g);
         if (g.active) g.active.move(g.last);
         render();
       }, tuning.hold);
       gesture = g;
-      policy().down?.(g);
       render();
       return;
     }
+    lastTap = null;
     if (gesture?.type === "one") {
       // A two-finger tap starts with one finger: time it from that one, and not if it was already dragging.
       const one = gesture;
@@ -813,7 +1009,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       if (!gesture.active) {
         if (dist(p, gesture.start) <= SLOP) return;
         clearTimeout(gesture.timer);
-        gesture.active = policy().drag(gesture);
+        gesture.active = drag(gesture);
       }
       gesture.active.move(p);
       render();
@@ -844,8 +1040,28 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       gesture = null;
       clearTimeout(g.timer);
       if (e.type === "pointercancel") cancelOne(g);
-      else if (g.active) g.active.end(p);
-      else policy().tap(g.hit, g.start);
+      else if (g.active) {
+        g.active.end(p);
+        lastTap = null;
+      } else {
+        const now = performance.now();
+        const prev = lastTap;
+        if (prev?.dot && tuning.dbl > 0 && now - prev.t < tuning.dbl && dist(g.start, prev.at) < tuning.hit) {
+          lastTap = null;
+          doubleTap(prev);
+        } else {
+          lastTap = {
+            t: now,
+            at: g.start,
+            dot: g.hit.kind === "point" ? g.hit.d : null,
+            shapes: snapshot(),
+            drawingId,
+            undo: undoStack.length,
+            redo: [...redoStack],
+          };
+          tap(g.hit, g.start);
+        }
+      }
       preview = null;
       renderAll();
     } else if (gesture?.type === "multi") {
@@ -919,8 +1135,6 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     redoStack = [];
     drawingId = null;
     selection = null;
-    carrying = null;
-    mode = "draw";
     userMoved = false;
     fit();
     log(`photo ${W}×${H} loaded`);
@@ -931,79 +1145,102 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     setParam("base", null);
     setPhoto((e as CustomEvent<ImageBitmap>).detail);
   });
+  /** The sample drawing's ink: the demo shapes' outlines, at the sample's size. */
+  function demoInk(): string[] {
+    [W, H] = [1200, 1500];
+    return demoShapes().flatMap((s) => geometry(s).outlines.map((o) => pathOf(o, (p) => p)));
+  }
 
   // ---- Rendering -------------------------------------------------------------------------------------------
+  const xy = (p: Pt) => `${f(p.x)} ${f(p.y)}`;
+  /** An outline as SVG path data in some mapping, from segment `from` on. */
+  function pathOf(o: Outline, map: (p: Pt) => Pt, from = 0): string {
+    const segs = segments(o).slice(from);
+    if (!o.nodes.length) return "";
+    let d = `M${xy(map(segs.length ? segs[0][0].p : o.nodes[0].p))}`;
+    for (const [u, v] of segs)
+      d +=
+        u.out || v.in
+          ? `C${xy(map(add(u.p, u.out ?? ZERO)))} ${xy(map(add(v.p, v.in ?? ZERO)))} ${xy(map(v.p))}`
+          : `L${xy(map(v.p))}`;
+    return d + (o.closed && from === 0 ? "Z" : "");
+  }
   const axisShown = () => {
     const sel = selection && byId(selection.id);
-    const mirroredSel = !!sel && sel.mirror !== "none";
     const d = drawing();
-    return (symmetry && (variant === "B" || mode === "draw")) || mirroredSel || (!!d && d.mirror !== "none");
+    return symmetry || (!!sel && sel.mirror !== "none") || (!!d && d.mirror !== "none");
   };
 
   /** The overlay in some screen mapping: the main view (`dot` = 1) or the loupe. */
   function overlay(map: (p: Pt) => Pt, dot: number, hits: boolean): string {
     const out: string[] = [];
-    const pathOf = (pts: Pt[], closed: boolean) =>
-      pts.map((p, i) => `${i ? "L" : "M"}${f(map(p).x)} ${f(map(p).y)}`).join("") + (closed ? "Z" : "");
     if (axisShown()) {
       const [a, b] = [map({ x: ax(), y: 0 }), map({ x: ax(), y: H })];
       out.push(`<line class="ht-axis${axisHot ? " hot" : ""}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`);
     }
     const geos = shapes.map((s) => ({ s, g: geometry(s) }));
-    const fill = geos.flatMap(({ g }) => g.outlines.filter((o) => o.closed && o.pts.length > 2).map((o) => pathOf(o.pts, true)));
+    const fill = geos.flatMap(({ g }) => g.outlines.filter((o) => o.closed && o.nodes.length > 2).map((o) => pathOf(o, map)));
     if (fill.length) out.push(`<path class="ht-fill" d="${fill.join("")}"/>`);
     const selId = selection?.id ?? null;
     for (const { s, g } of geos) {
       const cls = `ht-line${s.id === selId ? " sel" : ""}${s.id === drawingId ? " drawing" : ""}${s.closed ? "" : " open"}`;
-      for (const o of g.outlines) out.push(`<path class="${cls}" d="${pathOf(o.pts, o.closed)}"/>`);
+      for (const o of g.outlines) out.push(`<path class="${cls}" d="${pathOf(o, map)}"/>`);
     }
-    // Rubber band from the last point to where the next point would go (only while a finger is down, or C).
+    // Rubber band: the last edge and the next one as they'd be with a point where the finger is.
     const d = drawing();
     if (preview) {
-      const from = d?.points.at(-1);
-      const pr = [preview, ...(d?.mirror !== "none" && (d || symmetry) ? [reflect(preview)] : [])];
-      if (from) {
-        out.push(`<path class="ht-band" d="${pathOf([from, preview], false)}"/>`);
-        if (d && d.mirror !== "none") out.push(`<path class="ht-band" d="${pathOf([reflect(from), reflect(preview)], false)}"/>`);
+      if (d?.points.length) {
+        const temp: Shape = { ...d, points: [...d.points, { ...preview, kind: curves ? "smooth" : "corner" }] };
+        for (const o of geometry(temp).outlines)
+          out.push(`<path class="ht-band" d="${pathOf(o, map, Math.max(0, d.points.length - 2))}"/>`);
       }
-      for (const p of pr) out.push(`<circle class="ht-ghost" cx="${f(map(p).x)}" cy="${f(map(p).y)}" r="${6 * dot}"/>`);
+      const mirroredNow = d ? d.mirror !== "none" : symmetry;
+      for (const p of [preview, ...(mirroredNow ? [reflect(preview)] : [])])
+        out.push(`<circle class="ht-ghost" cx="${f(map(p).x)}" cy="${f(map(p).y)}" r="${6 * dot}"/>`);
     }
-    // Insert markers on the selected shape.
+    // Insert markers on the selected shape, at each curve's middle.
     const sel = selection && byId(selection.id);
-    if (sel && (variant === "B" || mode === "edit") && drawingId === null)
+    if (sel && drawingId === null)
       for (const e of visibleMarkers(sel)) {
-        const m = map(mid(e.a, e.b));
+        const m = map(bez(e, 0.5));
         out.push(`<rect class="ht-marker" x="${f(m.x - 4 * dot)}" y="${f(m.y - 4 * dot)}" width="${8 * dot}" height="${8 * dot}" transform="rotate(45 ${f(m.x)} ${f(m.y)})"/>`);
         if (hits) out.push(`<circle class="ht-hitarea" cx="${f(m.x)}" cy="${f(m.y)}" r="${tuning.hit}"/>`);
       }
-    // Points.
-    for (const { s, g } of geos) {
-      const showAll = variant === "B" || mode === "edit" || s.id === drawingId;
-      for (const h of g.handles) {
-        const end = !s.closed && (h.index === 0 || h.index === s.points.length - 1);
-        if (!showAll && !(drawingId === null && end)) continue;
-        const m = map(h.p);
-        const isSel = selection?.kind === "point" && selection.id === s.id && selection.index === h.index;
-        const closable = s.id === drawingId && h.index === 0 && s.points.length >= 3;
-        let cls = "ht-pt";
-        if (isSel) cls += " sel";
-        if (end) cls += " end";
-        if (closable) cls += " closable";
-        const r = (s.id === drawingId || s.id === selId ? 5.5 : 4) * dot;
-        if (closable) out.push(`<circle class="ht-close-ring" cx="${f(m.x)}" cy="${f(m.y)}" r="${11 * dot}"/>`);
-        out.push(`<circle class="${cls}" cx="${f(m.x)}" cy="${f(m.y)}" r="${r}"/>`);
-        if (hits) out.push(`<circle class="ht-hitarea" cx="${f(m.x)}" cy="${f(m.y)}" r="${tuning.hit}"/>`);
-      }
+    // Points: corners as squares, smooth points as circles.
+    for (const { s, g } of geos)
+      for (const o of g.outlines)
+        for (const nd of o.nodes) {
+          const m = map(nd.p);
+          const end = !s.closed && (nd.index === 0 || nd.index === s.points.length - 1);
+          const isSel = selection?.kind === "point" && selection.id === s.id && selection.index === nd.index;
+          const closable = s.id === drawingId && nd.index === 0 && s.points.length >= 3;
+          let cls = "ht-pt";
+          if (isSel) cls += " sel";
+          if (end) cls += " end";
+          if (closable) cls += " closable";
+          const r = (s.id === drawingId || s.id === selId ? 5.5 : 4) * dot;
+          if (closable) out.push(`<circle class="ht-close-ring" cx="${f(m.x)}" cy="${f(m.y)}" r="${11 * dot}"/>`);
+          out.push(
+            nd.kind === "smooth"
+              ? `<circle class="${cls}" cx="${f(m.x)}" cy="${f(m.y)}" r="${r}"/>`
+              : `<rect class="${cls}" x="${f(m.x - r * 0.9)}" y="${f(m.y - r * 0.9)}" width="${f(r * 1.8)}" height="${f(r * 1.8)}"/>`,
+          );
+          if (hits) out.push(`<circle class="ht-hitarea" cx="${f(m.x)}" cy="${f(m.y)}" r="${tuning.hit}"/>`);
+        }
+    // Handles, on top.
+    for (const k of knobs()) {
+      const [a, b] = [map(k.base), map(k.tip)];
+      out.push(`<line class="ht-hline${k.stub ? " stub" : ""}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`);
+      out.push(`<circle class="${k.stub ? "ht-stub" : "ht-knob"}" cx="${f(b.x)}" cy="${f(b.y)}" r="${(k.stub ? 5.5 : 4.5) * dot}"/>`);
+      if (hits) out.push(`<circle class="ht-hitarea knob" cx="${f(b.x)}" cy="${f(b.y)}" r="${tuning.hit}"/>`);
     }
     return out.join("");
   }
 
   function render(): void {
     if (!userMoved) fit();
-    crossUpdate();
     photoG.setAttribute("transform", `matrix(${view.s} 0 0 ${view.s} ${view.tx} ${view.ty})`);
     overG.innerHTML = overlay(toScreen, 1, tuning.showHits);
-    crossEl.hidden = !(variant === "C" && mode === "draw");
     const g = gesture?.type === "one" ? gesture : null;
     const focus = g?.active?.loupe ? g.active.focus() : null;
     loupeEl.hidden = !focus;
@@ -1040,50 +1277,29 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     bar.hidden = stateEl.hidden = !visible;
     htRoot.classList.toggle("ht-full", full);
     document.documentElement.classList.toggle("ht-noscroll", full && visible);
-    htRoot.dataset.variant = variant;
     const d = drawing();
     const n = d?.points.length ?? 0;
-    const can = { undo: undoStack.length > 0, redo: redoStack.length > 0, sel: selection !== null, clear: shapes.length > 0 };
+    const can = { undo: undoStack.length > 0, redo: redoStack.length > 0, clear: shapes.length > 0 };
     const btn = (act: string, label: string, enabled = true, extra = "") =>
       `<button type="button" data-act="${act}" class="${extra}" ${enabled ? "" : "disabled"}>${label}</button>`;
-    const sym = btn("sym", `⇋ Symmetry ${symmetry ? "on" : "off"}`, true, symmetry ? "on" : "");
-    const undoRedo = btn("undo", "↶", can.undo, "icon") + btn("redo", "↷", can.redo, "icon");
-    const modes = (vertical: boolean) =>
-      `<div class="ht-seg${vertical ? " vertical" : ""}">${btn("draw", "✎ Draw", true, mode === "draw" ? "on" : "")}${btn("edit", "↖ Edit", true, mode === "edit" ? "on" : "")}</div>`;
-    let html: string;
-    if (variant === "A") {
-      html = `<div class="ht-a-top">${modes(false)}${mode === "draw" ? sym : ""}</div>
-        <div class="ht-a-bar">${undoRedo}<span class="sep"></span>${
-          mode === "draw"
-            ? btn("close", "Close", n >= 3) + btn("end", "End", n > 0)
-            : btn("delete", selection?.kind === "shape" ? "Delete shape" : "Delete point", can.sel)
-        }<span class="sep"></span>${btn("clear", "Clear", can.clear)}</div>`;
-    } else if (variant === "B") {
-      let pill: string;
-      if (d) pill = `<span class="ht-pill-text">Drawing · ${n} pt${n === 1 ? "" : "s"}</span>${btn("close", "Close", n >= 3)}${btn("end", "End")}`;
-      else if (selection?.kind === "point") {
-        const s = byId(selection.id)!;
-        const end = !s.closed && (selection.index === 0 || selection.index === s.points.length - 1);
-        pill = btn("delete", "Delete point") + (end ? btn("carry", "Carry on") : "") + btn("deselect", "Done");
-      } else if (selection?.kind === "shape") pill = btn("delete", "Delete shape") + btn("deselect", "Done");
-      else pill = `<span class="ht-pill-text">Tap to place · hold for loupe · drag to pan</span>`;
-      html = `<div class="ht-b-tl">${undoRedo}</div><div class="ht-b-tr">${sym}${btn("clear", "Clear", can.clear)}</div>
-        <div class="ht-pill">${pill}</div>`;
-    } else {
-      const primary = crossPrimary();
-      html = `<div class="ht-c-rail">${modes(true)}${mode === "draw" ? sym : ""}${undoRedo}${
-        mode === "edit" ? btn("delete", "Delete", can.sel) : ""
-      }${btn("clear", "Clear", can.clear)}</div>${
-        mode === "draw"
-          ? `<div class="ht-c-act">${btn("close", "Close", n >= 3, "small")}${btn("end", "End", n > 0, "small")}${btn(
-              primary.act,
-              primary.label,
-              true,
-              "primary",
-            )}</div>`
-          : ""
-      }`;
-    }
+    let pill: string;
+    if (d) pill = `<span class="ht-pill-text">Drawing · ${n} pt${n === 1 ? "" : "s"}</span>${btn("close", "Close", n >= 3)}${btn("end", "End")}`;
+    else if (selection?.kind === "point") {
+      const s = byId(selection.id)!;
+      const i = selection.index;
+      const end = !s.closed && (i === 0 || i === s.points.length - 1);
+      const kind = s.points[i].kind;
+      pill =
+        btn("delete", "Delete") +
+        btn("kind", kind === "smooth" ? "Corner" : "Smooth") +
+        (tuning.pull === "pill" && canAddHandles(s, i) ? btn("handles", "+ Handles") : "") +
+        (end ? btn("carry", "Carry on") : "") +
+        btn("deselect", "✓");
+    } else if (selection?.kind === "shape") pill = btn("delete", "Delete shape") + btn("deselect", "✓");
+    else pill = `<span class="ht-pill-text">Tap to place · hold for loupe · double-tap a point to curve it</span>`;
+    const html = `<div class="ht-b-tl">${btn("undo", "↶", can.undo, "icon")}${btn("redo", "↷", can.redo, "icon")}</div>
+      <div class="ht-b-tr">${btn("sym", "⇋ Sym", true, symmetry ? "on" : "")}${btn("curves", "∿ Curves", true, curves ? "on" : "")}${btn("clear", "Clear", can.clear)}</div>
+      <div class="ht-pill">${pill}</div>`;
     if (html !== uiKey) {
       uiKey = html;
       uiEl.innerHTML = html;
@@ -1095,25 +1311,40 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     bar.innerHTML = `<button type="button" data-bar="prev">‹</button><span class="ht-bar-name">${variant} · ${VARIANTS[variant].name}</span>
       <button type="button" data-bar="next">›</button><button type="button" data-bar="full" title="Full screen">${full ? "⤡" : "⤢"}</button>
       <button type="button" data-bar="base" title="What to trace over">${base === "blank" ? "Sample" : "Blank"}</button>
+      <button type="button" data-bar="demo" title="Load curved shapes">Demo</button>
       <button type="button" data-bar="tune" title="Tune">⚙</button><button type="button" data-bar="info" title="State">ⓘ</button>`;
   }
 
   function renderState(): void {
     const closed = shapes.filter((s) => s.closed).length;
     const d = drawing();
-    const sel = selection
-      ? selection.kind === "point"
-        ? `point ${selection.index} of #${selection.id}`
-        : `shape #${selection.id}`
-      : "none";
-    const modeText = variant === "B" ? (d ? "drawing session" : "modeless") : mode;
-    const short = `${modeText} · ${shapes.length} shape${shapes.length === 1 ? "" : "s"} (${shapes.length - closed} open) · last: ${logLines[0] ?? "—"}`;
+    let selText = "none";
+    if (selection?.kind === "shape") selText = `shape #${selection.id}`;
+    else if (selection?.kind === "point") {
+      const s = byId(selection.id)!;
+      const i = selection.index;
+      const a = s.points[i];
+      const e = effective(s, i);
+      const own = axisEnd(s, i);
+      const fmt = (side: Side) => {
+        const h = e[side];
+        const how = own && side !== own ? " reflected" : a[side] ? "" : " auto";
+        return `${side} ${h ? `(${f(h.x)}, ${f(h.y)})${how}` : "—"}`;
+      };
+      selText = `point ${i} of #${s.id}: ${a.kind}${own ? " on the axis" : ""} · ${fmt("in")} · ${fmt("out")}`;
+    }
+    const short = `${curves ? "curves" : "corners"} · ${shapes.length} shape${shapes.length === 1 ? "" : "s"} (${shapes.length - closed} open) · last: ${logLines[0] ?? "—"}`;
     if (!showDetail) return void (stateEl.textContent = short);
     const lines = [
-      `variant ${variant} · ${modeText} · symmetry ${symmetry ? "on" : "off"} · zoom ${(view.s / fitScale()).toFixed(1)}×`,
-      `drawing: ${d ? `#${d.id}, ${d.points.length} pts${d.mirror !== "none" ? ", mirrored" : ""}` : "none"} · selected: ${sel}`,
-      `undo ${undoStack.length} · redo ${redoStack.length} · hit ${tuning.hit}px radius`,
-      ...shapes.map((s) => `#${s.id} ${s.closed ? "closed" : "open"} ${s.mirror} · ${s.points.length} pts`),
+      `variant ${variant} · show ${tuning.show} · pull ${tuning.pull} · priority ${tuning.priority} · zoom ${(view.s / fitScale()).toFixed(1)}×`,
+      `symmetry ${symmetry ? "on" : "off"} · curves ${curves ? "on" : "off"} · drawing: ${d ? `#${d.id}, ${d.points.length} pts` : "none"}`,
+      `selected: ${selText}`,
+      `undo ${undoStack.length} · redo ${redoStack.length} · hit ${tuning.hit}px · double-tap ${tuning.dbl ? `${tuning.dbl}ms` : "off"}`,
+      ...shapes.map(
+        (s) =>
+          `#${s.id} ${s.closed ? "closed" : "open"} ${s.mirror} · ${s.points.map((a) => (a.kind === "smooth" ? (a.in || a.out ? "S" : "s") : a.in || a.out ? "C" : "c")).join("")}`,
+      ),
+      "  (s smooth auto · S smooth stored · c corner · C corner with handles)",
       "— gestures —",
       ...logLines,
     ];
@@ -1123,13 +1354,16 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   // ---- Controls --------------------------------------------------------------------------------------------
   uiEl.addEventListener("click", (e) => {
     const act = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-act]")?.dataset.act;
+    const point = selection?.kind === "point" ? { s: byId(selection.id)!, i: selection.index } : null;
     switch (act) {
-      case "draw":
-      case "edit":
-        return setMode(act, "mode switch");
       case "sym":
         symmetry = !symmetry;
         log(`Symmetry ${symmetry ? "on" : "off"} (next shape)`);
+        return renderAll();
+      case "curves":
+        curves = !curves;
+        setParam("curves", curves ? "1" : null);
+        log(`Curves ${curves ? "on: points placed smooth" : "off: points placed as corners"}`);
         return renderAll();
       case "undo":
         return undo("↶ button");
@@ -1143,39 +1377,33 @@ export function mountHandTracePrototype(root: HTMLElement): void {
         return deleteSelection("Delete button");
       case "clear":
         return clearAll("Clear button");
+      case "kind":
+        if (point) change("pill → toggle kind", () => log(`→ ${toggleKind(point.s, point.i)}`));
+        return;
+      case "handles":
+        if (point) change("+ Handles → corner gets handles along its edges", () => addHandles(point.s, point.i));
+        return;
       case "deselect":
         selection = null;
-        log("Done → deselect");
+        log("✓ → deselect");
         return renderAll();
       case "carry":
-        if (selection?.kind === "point") {
-          const s = byId(selection.id)!;
-          carryOn({ p: s.points[selection.index], id: s.id, index: selection.index, reflected: false }, "Carry on button");
-        }
+        if (point) carryOn({ p: point.s.points[point.i], id: point.s.id, index: point.i, reflected: false }, "Carry on button");
         return;
-      case "primary":
-        return crossPrimaryAct();
-      case "drop":
-        return crossDrop();
     }
   });
 
   const setVariant = (next: VariantKey) => {
     if (gesture?.type === "one") cancelOne(gesture);
     gesture = null;
-    if (carrying) crossDrop();
     variant = next;
-    full = VARIANTS[next].full;
-    if (next === "B") mode = "draw";
-    else mode = shapes.some((s) => s.closed) && drawingId === null ? "edit" : "draw";
-    if (mode === "draw" && next !== "B") selection = null;
+    tuning.show = VARIANTS[next].show;
+    tuning.pull = VARIANTS[next].pull;
     setParam("variant", next);
+    setParam("show", null);
+    setParam("pull", null);
     log(`switched to ${next}`);
-    userMoved = false;
-    requestAnimationFrame(() => {
-      fit();
-      renderAll();
-    });
+    renderTune();
     renderAll();
   };
   const cycle = (dir: number) => setVariant(KEYS[(KEYS.indexOf(variant) + dir + KEYS.length) % KEYS.length]);
@@ -1192,11 +1420,12 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       });
       renderAll();
     } else if (act === "tune") tuneEl.hidden = !tuneEl.hidden;
+    else if (act === "demo") loadDemo();
     else if (act === "base") {
       const keep = base !== "photo";
       base = base === "blank" ? "sample" : "blank";
       setParam("base", base === "blank" ? "blank" : null);
-      setPhoto(base === "blank" ? blankPage() : samplePhoto(), keep);
+      setPhoto(base === "blank" ? blankPage() : samplePhoto(demoInk()), keep);
     } else if (act === "info") {
       showDetail = !showDetail;
       stateEl.classList.toggle("detail", showDetail);
@@ -1217,38 +1446,103 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     else u.searchParams.set(key, value);
     history.replaceState(null, "", u);
   }
-  const range = (key: "hit" | "zoom" | "hold" | "loupe", label: string, min: number, max: number, step: number) =>
-    `<label>${label} <output data-out="${key}">${tuning[key]}</output>
-      <input type="range" data-tune="${key}" min="${min}" max="${max}" step="${step}" value="${tuning[key]}" /></label>`;
-  tuneEl.innerHTML = `
-    ${range("hit", "Hit radius (px)", 10, 36, 1)}
-    ${range("zoom", "Loupe zoom (×)", 1.5, 6, 0.5)}
-    ${range("hold", "Hold before loupe (ms)", 100, 800, 50)}
-    ${range("loupe", "Loupe size (px)", 80, 200, 10)}
-    <label>Edit: drag on empty space
-      <select data-tune="emptyDrag"><option value="pan">pans</option><option value="nothing">does nothing</option></select></label>
-    <label class="check"><input type="checkbox" data-tune="showHits" ${tuning.showHits ? "checked" : ""}/> Show hit areas</label>
-    <button type="button" data-tune-reset>Reset</button>`;
-  tuneEl.querySelector<HTMLSelectElement>("select")!.value = tuning.emptyDrag;
+  function renderTune(): void {
+    const range = (key: "hit" | "zoom" | "hold" | "loupe" | "dbl", label: string, min: number, max: number, step: number) =>
+      `<label>${label} <output data-out="${key}">${tuning[key]}</output>
+        <input type="range" data-tune="${key}" min="${min}" max="${max}" step="${step}" value="${tuning[key]}" /></label>`;
+    const select = (key: "show" | "pull" | "priority", label: string, options: [string, string][]) =>
+      `<label>${label} <select data-tune="${key}">${options
+        .map(([v, text]) => `<option value="${v}"${tuning[key] === v ? " selected" : ""}>${text}</option>`)
+        .join("")}</select></label>`;
+    tuneEl.innerHTML = `
+      ${select("show", "Handles shown", [["point", "selected point's only"], ["neighbours", "+ neighbours' on its edges"], ["shape", "whole selected shape"]])}
+      ${select("pull", "Handle out of a corner", [["smooth", "Smooth, then Corner"], ["stub", "stubs on the selected corner"], ["pill", "+ Handles in the pill"]])}
+      ${select("priority", "Handle vs point in reach", [["nearest", "nearest wins"], ["handles", "handle wins"], ["points", "point wins"]])}
+      <label class="check"><input type="checkbox" data-tune="hloupe" ${tuning.hloupe ? "checked" : ""}/> Loupe on handle drags</label>
+      ${range("dbl", "Double-tap window (ms, 0 = off)", 0, 600, 50)}
+      ${range("hit", "Hit radius (px)", 10, 36, 1)}
+      ${range("zoom", "Loupe zoom (×)", 1.5, 6, 0.5)}
+      ${range("hold", "Hold before loupe (ms)", 100, 800, 50)}
+      ${range("loupe", "Loupe size (px)", 80, 200, 10)}
+      <label class="check"><input type="checkbox" data-tune="showHits" ${tuning.showHits ? "checked" : ""}/> Show hit areas</label>
+      <button type="button" data-tune-reset>Reset</button>`;
+  }
   tuneEl.addEventListener("input", (e) => {
     const el = e.target as HTMLInputElement | HTMLSelectElement;
-    const key = el.dataset.tune as keyof Tuning | undefined;
+    const key = el.dataset.tune;
     if (!key) return;
-    if (key === "emptyDrag") tuning.emptyDrag = el.value === "nothing" ? "nothing" : "pan";
-    else if (key === "showHits") tuning.showHits = (el as HTMLInputElement).checked;
-    else tuning[key] = Number(el.value);
+    let v: string | null;
+    if (key === "show") v = tuning.show = el.value as Show;
+    else if (key === "pull") v = tuning.pull = el.value as Pull;
+    else if (key === "priority") v = tuning.priority = el.value as Priority;
+    else if (key === "hloupe") {
+      tuning.hloupe = (el as HTMLInputElement).checked;
+      v = tuning.hloupe ? null : "0";
+    } else if (key === "showHits") {
+      tuning.showHits = (el as HTMLInputElement).checked;
+      v = tuning.showHits ? "1" : null;
+    }
+    else {
+      const k = key as "hit" | "zoom" | "hold" | "loupe" | "dbl";
+      tuning[k] = Number(el.value);
+      v = String(tuning[k]) === String(DEFAULTS[k]) ? null : el.value;
+    }
     const out = tuneEl.querySelector(`[data-out="${key}"]`);
     if (out) out.textContent = el.value;
-    const v = key === "showHits" ? (tuning.showHits ? "1" : null) : String(tuning[key]);
-    setParam(key, v === String(DEFAULTS[key]) ? null : v);
+    setParam(key, v);
     renderAll();
   });
-  tuneEl.querySelector("[data-tune-reset]")!.addEventListener("click", () => {
-    for (const k of Object.keys(DEFAULTS)) setParam(k, null);
+  tuneEl.addEventListener("click", (e) => {
+    if (!(e.target as HTMLElement).closest("[data-tune-reset]")) return;
+    for (const k of ["hit", "zoom", "hold", "loupe", "dbl", "show", "pull", "priority", "hloupe", "showHits"]) setParam(k, null);
     location.reload();
   });
 
-  setPhoto(base === "blank" ? blankPage() : samplePhoto());
+  renderTune();
+  setPhoto(base === "blank" ? blankPage() : samplePhoto(demoInk()));
+}
+
+/**
+ * Curved shapes as an import would bring them, on the 1200 × 1500 sample with its axis at x = 600: a round eye of
+ * four smooth points, a crescent eye with corner tips, and a smile as one symmetric shape (its half runs from the
+ * axis at the top lip, out to the corner, and back to the axis at the bottom, both axis points smooth).
+ */
+function demoShapes(): Shape[] {
+  const k = 47;
+  return [
+    {
+      id: 0,
+      closed: true,
+      mirror: "none",
+      points: [
+        { x: 420, y: 395, kind: "smooth", in: { x: -k, y: 0 }, out: { x: k, y: 0 } },
+        { x: 505, y: 480, kind: "smooth", in: { x: 0, y: -k }, out: { x: 0, y: k } },
+        { x: 420, y: 565, kind: "smooth", in: { x: k, y: 0 }, out: { x: -k, y: 0 } },
+        { x: 335, y: 480, kind: "smooth", in: { x: 0, y: k }, out: { x: 0, y: -k } },
+      ],
+    },
+    {
+      id: 0,
+      closed: true,
+      mirror: "none",
+      points: [
+        { x: 760, y: 395, kind: "corner", in: { x: 30, y: 5 }, out: { x: 60, y: 0 } },
+        { x: 870, y: 480, kind: "smooth", in: { x: 0, y: -55 }, out: { x: 0, y: 55 } },
+        { x: 760, y: 565, kind: "corner", in: { x: 60, y: 0 }, out: { x: 30, y: -5 } },
+        { x: 815, y: 480, kind: "smooth", in: { x: 0, y: 45 }, out: { x: 0, y: -45 } },
+      ],
+    },
+    {
+      id: 0,
+      closed: true,
+      mirror: "symmetric",
+      points: [
+        { x: 600, y: 930, kind: "smooth", out: { x: 110, y: 0 } },
+        { x: 850, y: 870, kind: "corner", in: { x: -80, y: 40 }, out: { x: -30, y: 120 } },
+        { x: 600, y: 1080, kind: "smooth", in: { x: 140, y: 0 } },
+      ],
+    },
+  ];
 }
 
 /** A blank page the sample's size, with a faint grid so panning and zooming still read. */
@@ -1283,8 +1577,8 @@ function inside(p: Pt, pts: Pt[]): boolean {
   return hit;
 }
 
-/** A hand-drawn-looking pumpkin face on paper, standing in until a photo is loaded. */
-function samplePhoto(): HTMLCanvasElement {
+/** A pumpkin face on paper, standing in until a photo is loaded: the demo shapes inked, plus a nose to trace. */
+function samplePhoto(ink: string[]): HTMLCanvasElement {
   const c = document.createElement("canvas");
   [c.width, c.height] = [1200, 1500];
   const g = c.getContext("2d")!;
@@ -1294,25 +1588,12 @@ function samplePhoto(): HTMLCanvasElement {
   g.lineWidth = 9;
   g.lineJoin = "round";
   g.lineCap = "round";
-  const wobbly = (pts: [number, number][]) => {
-    g.beginPath();
-    pts.forEach(([x, y], i) => {
-      const [jx, jy] = [x + Math.sin(i * 2.3 + y) * 5, y + Math.cos(i * 1.7 + x) * 5];
-      if (i) g.lineTo(jx, jy);
-      else g.moveTo(jx, jy);
-    });
-    g.closePath();
-    g.stroke();
-  };
-  wobbly([[320, 530], [475, 525], [405, 375]]);
-  wobbly([[728, 522], [884, 532], [796, 382]]);
-  wobbly([[558, 712], [646, 706], [603, 618]]);
-  wobbly([
-    [296, 905], [378, 968], [432, 912], [492, 985], [556, 924], [602, 996], [646, 926], [712, 984],
-    [768, 914], [822, 966], [906, 900], [826, 1086], [600, 1128], [378, 1080],
-  ]);
+  for (const d of ink) g.stroke(new Path2D(d));
   g.beginPath();
-  g.arc(408, 478, 22, 0, Math.PI * 2);
+  g.moveTo(556, 712);
+  g.lineTo(646, 706);
+  g.lineTo(603, 618);
+  g.closePath();
   g.stroke();
   g.fillStyle = "#9a9387";
   g.font = "34px system-ui, sans-serif";
@@ -1342,23 +1623,22 @@ function injectStyle(): void {
   .ht-pt.closable { fill: #5be37d; }
   .ht-close-ring { fill: none; stroke: #5be37d; stroke-width: 2; stroke-dasharray: 3 2; }
   .ht-marker { fill: #1b1b1b; fill-opacity: 0.6; stroke: #39c6ff; stroke-width: 1.5; }
+  .ht-hline { stroke: #39c6ff; stroke-width: 1.5; }
+  .ht-hline.stub { stroke-dasharray: 3 3; }
+  .ht-knob { fill: #39c6ff; stroke: #fff; stroke-width: 1.5; }
+  .ht-stub { fill: rgb(0 0 0 / 0.45); stroke: #39c6ff; stroke-width: 2; }
   .ht-hitarea { fill: #39c6ff; fill-opacity: 0.08; stroke: #39c6ff; stroke-opacity: 0.35; }
+  .ht-hitarea.knob { fill: #ff3b6b; stroke: #ff3b6b; }
   .ht-axis { stroke: #8fd3ff; stroke-width: 1.5; stroke-dasharray: 8 6; opacity: 0.8; }
   .ht-axis.hot { stroke: #ffe14d; stroke-width: 3; stroke-dasharray: none; opacity: 1; }
   .ht-loupe { position: absolute; border-radius: 50%; overflow: hidden; border: 3px solid #fff;
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.5); background: #2a2622; pointer-events: none; z-index: 3; }
-  .ht-loupe[hidden], .ht-crosshair[hidden], .ht-note[hidden], .ht-tune[hidden], .ht-proto-bar[hidden],
-  .ht-state[hidden] { display: none; }
+  .ht-loupe[hidden], .ht-note[hidden], .ht-tune[hidden], .ht-proto-bar[hidden], .ht-state[hidden] { display: none; }
   .ht-loupe svg { width: 100%; height: 100%; display: block; }
-  .ht-loupe-cross, .ht-crosshair { position: absolute; left: 50%; top: 50%; pointer-events: none; }
-  .ht-loupe-cross::before, .ht-loupe-cross::after, .ht-crosshair::before, .ht-crosshair::after {
-    content: ""; position: absolute; background: #ff3b6b; }
+  .ht-loupe-cross { position: absolute; left: 50%; top: 50%; pointer-events: none; }
+  .ht-loupe-cross::before, .ht-loupe-cross::after { content: ""; position: absolute; background: #ff3b6b; }
   .ht-loupe-cross::before { left: -10px; width: 20px; top: -0.5px; height: 1px; }
   .ht-loupe-cross::after { top: -10px; height: 20px; left: -0.5px; width: 1px; }
-  .ht-crosshair { width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 2px solid #fff; border-radius: 50%;
-    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(0 0 0 / 0.6); }
-  .ht-crosshair::before { left: 15px; width: 2px; top: -12px; height: 56px; background: rgb(255 59 107 / 0.9); }
-  .ht-crosshair::after { top: 15px; height: 2px; left: -12px; width: 56px; background: rgb(255 59 107 / 0.9); }
   .ht-note { position: absolute; left: 50%; transform: translateX(-50%); bottom: 64px; padding: 3px 10px;
     border-radius: 10px; background: rgb(0 0 0 / 0.55); color: #eee; font-size: 12px; pointer-events: none; z-index: 2; }
   .ht-full .ht-note { bottom: auto; top: 104px; white-space: nowrap; }
@@ -1368,32 +1648,17 @@ function injectStyle(): void {
   .ht-ui button.on { background: #ff7a00; border-color: #ff7a00; color: #111; }
   .ht-ui button.icon { font-size: 20px; padding: 0; }
   .ht-ui > * { position: absolute; z-index: 2; display: flex; gap: 6px; align-items: center; }
-  .ht-seg { display: flex; }
-  .ht-seg button { border-radius: 0; }
-  .ht-seg button:first-child { border-radius: 10px 0 0 10px; }
-  .ht-seg button:last-child { border-radius: 0 10px 10px 0; }
-  .ht-seg.vertical { flex-direction: column; }
-  .ht-seg.vertical button:first-child { border-radius: 10px 10px 0 0; }
-  .ht-seg.vertical button:last-child { border-radius: 0 0 10px 10px; }
-  .ht-a-top { top: 8px; right: 8px; flex-direction: column; align-items: flex-end; }
-  .ht-a-bar { left: 0; right: 0; bottom: 0; padding: 8px; justify-content: center; flex-wrap: wrap;
-    background: linear-gradient(transparent, rgb(0 0 0 / 0.5)); }
-  .ht-a-bar .sep { width: 10px; }
   .ht-b-tl { top: 52px; left: 10px; }
   .ht-b-tr { top: 52px; right: 10px; }
   .ht-pill { left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom));
-    background: rgb(20 20 20 / 0.85); border-radius: 26px; padding: 6px; max-width: calc(100% - 20px); }
-  .ht-pill-text { color: #ddd; padding: 0 8px; font-size: 13px; white-space: nowrap; }
-  .ht-c-rail { right: 8px; top: 50%; transform: translateY(-50%); flex-direction: column; }
-  .ht-c-act { right: 72px; bottom: calc(22px + env(safe-area-inset-bottom)); align-items: flex-end; }
-  .ht-c-act .primary { min-width: 96px; min-height: 96px; border-radius: 50%; background: #ff7a00; color: #111;
-    font-weight: 700; border: 3px solid #fff; }
-  .ht-c-act .small { min-height: 40px; }
+    background: rgb(20 20 20 / 0.85); border-radius: 26px; padding: 6px; max-width: calc(100% - 20px);
+    flex-wrap: wrap; justify-content: center; width: max-content; }
+  .ht-pill-text { color: #ddd; padding: 0 8px; font-size: 13px; text-align: center; }
   .ht-root:not(.ht-full) .ht-b-tl, .ht-root:not(.ht-full) .ht-b-tr { top: 44px; }
   .ht-proto-bar { position: fixed; top: 6px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex;
     align-items: center; gap: 4px; padding: 3px 6px; border-radius: 18px; background: #6d28d9; color: #fff;
     box-shadow: 0 2px 10px rgb(0 0 0 / 0.4); font: 12px system-ui, sans-serif; white-space: nowrap; }
-  .ht-bar-name { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; }
+  .ht-bar-name { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; }
   .ht-proto-bar button { font: inherit; font-size: 15px; color: #fff; background: rgb(255 255 255 / 0.15); border: 0;
     border-radius: 12px; min-width: 30px; height: 28px; padding: 0 6px; touch-action: manipulation; }
   .ht-state { position: fixed; top: 44px; left: 6px; z-index: 99; max-width: calc(100vw - 12px); padding: 2px 8px;
@@ -1402,7 +1667,8 @@ function injectStyle(): void {
   .ht-state:not(.detail) { top: auto; bottom: 4px; left: 4px; opacity: 0.85; }
   .ht-tune { position: fixed; top: 44px; right: 6px; z-index: 101; display: grid; gap: 8px; padding: 10px;
     border-radius: 10px; background: #f6f3ff; color: #222; box-shadow: 0 4px 16px rgb(0 0 0 / 0.4);
-    font: 13px system-ui, sans-serif; width: min(280px, calc(100vw - 12px)); }
+    font: 13px system-ui, sans-serif; width: min(280px, calc(100vw - 12px)); max-height: calc(100dvh - 60px);
+    overflow: auto; }
   .ht-tune label { display: grid; gap: 2px; }
   .ht-tune label.check { display: flex; gap: 6px; align-items: center; }
   `;
