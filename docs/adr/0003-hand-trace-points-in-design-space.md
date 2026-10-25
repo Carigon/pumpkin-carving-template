@@ -17,6 +17,10 @@ so the choice is hard to change once hand-traces exist. Decided in Path model fo
   lines up).
 - On a blank page (no photo), design space is the page: a square with the same conventions, points relative to its
   size and clamped to it. Added in Hand-tracing without a photo (issue #18).
+- An SVG design edited as a hand-trace lands on a page shaped to the design's box plus a margin of 10% of its long
+  side all round, the symmetry axis down its middle, so the axis runs through the box centre that placement centres
+  on. Imported points stay where they come, even outside the page or photo, and are clamped only once moved. Added
+  in Editing a loaded SVG as a hand-trace (issue #20).
 - When the cleanup changes after points are placed, points can be carried along by undoing the old cleanup and
   applying the new one. Whether they are is for Photo cleanup before hand-tracing (issue #13).
 - Points have a `kind`, `"corner"` or `"smooth"`, and optional `in` / `out` handles, each an offset from its point in

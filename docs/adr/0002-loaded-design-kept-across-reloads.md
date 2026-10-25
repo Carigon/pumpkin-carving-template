@@ -14,8 +14,11 @@ Hand-tracing without a photo (issue #18).
 
 - **What's kept**: the loaded design and the work on it, whatever its source. For a photo: the photo, its cleanup,
   both tracing methods' work (the hand-trace and the auto-trace threshold, invert, speckle and crop), the chosen
-  tracing method and the Done/Edit state. For a blank page: the page's aspect (always 1:1 for now), the hand-trace
-  and the Done/Edit state, with no photo, cleanup or auto-trace side. For an SVG file: the file. One rule ("your loaded design comes back")
+  tracing method and the Done/Edit state. For a blank page: the page's aspect (1:1, or shaped to an SVG design edited
+  as a hand-trace), the hand-trace and the Done/Edit state, with no photo, cleanup or auto-trace side. For an SVG
+  file: the file, until it's edited as a hand-trace; from then on only the hand-trace is kept, on a page or, for a
+  changed hand-trace file whose record's photo still validates, on that photo (Editing a loaded SVG as a hand-trace,
+  issue #20). One rule ("your loaded design comes back")
   rather than a hand-trace-only exception. One slot: only one design is ever loaded.
 - **How**: the photo as the file exactly as chosen; cleanup as its settings, never as cleaned-up pixels; the
   hand-trace as the path model's data, with points relative to the photo's size; auto-trace re-runs only when its

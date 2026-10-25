@@ -24,7 +24,11 @@ format is hard to change. Decided in Downloading a hand-trace as SVG (issue #17 
 - The record holds a fingerprint of the geometry it drew. Loading reopens the file as a hand-trace only when the
   visible path still matches it within the loader's tolerance, compared as geometry, not as `d` text (editors
   rewrite path text without moving anything). Otherwise, or when the record is from an unknown version or fails
-  validation, the file loads as an SVG design with a note saying why.
+  validation, the file loads as an SVG design with a note saying why. Editing that SVG design as a hand-trace takes
+  its shapes from the visible path but reuses the stale record's photo, cleanup and auto-trace side when the photo
+  still validates; mirror flags and open shapes aren't taken from it (Editing a loaded SVG as a hand-trace,
+  issue #20).
+- A hand-trace started from an SVG design keeps the file's name in its record, for the download's name.
 - When a file carries our record, even a stale one, the loader takes the design's box as the union of the `viewBox`
   and its paths' box, so a mirrored design with an unmirrored extra stays centred on the axis. Other SVGs are
   unchanged.

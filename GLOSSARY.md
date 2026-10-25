@@ -90,7 +90,7 @@ The four-sided outline the carver drags onto the photo during cleanup; what's in
 _Avoid_: Quad, crop box, corners (a corner point belongs to a shape)
 
 **Blank page**:
-The square, faintly gridded page a hand-trace is placed on when there's no photo. It has no cleanup, and no auto-trace, since there's nothing to find dark areas in. A photo can't be added to it later.
+The faintly gridded page a hand-trace is placed on when there's no photo: square when the hand-trace starts from nothing, or shaped to a loaded SVG design's shapes, with room around them, when that design is edited as a hand-trace. It has no cleanup, and no auto-trace, since there's nothing to find dark areas in. A photo can't be added to it later.
 _Avoid_: Canvas, artboard, empty photo
 
 **Symmetry axis**:
@@ -119,6 +119,10 @@ _Avoid_: Fused shape, half shape
 **Hand-trace file**:
 An SVG download of a hand-trace that reopens as one, its photo (if it has one) and work included. Changed in another program, it opens as a plain SVG design instead.
 _Avoid_: Export, backup, project file
+
+**SVG design**:
+A design loaded from an SVG file and placed as it is, with no points to adjust. Editing it as a hand-trace turns it into one for good; the file on the carver's device is untouched.
+_Avoid_: Imported design, vector design
 
 **Tracing method**:
 Auto-trace or hand-trace: how the loaded photo becomes the design, chosen per photo. The design is the chosen method's result; the other method's work is kept, not used.
