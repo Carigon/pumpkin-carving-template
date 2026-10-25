@@ -19,6 +19,10 @@ so the choice is hard to change once hand-traces exist. Decided in Path model fo
   size and clamped to it. Added in Hand-tracing without a photo (issue #18).
 - When the cleanup changes after points are placed, points can be carried along by undoing the old cleanup and
   applying the new one. Whether they are is for Photo cleanup before hand-tracing (issue #13).
+- Points have a `kind`, `"corner"` or `"smooth"`, and optional `in` / `out` handles, each an offset from its point in
+  design space. A corner point's handles are independent; a smooth point's stay on one line. A smooth point with no
+  stored handles has automatic ones, worked out from its neighbours whenever the shape changes; dragging one stores
+  both. Curves are in v1, decided in Curves in v1 (issue #19).
 
 ## Considered options
 
@@ -31,7 +35,9 @@ so the choice is hard to change once hand-traces exist. Decided in Path model fo
 
 - Carrying points through a cleanup change is exact for crop, rotate and scale, even with handles, and exact for a
   four-corner perspective change on straight segments, since perspective keeps lines straight.
-- Once curves arrive, a four-corner change can only approximate a curve's handles (the warped curve is no longer a
-  Bézier). Straight-only v1 hand-traces are unaffected.
+- A four-corner change can only approximate a curve's handles (the warped curve is no longer a Bézier). Each stored
+  handle's tip is mapped through the same homography and its offset recomputed; a smooth point's two mapped
+  directions are averaged so they stay on one line; automatic handles are simply recomputed. The approximation is
+  silent. Straight edges are unaffected.
 - Cleanup geometry must itself be stored relative to the photo's size, or the shrunk-copy fallback misaligns it.
   The existing auto-trace crop (`TraceSettings.crop`, in source-image pixels) doesn't do this yet.

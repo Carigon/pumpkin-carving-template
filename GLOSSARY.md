@@ -57,13 +57,13 @@ One place a shape's edge passes through, placed by the carver.
 _Avoid_: Anchor, node, vertex
 
 **Corner point**:
-A point where the edge may change direction sharply. For now every point is a corner point and every edge between points is straight.
+A point where the edge may change direction sharply. It may have a handle on either side, each set on its own, like the tips of a crescent-moon eye; a side with no handle leaves the point in a straight edge. Placing a point makes a corner point.
 
 **Smooth point**:
-A point the edge passes through without a kink, its two handles on one line. Not yet available.
+A point the edge passes through without a kink, its two handles on one line. Its handles follow its neighbours, rounding the edge out, until the carver drags one.
 
 **Handle**:
-A control pulled out of a point that sets which way, and how far, the edge curves as it leaves the point. Not yet available.
+A control pulled out of a point that sets which way, and how far, the edge curves as it leaves the point. Dragged back onto its point, it's gone and that side is straight.
 
 **Open shape**:
 A shape that isn't closed. It's kept, but it isn't carved until the carver closes it.

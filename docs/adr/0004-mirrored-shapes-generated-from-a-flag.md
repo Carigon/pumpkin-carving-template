@@ -38,7 +38,12 @@ symmetric was amended in Placing and adjusting points on a phone (issue #14).
 ## Consequences
 
 - Editing either side moves the stored points by the reflection; every change, both sides together, is one undo step.
-- Mirrored shapes' points are clamped to their own side of the axis, so a twin never overlaps its reflection.
+- Mirrored shapes' points are clamped to their own side of the axis, so a twin's points never cross it. Handles
+  (Curves in v1, issue #19) are reflected with their points and clamped only to the photo or page, not to a side, so
+  a curve can bulge across the axis and overlap its reflection; the overlap shows uncarved.
+- A symmetric shape's point on the axis has one handle in the half; the reflection supplies the other. A smooth axis
+  point keeps its handle at right angles to the axis, so the joined outline crosses smoothly; a corner axis point's
+  handle is free, and the join is a cusp.
 - When a hand-trace has any mirrored shape, its `Design` is centred on the symmetry axis rather than on its bounding
   box (the box is widened evenly about the axis before `placeDesign`), so the axis lands on the pumpkin's front
   centre even with unmirrored extras. A fully symmetric design places as before.
