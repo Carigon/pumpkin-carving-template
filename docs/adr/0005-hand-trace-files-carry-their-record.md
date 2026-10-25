@@ -16,7 +16,9 @@ format is hard to change. Decided in Downloading a hand-trace as SVG (issue #17 
   y flipped to SVG's y-down. Its `viewBox` is the design's bounding box, widened about the symmetry axis as the
   `Design` is; its `width`/`height` are in mm at the placed front-view Width. Open shapes aren't drawn.
 - The record sits in a namespaced `<metadata>` element as versioned JSON: what storage holds (ADR 0002), with the
-  photo, if there is one, as a JPEG copy shrunk to 2048 px on the long edge (or as chosen when already smaller).
+  photo, if there is one, as a JPEG copy shrunk to 2048 px on the long edge (or as chosen when already smaller). A
+  hand-trace on a blank page carries the page's aspect instead and reopens on a blank page (Hand-tracing without a
+  photo, issue #18).
   Never a visible `<image>`: the photo is uncropped and unwarped, so it wouldn't line up behind the shapes.
   Placement (Width, offset, rotation) isn't in it; loading a design never changes placement.
 - The record holds a fingerprint of the geometry it drew. Loading reopens the file as a hand-trace only when the

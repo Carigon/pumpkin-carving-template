@@ -89,8 +89,12 @@ _Avoid_: Preprocessing, photo editing
 The four-sided outline the carver drags onto the photo during cleanup; what's inside it, squared up, becomes the cleaned-up photo. Its handles are the frame corners.
 _Avoid_: Quad, crop box, corners (a corner point belongs to a shape)
 
+**Blank page**:
+The square, faintly gridded page a hand-trace is placed on when there's no photo. It has no cleanup, and no auto-trace, since there's nothing to find dark areas in. A photo can't be added to it later.
+_Avoid_: Canvas, artboard, empty photo
+
 **Symmetry axis**:
-The fixed vertical line through the centre of the cleaned-up photo that mirrored shapes are reflected about.
+The fixed vertical line through the centre of the cleaned-up photo, or of the blank page, that mirrored shapes are reflected about.
 _Avoid_: Mirror line, centre line
 
 **Symmetry**:
@@ -113,7 +117,7 @@ A mirrored shape that spans the symmetry axis: the carver draws one half, meetin
 _Avoid_: Fused shape, half shape
 
 **Hand-trace file**:
-An SVG download of a hand-trace that reopens as one, its photo and work included. Changed in another program, it opens as a plain SVG design instead.
+An SVG download of a hand-trace that reopens as one, its photo (if it has one) and work included. Changed in another program, it opens as a plain SVG design instead.
 _Avoid_: Export, backup, project file
 
 **Tracing method**:
@@ -123,11 +127,15 @@ _Avoid_: Trace mode, trace type
 ## Viewport
 
 **View**:
-One of the ways the viewport shows the work: 3D, Photo, Blueprint or Paper.
+One of the ways the viewport shows the work: 3D, Photo or Page, Blueprint or Paper.
 
 **Photo view**:
 The view showing the loaded photo: its cleanup, then the chosen tracing method's work on the cleaned-up photo (the result for auto-trace, the points being placed for hand-trace).
 _Avoid_: Trace view
+
+**Page view**:
+The view showing a hand-trace on a blank page: the points being placed, with no cleanup before them. It takes the Photo view's place when there's no photo; the two never show at once.
+_Avoid_: Photo view (there's no photo), blank view
 
 **Blueprint view**:
 The view for editing the pumpkin's shape directly: the profile drawn flat on both sides against a ruler, with each ring as a line you can drag.

@@ -7,13 +7,15 @@ Status: accepted
 Saved settings deliberately held "never images or designs" (`src/settings.ts`): a reload or a tab the browser
 discarded lost the loaded photo or SVG and everything done to it. Hand-tracing changes that trade-off, since a
 hand-trace can be an hour of placing points, and phones discard background tabs freely. Decided in Keeping a
-hand-trace across reloads (issue #9 in `Carigon/pumpkin-carving-template`).
+hand-trace across reloads (issue #9 in `Carigon/pumpkin-carving-template`); hand-traces on a blank page were added in
+Hand-tracing without a photo (issue #18).
 
 ## Decision
 
 - **What's kept**: the loaded design and the work on it, whatever its source. For a photo: the photo, its cleanup,
   both tracing methods' work (the hand-trace and the auto-trace threshold, invert, speckle and crop), the chosen
-  tracing method and the Done/Edit state. For an SVG file: the file. One rule ("your loaded design comes back")
+  tracing method and the Done/Edit state. For a blank page: the page's aspect (always 1:1 for now), the hand-trace
+  and the Done/Edit state, with no photo, cleanup or auto-trace side. For an SVG file: the file. One rule ("your loaded design comes back")
   rather than a hand-trace-only exception. One slot: only one design is ever loaded.
 - **How**: the photo as the file exactly as chosen; cleanup as its settings, never as cleaned-up pixels; the
   hand-trace as the path model's data, with points relative to the photo's size; auto-trace re-runs only when its
@@ -30,7 +32,7 @@ hand-trace across reloads (issue #9 in `Carigon/pumpkin-carving-template`).
   won't keep your work after a reload", with a link to download the SVG. Losing a hand-trace silently is far
   worse than losing a ring measurement silently, so this breaks from the settings' silent failure.
 - **Validation**: the record carries a version; an unknown version is ignored. Each part is checked on its own,
-  like `loadSettings`: no readable photo or SVG restores nothing; an invalid hand-trace restores empty; invalid
+  like `loadSettings`: no readable photo, blank page or SVG restores nothing; an invalid hand-trace restores empty; invalid
   cleanup or auto-trace settings fall back to defaults. All silent.
 
 ## Considered options

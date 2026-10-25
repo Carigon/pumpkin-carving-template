@@ -15,6 +15,8 @@ so the choice is hard to change once hand-traces exist. Decided in Path model fo
 - Points are kept in **design space**: the photo after cleanup, as the carver sees it, with one scale on both axes,
   y up, and coordinates relative to the photo's size (so ADR 0002's fallback to a shrunk copy of the photo still
   lines up).
+- On a blank page (no photo), design space is the page: a square with the same conventions, points relative to its
+  size and clamped to it. Added in Hand-tracing without a photo (issue #18).
 - When the cleanup changes after points are placed, points can be carried along by undoing the old cleanup and
   applying the new one. Whether they are is for Photo cleanup before hand-tracing (issue #13).
 
