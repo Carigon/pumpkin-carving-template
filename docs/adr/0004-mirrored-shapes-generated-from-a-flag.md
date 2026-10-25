@@ -7,7 +7,8 @@ Status: accepted
 Hand-tracing has live symmetry about a fixed vertical axis through the centre of the cleaned-up photo. A mirrored
 shape's reflection could be kept as a second shape linked to the first, or produced from the drawn side whenever it's
 needed. The stored record (ADR 0002) holds whichever is chosen, so the choice is hard to change once hand-traces
-exist. Decided in Live symmetry (issue #12 in `Carigon/pumpkin-carving-template`).
+exist. Decided in Live symmetry (issue #12 in `Carigon/pumpkin-carving-template`); when a mirrored shape becomes
+symmetric was amended in Placing and adjusting points on a phone (issue #14).
 
 ## Decision
 
@@ -17,8 +18,11 @@ exist. Decided in Live symmetry (issue #12 in `Carigon/pumpkin-carving-template`
 - A **twin** is reflected as a separate closed shape. A **symmetric shape** is its half joined to its reversed
   reflection at both ends: a join has no length when the end lies on the axis, and is a straight edge across the axis
   when it doesn't, so the result is always one valid closed shape.
-- An open mirrored shape is stored as `"twin"`; closing it with a point on the axis (other than its first) makes it
-  `"symmetric"`.
+- An open mirrored shape is stored as `"twin"`. It closes as `"symmetric"` when its closed outline runs along the axis
+  (two points in a row on it, the closing edge included), wherever it was started; its points are then stored starting
+  just after that edge, so the half runs axis to axis and the edge drops out. Starting on the axis and landing on it
+  again is the same rule, closed automatically. Requiring the first point on the axis was dropped: carvers starting a
+  mouth at its corner forgot it and had to redraw.
 - The Symmetry setting is a drawing setting stored with the hand-trace. It stamps the flag on shapes as they're
   started and never changes shapes already drawn.
 

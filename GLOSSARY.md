@@ -70,20 +70,16 @@ A shape that isn't closed. It's kept, but it isn't carved until the carver close
 _Avoid_: Unfinished shape, path
 
 **Shape being drawn**:
-The one shape new points are added to in draw mode, from its first point until the carver closes it or ends it open. At most one at a time.
-_Avoid_: Current shape, active shape
-
-**Draw mode**:
-The hand-trace mode for placing points: each tap adds a point to the shape being drawn, or starts a new one. Other shapes can't be selected or changed.
-_Avoid_: Pen mode, pen tool
-
-**Edit mode**:
-The hand-trace mode for changing what's already drawn: selecting, moving, inserting and deleting points and shapes. No new points are placed by tapping.
-_Avoid_: Select mode, node tool
+The one shape a tap on empty space adds points to, from its first point until the carver closes it or ends it open. At most one at a time.
+_Avoid_: Current shape, active shape, draw mode (hand-tracing has no modes)
 
 **Insert marker**:
 The small target in the middle of each edge of the selected shape that adds a point there when tapped or dragged.
 _Avoid_: Midpoint handle (a handle shapes a curve)
+
+**Loupe**:
+The magnified circle shown beside a finger that holds or drags, centred on where the point under the finger will land.
+_Avoid_: Magnifier, offset cursor (the point lands under the finger, not beside it)
 
 **Cleanup**:
 Straightening, cropping and toning the loaded photo before it's traced. Its straightening and cropping are shared by both tracing methods; its toning only changes what a hand-trace is placed over.
@@ -113,7 +109,7 @@ A mirrored shape drawn wholly on one side of the symmetry axis, so its reflectio
 _Avoid_: Mirrored pair, copy
 
 **Symmetric shape**:
-A mirrored shape that spans the symmetry axis: the carver draws one half and its reflection completes it into a single shape, like a mouth or a nose.
+A mirrored shape that spans the symmetry axis: the carver draws one half, meeting the axis along an edge or at both ends, and its reflection completes it into a single shape, like a mouth or a nose.
 _Avoid_: Fused shape, half shape
 
 **Tracing method**:
