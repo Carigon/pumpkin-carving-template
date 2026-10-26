@@ -1474,9 +1474,26 @@ body {
   stroke: #e26a12;
 }
 
+.ht-line.selected {
+  stroke: #1f7fc4;
+  stroke-width: 3;
+}
+
 .ht-point {
   fill: #fff;
   stroke: #2b2118;
+  stroke-width: 1.5;
+}
+
+.ht-point.selected {
+  fill: #1f7fc4;
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.ht-marker {
+  fill: rgb(255 255 255 / 0.85);
+  stroke: #1f7fc4;
   stroke-width: 1.5;
 }
 
