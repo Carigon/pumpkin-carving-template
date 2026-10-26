@@ -1,7 +1,8 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
-import type { DesignRecord, PhotoFile, RecordKeeper } from "../designRecord";
+import type { DesignRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
 import type { HandTraceRecord, Page } from "../handTrace";
 import { handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
+import { filePhoto } from "../input/shrinkPhoto";
 import { downloadBlob } from "./download";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
@@ -226,6 +227,7 @@ export function mountDesignPanel(
     onCleaned: (href) => handTrace.setPhoto(href),
     onMethod() {
       syncDone();
+      showHandTrace(); // Download SVG shows while hand-trace is chosen
       pickDesign();
       showPhotoStatus();
       showWarnings(); // auto-trace's lines carry its own hint
@@ -255,6 +257,7 @@ export function mountDesignPanel(
     trace.handSlot.append(canvasHost);
     handTrace.startPhoto(trace.page(), kept);
     handTrace.setTone(toneFilter(trace.tone()));
+    showHandTrace();
   };
   const startBlankPage = (kept?: { page: Page; handTrace: HandTraceRecord }) => {
     pageView.append(canvasHost);
@@ -265,15 +268,16 @@ export function mountDesignPanel(
   const handTraceNote = handTraceEl.querySelector<HTMLElement>(".trace-accepted-note")!;
   /** Download SVG, below Done/Edit and in the "won't keep your work" line. */
   const downloads = Array.from(form.querySelectorAll<HTMLButtonElement>("[data-download-svg]"));
-  /**
-   * The blank page's hand-trace; null over a photo, whose Done is the trace panel's and whose hand-trace file (its
-   * photo with it) isn't written yet.
-   */
+  /** The blank page's hand-trace; null over a photo, whose Done is the trace panel's. */
   const pageEditor = () => (photo ? null : handTrace.editor());
   const handTraceDone = () => pageEditor()?.isDone() ?? false;
+  /** The hand-trace a Download SVG writes: the blank page's, or the photo's while hand-trace is chosen. */
+  const chosenHandTrace = () => (handTraceView() ? handTrace.editor() : null);
   const showHandTrace = () => {
-    const editor = pageEditor();
+    const editor = chosenHandTrace();
+    // Over a photo the row holds Download SVG only, below the trace panel's Done/Edit.
     handTraceEl.hidden = editor === null;
+    handTraceAccept.hidden = pageEditor() === null;
     handTraceAccept.textContent = handTraceDone() ? "Edit" : "Done";
     handTraceNote.hidden = !handTraceDone();
     for (const b of downloads) {
@@ -281,20 +285,31 @@ export function mountDesignPanel(
       b.disabled = (editor?.counts().points ?? 0) === 0;
     }
   };
+  /** The loaded photo as its hand-trace file carries it, made once per photo. */
+  let forFile: { of: PhotoFile; photo: Promise<PhotoFile> } | null = null;
   /** Download the hand-trace as a hand-trace file, at the placed Width (the default while the field is empty). */
-  const downloadSvg = () => {
-    const editor = pageEditor();
-    if (!editor) return;
+  const downloadSvg = async () => {
+    const editor = chosenHandTrace();
+    const kept = record();
+    if (!editor || !kept || kept.source === "svg") return;
+    if (kept.source === "photo" && forFile?.of !== kept.photo) {
+      const chosen = kept.photo;
+      // A photo that loaded but won't decode again here goes in as chosen.
+      forFile = { of: chosen, photo: filePhoto(chosen).catch(() => chosen) };
+    }
+    const fileRecord = kept.source === "photo" && forFile ? { ...kept, photo: await forFile.photo } : kept;
     const placed = lengths.value(width);
     const text = writeHandTraceFile({
-      record: { source: "page", page: editor.page(), handTrace: editor.record() },
+      record: fileRecord,
+      page: editor.page(),
       pathData: editor.pathData(),
       design: editor.design(),
       width: placed > 0 ? placed : DEFAULTS_MM.width,
     });
-    downloadBlob(new Blob([text], { type: "image/svg+xml" }), handTraceFileName(new Date()));
+    const name = kept.source === "photo" ? kept.photo.name : undefined;
+    downloadBlob(new Blob([text], { type: "image/svg+xml" }), handTraceFileName(new Date(), name));
   };
-  for (const b of downloads) b.addEventListener("click", downloadSvg);
+  for (const b of downloads) b.addEventListener("click", () => void downloadSvg());
   handTraceAccept.addEventListener("click", () => {
     handTrace.setDone(!handTraceDone());
     showHandTrace();
@@ -325,12 +340,13 @@ export function mountDesignPanel(
    * Open an SVG file: a hand-trace file reopens as its hand-trace, restored as after a reload; any other is an SVG
    * design, kept as that file while it reads as one.
    */
-  const openSvg = (name: string, text: string) => {
+  const openSvg = async (name: string, text: string) => {
     const opened = readHandTraceFile(text);
     if (opened.kind === "hand-trace") {
-      startBlankPage(opened.record);
-      design = handTrace.editor()?.design() ?? null;
-      showHandTrace();
+      if (opened.record.source === "photo") {
+        await openPhoto(opened.record);
+        if (!trace.loaded()) return; // its photo couldn't be read: that status stands
+      } else openPage(opened.record);
       return showStatus("Reopened your hand-trace.", false);
     }
     const read = opened.design;
@@ -362,9 +378,26 @@ export function mountDesignPanel(
       return;
     }
     trace.clear();
-    openSvg(f.name, await f.text());
+    await openSvg(f.name, await f.text());
     onChange();
-    keep();
+    keep(); // a reopened photo is kept as its file carried it
+  }
+
+  /** Put a photo and its work back as they were left, from a reload or a reopened hand-trace file. */
+  async function openPhoto(kept: PhotoRecord) {
+    photo = kept.photo;
+    const restored = new File([kept.photo.bytes], kept.photo.name, { type: kept.photo.type });
+    const { cleanup, tone, inCleanup, autoTrace: settings, method, done: accepted } = kept;
+    await trace.load(restored, { cleanup, tone, inCleanup, settings, method, accepted });
+    if (trace.loaded()) startPhotoHandTrace({ ...kept.handTrace, done: method === "hand" && accepted });
+    pickDesign();
+    showPhotoStatus();
+  }
+  /** Put a blank page and its hand-trace back as they were left, from a reload or a reopened hand-trace file. */
+  function openPage(kept: { page: Page; handTrace: HandTraceRecord }) {
+    startBlankPage(kept);
+    design = handTrace.editor()?.design() ?? null;
+    showHandTrace();
   }
 
   /** Put the kept design back as it was left: the same source, settings, shapes and Done. */
@@ -373,20 +406,9 @@ export function mountDesignPanel(
     if (keeping) return; // The carver loaded a design while it was being read.
     keeping = true;
     if (!kept) return;
-    if (kept.source === "svg") openSvg(kept.svg.name, kept.svg.text);
-    else if (kept.source === "photo") {
-      photo = kept.photo;
-      const restored = new File([kept.photo.bytes], kept.photo.name, { type: kept.photo.type });
-      const { cleanup, tone, inCleanup, autoTrace: settings, method, done: accepted } = kept;
-      await trace.load(restored, { cleanup, tone, inCleanup, settings, method, accepted });
-      if (trace.loaded()) startPhotoHandTrace({ ...kept.handTrace, done: method === "hand" && accepted });
-      pickDesign();
-      showPhotoStatus();
-    } else {
-      startBlankPage(kept);
-      design = handTrace.editor()?.design() ?? null;
-      showHandTrace();
-    }
+    if (kept.source === "svg") await openSvg(kept.svg.name, kept.svg.text);
+    else if (kept.source === "photo") await openPhoto(kept);
+    else openPage(kept);
     onChange();
   }
   function handTraceView(): "photo" | "page" | null {

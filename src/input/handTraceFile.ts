@@ -4,17 +4,23 @@
  * holes. Reading needs the DOM (`readSvgDesign`); writing is plain text.
  */
 import { distanceToSegment, type BBox, type Design, type Point2 } from "../core";
-import { readRecord, RECORD_VERSION, writeRecord, type DesignRecord } from "../designRecord";
+import { readRecord, RECORD_VERSION, writeRecord, type DesignRecord, type PhotoFile } from "../designRecord";
+import type { Page } from "../handTrace";
 import { flattenPathData, roughExtent } from "./flattenPath";
 import { RELATIVE_TOLERANCE } from "./pathDesign";
 import { readSvgDesign, RECORD_ELEMENT, RECORD_NAMESPACE } from "./svgDesign";
 
-/** The record a hand-trace file carries: a blank page's for now (a photo's comes with hand-tracing a photo). */
-type FileRecord = Extract<DesignRecord, { source: "page" }>;
+/**
+ * The record a hand-trace file carries: a blank page's, or a photo's with the photo as the file should carry it (a
+ * JPEG shrunk to 2048 px on the long edge, or as chosen when already smaller: the caller shrinks it).
+ */
+type FileRecord = Exclude<DesignRecord, { source: "svg" }>;
 
 /** What a hand-trace file is written from. */
 export interface HandTraceFileContent {
   record: FileRecord;
+  /** The blank page or cleaned-up photo the hand-trace is on: the file's `viewBox` while nothing is closed. */
+  page: Page;
   /** The closed shapes as SVG path data (y down), as the editor makes the `Design` from it. */
   pathData: string;
   /** The hand-trace's `Design` (its box, widened about the symmetry axis, is the file's `viewBox`); null with none. */
@@ -40,11 +46,11 @@ const INVALID = "This file's hand-trace can't be read, so it opens as plain shap
  * The hand-trace file for `content`: one compound `<path>` of the closed shapes, filled even-odd, and the record
  * (with a fingerprint of that drawing, and no placement) in a namespaced `<metadata>` element.
  */
-export function writeHandTraceFile({ record, pathData, design, width }: HandTraceFileContent): string {
-  const { page } = record;
+export function writeHandTraceFile({ record, page, pathData, design, width }: HandTraceFileContent): string {
   const box: BBox = design?.bbox ?? { minX: 0, minY: 0, maxX: page.width, maxY: page.height };
   const [w, h] = [box.maxX - box.minX, box.maxY - box.minY];
-  const json = JSON.stringify({ ...writeRecord(record), fingerprint: pathData });
+  const photo = record.source === "photo" ? { photo: writePhoto(record.photo) } : {};
+  const json = JSON.stringify({ ...writeRecord(record), ...photo, fingerprint: pathData });
   const path = pathData ? `\n  <path d="${pathData}" fill="black" fill-rule="evenodd"/>` : "";
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -55,8 +61,13 @@ export function writeHandTraceFile({ record, pathData, design, width }: HandTrac
   );
 }
 
-/** A blank page's hand-trace file name, for the local day `date` falls on: `hand-trace-<YYYY-MM-DD>.svg`. */
-export function handTraceFileName(date: Date): string {
+/**
+ * A hand-trace file's name: `<name>-hand-trace.svg` for one traced from the file named `name` (its extension and any
+ * `-hand-trace` suffix dropped first, so a reopened file downloads under the same name); a blank page's, with no
+ * `name`, `hand-trace-<YYYY-MM-DD>.svg` for the local day `date` falls on.
+ */
+export function handTraceFileName(date: Date, name?: string): string {
+  if (name !== undefined) return `${name.replace(/\.[^.]*$/, "").replace(/-hand-trace$/, "")}-hand-trace.svg`;
   const two = (n: number) => String(n).padStart(2, "0");
   return `hand-trace-${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}.svg`;
 }
@@ -73,9 +84,31 @@ export function readHandTraceFile(text: string): OpenedSvg {
   const raw = parseJson(svg.record);
   if (!isObject(raw)) return plain(INVALID);
   if (raw.version !== RECORD_VERSION) return plain(UNKNOWN_VERSION);
-  const record = readRecord(raw);
-  if (record?.source !== "page" || typeof raw.fingerprint !== "string" || emptied(raw, record)) return plain(INVALID);
+  const record = readRecord({ ...raw, photo: readPhoto(raw.photo) });
+  if (!record || record.source === "svg" || typeof raw.fingerprint !== "string" || emptied(raw, record)) return plain(INVALID);
   return draws(svg.design, raw.fingerprint) ? { kind: "hand-trace", record } : plain(CHANGED);
+}
+
+/** How many bytes go to `String.fromCharCode` at a time: one call with a whole photo's would overflow the stack. */
+const BASE64_CHUNK = 0x8000;
+
+/** A photo as a file's record holds it: plain JSON, its bytes in base64. */
+function writePhoto({ name, type, bytes }: PhotoFile): { name: string; type: string; base64: string } {
+  const all = new Uint8Array(bytes);
+  let binary = "";
+  for (let i = 0; i < all.length; i += BASE64_CHUNK) binary += String.fromCharCode(...all.subarray(i, i + BASE64_CHUNK));
+  return { name, type, base64: btoa(binary) };
+}
+
+/** The photo in a file's record with its bytes back as the record module reads them; anything else as it is. */
+function readPhoto(x: unknown): unknown {
+  if (!isObject(x) || typeof x.base64 !== "string") return x;
+  const { base64, ...photo } = x;
+  try {
+    return { ...photo, bytes: Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer };
+  } catch {
+    return undefined; // not base64: no readable photo
+  }
 }
 
 /** The validator emptied the hand-trace (it restores an invalid one empty): the file's record is invalid. */
