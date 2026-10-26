@@ -5,6 +5,7 @@ import {
   type Drawn,
   type Gesture,
   type HandTrace,
+  type HandTraceOptions,
   type HandTraceRecord,
   HOLD_MS,
   type Loupe,
@@ -17,6 +18,15 @@ import { el } from "./svg";
 export interface HandTraceCanvas {
   /** Start a new hand-trace on a blank page, replacing any other; or reopen a `kept` one, as after a reload. */
   startBlankPage(kept?: { page: Page; handTrace: HandTraceRecord }): void;
+  /**
+   * Start a new hand-trace over a cleaned-up photo whose design space is `page`, replacing any other; or reopen a
+   * `kept` one. The photo itself comes through `setPhoto`.
+   */
+  startPhoto(page: Page, kept?: HandTraceRecord): void;
+  /** The cleaned-up photo to place points over (an image URL), shown at the page; null shows none. */
+  setPhoto(href: string | null): void;
+  /** Cleanup's tone, as a CSS filter on the photo: display only. */
+  setTone(filter: string): void;
   /** Forget the hand-trace (another design was loaded). */
   clear(): void;
   /** The hand-trace being shown, or null when there's none. */
@@ -44,13 +54,16 @@ const TINY_RING_MIN_PX = 10;
 const HOVER_RING_PX = 10;
 /** Decimals kept in screen coordinates. */
 const DECIMALS = 1;
+/** How the canvas is used, for its accessible label after what it shows. */
+const GESTURES_LABEL =
+  "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, the arrows nudge, + − and 0 zoom.";
 /** How the keys' modifier is written in tooltips: Cmd on Apple devices, Ctrl elsewhere. */
 const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
 /** Canvases mounted so far, to give each drawing its own id. */
 let canvases = 0;
 
 /**
- * The hand-trace canvas in the Page view: draws what the editor says is drawn, in SVG, and forwards pointer and
+ * The hand-trace canvas, in the Page view or over the cleaned-up photo in the Photo view: draws what the editor says is drawn, in SVG, and forwards pointer and
  * wheel events to it through the gesture recognizer. Calls `onChange` after each finished change to the shapes
  * (the editor's `Design` is a new object then), never mid-drag, and `onKeep` after each change to its stored record
  * (those plus ending a shape open, Done and Edit). Every decision is the editor's.
@@ -58,7 +71,7 @@ let canvases = 0;
 export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, onKeep: () => void): HandTraceCanvas {
   view.classList.add("hand-trace");
   view.innerHTML = `
-    <svg class="ht-svg" tabindex="0" role="img" aria-label="Blank page. Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, the arrows nudge, + − and 0 zoom."></svg>
+    <svg class="ht-svg" tabindex="0" role="img" aria-label="Blank page. ${GESTURES_LABEL}"></svg>
     <div class="ht-tools">
       <div class="ht-top-left">
         <button type="button" data-act="undo" title="Undo (${MOD}Z)">Undo</button>
@@ -84,12 +97,14 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   let reported: unknown = null;
   /** The stored record last reported through `onKeep`. */
   let kept: unknown = null;
+  /** The cleaned-up photo, one element for good: drawing it again never reloads the image. */
+  const photo = el("image", { class: "ht-photo", preserveAspectRatio: "none" });
 
   /** Draw the editor's state, and report the Design (and the record) if a change to the shapes finished. */
   const render = () => {
     if (!editor) return svg.replaceChildren();
     const drawn = editor.drawn();
-    draw(svg, drawn, drawingId);
+    draw(svg, drawn, drawingId, photo);
     svg.style.cursor = drawn.cursor;
     tools.hidden = !drawn.tools;
     svg.classList.toggle("ht-done", !drawn.tools);
@@ -198,19 +213,36 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     render();
   }).observe(svg);
 
+  const start = (options: Omit<HandTraceOptions, "toDesign">) => {
+    svg.setAttribute("aria-label", `${options.photo ? "The cleaned-up photo" : "Blank page"}. ${GESTURES_LABEL}`);
+    editor = createHandTrace({ toDesign: designFromPathData, ...options });
+    recognizer = createGestureRecognizer();
+    reported = editor.design();
+    kept = editor.record();
+    const r = svg.getBoundingClientRect();
+    editor.resize(r.width, r.height);
+    render();
+  };
+
   return {
     startBlankPage(restored) {
-      editor = createHandTrace({ toDesign: designFromPathData, page: restored?.page, record: restored?.handTrace });
-      recognizer = createGestureRecognizer();
-      reported = editor.design();
-      kept = editor.record();
-      const r = svg.getBoundingClientRect();
-      editor.resize(r.width, r.height);
-      render();
+      photo.removeAttribute("href");
+      start({ page: restored?.page, record: restored?.handTrace });
+    },
+    startPhoto(page, restored) {
+      start({ page, record: restored, photo: true });
+    },
+    setPhoto(href) {
+      if (href) photo.setAttribute("href", href);
+      else photo.removeAttribute("href");
+    },
+    setTone(filter) {
+      photo.style.filter = filter;
     },
     clear() {
       editor = null;
       reported = null;
+      photo.removeAttribute("href");
       render();
     },
     editor: () => editor,
@@ -222,7 +254,7 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     showWarnings(warnings) {
       if (!editor) return;
       editor.showWarnings(warnings);
-      draw(svg, editor.drawn(), drawingId);
+      draw(svg, editor.drawn(), drawingId, photo);
     },
   };
 }
@@ -237,16 +269,25 @@ function pillButton(act: string, text: string, title: string): HTMLButtonElement
   return b;
 }
 
-/** Draw the page, the shapes and their points into a group with `id`, and the loupe over them. */
-function draw(svg: SVGSVGElement, drawn: Drawn, id: string): void {
+/**
+ * Draw the page (or `photo` over it), the shapes and their points into a group with `id`, and the loupe over them.
+ * The photo is inside the group, so the loupe shows it too.
+ */
+function draw(svg: SVGSVGElement, drawn: Drawn, id: string, photo: SVGElement): void {
   const { page, axis } = drawn;
   const parts: SVGElement[] = [el("rect", { class: "ht-page", ...page }, DECIMALS)];
-  for (let i = 1; i < GRID_DIVISIONS; i++) {
+  if (!drawn.grid) {
+    for (const name of ["x", "y", "width", "height"] as const) photo.setAttribute(name, page[name].toFixed(DECIMALS));
+    parts.push(photo);
+  }
+  for (let i = 1; drawn.grid && i < GRID_DIVISIONS; i++) {
     const [x, y] = [page.x + (page.width * i) / GRID_DIVISIONS, page.y + (page.height * i) / GRID_DIVISIONS];
     parts.push(el("line", { class: "ht-grid", x1: x, y1: page.y, x2: x, y2: page.y + page.height }, DECIMALS));
     parts.push(el("line", { class: "ht-grid", x1: page.x, y1: y, x2: page.x + page.width, y2: y }, DECIMALS));
   }
-  parts.push(el("line", { class: "ht-axis", x1: axis.from.x, y1: axis.from.y, x2: axis.to.x, y2: axis.to.y }, DECIMALS));
+  if (axis) {
+    parts.push(el("line", { class: "ht-axis", x1: axis.from.x, y1: axis.from.y, x2: axis.to.x, y2: axis.to.y }, DECIMALS));
+  }
   if (drawn.fill) parts.push(el("path", { class: "ht-fill", d: drawn.fill }));
   const { warnings } = drawn;
   for (const d of warnings.floating) parts.push(el("path", { class: "ht-warn-tint", d }));

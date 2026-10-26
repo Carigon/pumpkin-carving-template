@@ -3,6 +3,7 @@
  * what's inside the frame, and the cleaned-up photo's size, out. Pure, no DOM. Research:
  * docs/research/perspective-correction.md on the `research/perspective-correction` branch.
  */
+import type { Page } from "../handTrace";
 import { fitWithin } from "./rasterPrep";
 
 /** A spot on the photo as fractions of its width and height, from its top-left corner (y down). */
@@ -71,6 +72,14 @@ export function cleanUp(cleanup: Cleanup, photo: PhotoSize, focal35Mm = PHONE_FO
   const [sx, sy] = [1 / width, 1 / height];
   const h = squareToQuad(quad);
   return { homography: [h[0] * sx, h[1] * sy, h[2], h[3] * sx, h[4] * sy, h[5], h[6] * sx, h[7] * sy, h[8]], width, height, aspect };
+}
+
+/**
+ * The design space a hand-trace over `cleaned` is placed in (ADR 0003): one unit across, its height in proportion,
+ * so points are relative to the photo's size and a shrunk copy of the photo still lines up.
+ */
+export function photoPage(cleaned: PhotoSize): Page {
+  return { width: 1, height: cleaned.height / cleaned.width };
 }
 
 /** JPEG markers: start of image, the APP1 segment EXIF lives in, and start of scan (the pixels; no EXIF after it). */

@@ -212,11 +212,13 @@ function goTo(next: StepId): void {
 }
 
 /**
- * The slow template build is held while the hand-trace canvas is showing (the Page view, not Done), so tracing
- * doesn't drain a phone's battery. It runs once the carver leaves that view or presses Done.
+ * The slow template build is held while the hand-trace canvas is showing (the Photo or Page view, hand-trace
+ * chosen, not Done), so tracing doesn't drain a phone's battery. It runs once the carver leaves that view or
+ * presses Done.
  */
 function buildHeld(): boolean {
-  return viewport.current() === "page" && designPanel.tracing();
+  const view = designPanel.handTraceView();
+  return view !== null && viewport.current() === view && designPanel.tracing();
 }
 
 /** The view changed: build the template now if leaving the hand-trace canvas released it. */
@@ -337,11 +339,12 @@ function update(): void {
     viewport.setPlaceholder("Fix the measurements in the Measure step to see the pumpkin.");
     paper.empty("Fix the measurements in the Measure step to see the template.");
   } else if (!quick.design && open !== null) {
+    const where = designPanel.handTraceView() === "photo" ? "Photo" : "Page";
     viewport.setPlaceholder(
-      ["Close a shape in the Page view to see it on the pumpkin.", openNote(open)].filter(Boolean).join(" "),
+      [`Close a shape in the ${where} view to see it on the pumpkin.`, openNote(open)].filter(Boolean).join(" "),
       "note",
     );
-    paper.empty("Close a shape in the Page view to see the template.");
+    paper.empty(`Close a shape in the ${where} view to see the template.`);
   } else if (!quick.design) {
     viewport.setPlaceholder("Load a design in the Design step to see it on the pumpkin.", "note");
     paper.empty("Load a design in the Design step to see the template.");

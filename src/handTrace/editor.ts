@@ -15,6 +15,11 @@ export interface HandTraceOptions {
   page?: Page;
   /** The stored record to reopen (validated by the record module), as after a reload; nothing drawn when left out. */
   record?: HandTraceRecord;
+  /**
+   * The points are placed over the cleaned-up photo (`page` being its design space), not on a blank page: no grid,
+   * and the symmetry axis only while it's needed.
+   */
+  photo?: boolean;
 }
 
 /** A key press: `KeyboardEvent.key`, with Ctrl (or Cmd on a Mac) and Shift as held. */
@@ -81,10 +86,12 @@ export interface WarningMarks {
 
 /** Everything the canvas shows, in screen coordinates. */
 export interface Drawn {
-  /** The blank page, faintly gridded. */
+  /** The blank page or the cleaned-up photo. */
   page: ScreenRect;
-  /** The symmetry axis, down the page's middle. */
-  axis: { from: ScreenPoint; to: ScreenPoint };
+  /** The page is faintly gridded: a blank page is, so pan and zoom show; a photo isn't. */
+  grid: boolean;
+  /** The symmetry axis, down the page's middle: always on a blank page; over a photo, not while Symmetry is off. */
+  axis: { from: ScreenPoint; to: ScreenPoint } | null;
   /** Every closed shape's outline in one path, filled even-odd: what's carved. */
   fill: string;
   shapes: DrawnShape[];
@@ -760,7 +767,10 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     const open = shapes.filter((s) => !s.closed).length;
     return {
       page: { ...corner, width: page.width * view.scale, height: page.height * view.scale },
-      axis: { from: screen({ x: page.width / 2, y: page.height }), to: screen({ x: page.width / 2, y: 0 }) },
+      grid: !options.photo,
+      axis: options.photo
+        ? null
+        : { from: screen({ x: page.width / 2, y: page.height }), to: screen({ x: page.width / 2, y: 0 }) },
       fill: pathData(
         shapes.filter((s) => s.closed),
         screen,

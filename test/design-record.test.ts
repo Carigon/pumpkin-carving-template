@@ -79,7 +79,10 @@ function fakeJpeg(size: number): PhotoFile {
   return { name: "face.jpg", type: "image/jpeg", bytes: new Uint8Array(size).fill(7).buffer };
 }
 
-/** A photo, framed with A4 picked, auto-traced with its settings and accepted. */
+/**
+ * A photo, framed with A4 picked and toned, past Cleanup: auto-traced with its settings and accepted, with a
+ * hand-trace kept beside it.
+ */
 const photoRecord = {
   source: "photo",
   photo: fakeJpeg(64),
@@ -92,7 +95,11 @@ const photoRecord = {
     ],
     aspect: "a4",
   },
+  tone: { brightness: 120, contrast: 150 },
+  inCleanup: false,
   autoTrace: { threshold: 140, invert: false, speckle: 5 },
+  handTrace: pageRecord.handTrace,
+  method: "auto",
   done: true,
 } satisfies DesignRecord;
 
@@ -142,10 +149,52 @@ describe("the record module", () => {
     });
   });
 
-  it("a photo comes back as the file as chosen, with auto-trace's settings and Done", async () => {
+  it("a photo comes back as the file as chosen, with its tone, both methods' work, the chosen one and Done", async () => {
     const storage = memoryStorage();
     await createRecordKeeper(storage, noShrink).keep(photoRecord);
     expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(photoRecord);
+  });
+
+  it("a photo hand-traced and left in Cleanup comes back hand-traced and in Cleanup", async () => {
+    const storage = memoryStorage();
+    const straightening = { ...photoRecord, method: "hand", inCleanup: true, done: false } satisfies DesignRecord;
+    await createRecordKeeper(storage, noShrink).keep(straightening);
+    expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(straightening);
+  });
+
+  it("an invalid hand-trace on a photo restores empty, while the photo, its cleanup and auto-trace survive", async () => {
+    const storage = memoryStorage();
+    await createRecordKeeper(storage, noShrink).keep(photoRecord);
+    await storage.set("work", { ...((await storage.get("work")) as object), handTrace: { shapes: [{ id: 1 }] } });
+    const restored = await createRecordKeeper(storage, noShrink).restore();
+    expect(restored).toEqual({ ...photoRecord, handTrace: { shapes: [], drawing: null, done: false } });
+  });
+
+  it.each([
+    ["a brightness out of range", { brightness: 1000 }, { brightness: 100 }],
+    ["a contrast that isn't a number", { contrast: "high" }, { contrast: 100 }],
+  ])("an invalid tone (%s) falls back to its default, the other kept", async (_, bad, fallback) => {
+    const storage = memoryStorage();
+    await createRecordKeeper(storage, noShrink).keep(photoRecord);
+    await storage.set("work", { ...((await storage.get("work")) as object), tone: { ...photoRecord.tone, ...bad } });
+    const restored = await createRecordKeeper(storage, noShrink).restore();
+    expect(restored).toEqual({ ...photoRecord, tone: { ...photoRecord.tone, ...fallback } });
+  });
+
+  it("a photo kept with no tone, method or stage comes back untoned, on hand-trace, past Cleanup", async () => {
+    const storage = memoryStorage();
+    await createRecordKeeper(storage, noShrink).keep(photoRecord);
+    const { tone: _, method: __, inCleanup: ___, ...rest } = (await storage.get("work")) as Record<string, unknown>;
+    await storage.set("work", rest);
+    const restored = await createRecordKeeper(storage, noShrink).restore();
+    expect(restored).toEqual({ ...photoRecord, tone: { brightness: 100, contrast: 100 }, method: "hand", inCleanup: false });
+  });
+
+  it("an unknown tracing method falls back to hand-trace, a new photo's", async () => {
+    const storage = memoryStorage();
+    await createRecordKeeper(storage, noShrink).keep(photoRecord);
+    await storage.set("work", { ...((await storage.get("work")) as object), method: "potrace" });
+    expect(await createRecordKeeper(storage, noShrink).restore()).toMatchObject({ method: "hand" });
   });
 
   it("the photo is written once, when loaded; later changes write only the rest", async () => {
