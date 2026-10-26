@@ -9,8 +9,8 @@ export type PlaceholderKind = "empty" | "note";
 export interface Viewport {
   /** The 3D view's canvas, for the Three.js preview. */
   readonly canvas: HTMLCanvasElement;
-  /** The Trace view's element, where the trace panel puts the crop image and the traced result. */
-  readonly traceView: HTMLElement;
+  /** The Photo view's element, where the trace panel puts the crop image and the auto-trace result. */
+  readonly photoView: HTMLElement;
   /** The Blueprint view's element, where the pumpkin's profile is drawn flat against a ruler. */
   readonly blueprintView: HTMLElement;
   /** The Paper view's element, where the flat template is drawn on its pages. */
@@ -32,7 +32,7 @@ export interface Viewport {
 const VIEW_LABELS: Record<View, string> = {
   "3d": "3D",
   blueprint: "Blueprint",
-  trace: "Trace",
+  photo: "Photo",
   paper: "Paper",
 };
 
@@ -71,7 +71,7 @@ export function mountViewport(root: HTMLElement): Viewport {
       </details>
     </div>
     <div class="view view-blueprint" data-view="blueprint"></div>
-    <div class="view view-trace" data-view="trace"></div>
+    <div class="view view-photo" data-view="photo"></div>
     <div class="view view-paper" data-view="paper"></div>
     <div class="view-switcher" role="radiogroup" aria-label="View" hidden></div>
     <div class="status-badge" role="status" hidden></div>
@@ -112,7 +112,7 @@ export function mountViewport(root: HTMLElement): Viewport {
 
   return {
     canvas: root.querySelector<HTMLCanvasElement>(".preview-canvas")!,
-    traceView: views.trace,
+    photoView: views.photo,
     blueprintView: views.blueprint,
     paperView: views.paper,
     setStatus(text) {
