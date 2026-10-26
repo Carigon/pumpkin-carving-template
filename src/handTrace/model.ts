@@ -41,6 +41,8 @@ export interface HandTraceRecord {
   drawing: number | null;
   /** Done was pressed (and not Edit since). */
   done: boolean;
+  /** The Symmetry setting is on; off when left out, as it starts. */
+  symmetry?: boolean;
 }
 
 /** The photo or blank page the points are placed on, in design units (a blank page is 1 × 1). */

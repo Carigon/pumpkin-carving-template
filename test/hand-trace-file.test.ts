@@ -69,6 +69,30 @@ describe("hand-trace file: write then read", () => {
     const { shapes, points, fill, note, pill } = editor.drawn();
     expect(again.drawn()).toMatchObject({ shapes, points, fill, note, pill });
   });
+
+  it("keeps Symmetry and mirrored shapes: reflections drawn as real geometry, the box about the axis, reopening mirrored", () => {
+    const twin = { id: 1, closed: true, mirror: "twin" as const, points: WORK.shapes[1].points };
+    const half = {
+      id: 2,
+      closed: true,
+      mirror: "symmetric" as const,
+      points: [
+        { x: 0.5, y: 0.3, kind: "corner" as const },
+        { x: 0.3, y: 0.2, kind: "smooth" as const },
+        { x: 0.5, y: 0.1, kind: "smooth" as const },
+      ],
+    };
+    const work: HandTraceRecord = { shapes: [twin, half], drawing: null, done: false, symmetry: true };
+    const editor = editorOf(work);
+    const file = fileOf(editor);
+    const read = readHandTraceFile(file);
+    expect(read).toEqual({ kind: "hand-trace", record: { source: "page", page: { width: 1, height: 1 }, handTrace: work } });
+    // Read as a plain SVG: the twin's reflection and the whole symmetric shape are there, centred on the axis.
+    const { design } = readSvgDesign(file);
+    expectSameOutlines(design!.paths, editor.design()!.paths, TOL);
+    expect(design!.paths).toHaveLength(3);
+    expect((design!.bbox.minX + design!.bbox.maxX) / 2).toBeCloseTo(0.5, 6);
+  });
 });
 
 /** A cleaned-up photo 4:3 wide, as design space has it: one unit across, three quarters of one up. */
