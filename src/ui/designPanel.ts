@@ -237,9 +237,11 @@ export function mountDesignPanel(
       showPhotoStatus();
       keep();
     },
-    onCleanupLive: () => handTrace.changeCleanup(trace.cleanup(), true),
-    // Drawn over the photo while hand-trace is chosen: the shapes being traced.
-    shapesOver: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
+    overlay: {
+      onLive: () => handTrace.changeCleanup(trace.cleanup(), true),
+      // Drawn over the photo while hand-trace is chosen: the shapes being traced.
+      shapes: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
+    },
     onCleaned: (href) => handTrace.setPhoto(href),
     onMethod() {
       syncDone();
