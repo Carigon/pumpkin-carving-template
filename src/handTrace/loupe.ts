@@ -1,4 +1,4 @@
-import type { ScreenRect } from "./editor";
+import type { ScreenRect } from "./drawn";
 import type { ScreenPoint } from "./gestures";
 
 /** The loupe's width across (px), and how many times it magnifies the canvas as drawn (so over the current zoom). */
