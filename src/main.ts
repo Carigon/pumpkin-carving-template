@@ -3,6 +3,7 @@ import { createTemplateBuilder, type SurfaceParameters, type TemplateWarning } f
 import { gridDesign } from "./input/calibrationGrid";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountBlueprintView } from "./ui/blueprintViewSvg";
+import { counted } from "./ui/counted";
 import { mountDeleteConfirm } from "./ui/deleteConfirm";
 import { mountDesignPanel } from "./ui/designPanel";
 import { mountExportPanel, type ExportSource } from "./ui/exportPanel";
@@ -381,7 +382,7 @@ function update(): void {
 /** The 3D view's note about open shapes, or "" with none. */
 function openNote(open: number | null): string {
   if (!open) return "";
-  return open === 1 ? "1 open shape isn't carved." : `${open} open shapes aren't carved.`;
+  return `${counted(open, "open shape isn't", "open shapes aren't")} carved.`;
 }
 
 function showWarnings(next: TemplateWarning[]): void {
