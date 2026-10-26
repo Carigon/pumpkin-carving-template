@@ -138,7 +138,7 @@ describe("hand-trace editor by touch: the loupe", () => {
     expectNear(editor.drawn().points[1].at, { x: 200, y: 100 });
   });
 
-  it("a hold inside a closed shape, with nothing selected, starts a shape there: a pupil inside an eye", () => {
+  it("a hold inside a closed shape, with nothing being drawn, places nothing: lifted it selects the shape", () => {
     const editor = blankPage();
     for (const at of [
       { x: 100, y: 100 },
@@ -147,9 +147,26 @@ describe("hand-trace editor by touch: the loupe", () => {
       { x: 100, y: 100 },
     ])
       editor.gesture({ type: "tap", at, pointerType: "touch" });
+    const from = { x: 250, y: 150 };
+    editor.gesture({ type: "hold", phase: "start", from, at: from, pointerType: "touch" });
+    expect(editor.drawn().loupe).toBeNull();
+    editor.gesture({ type: "hold", phase: "end", from, at: from, pointerType: "touch" });
+    expect(editor.shapes()).toHaveLength(1);
+    expect(editor.drawn().pill).toEqual({ kind: "shape" });
+  });
+
+  it("a hold inside a closed shape while drawing another aims the loupe and places a point there", () => {
+    const editor = blankPage();
+    for (const at of [
+      { x: 100, y: 100 },
+      { x: 300, y: 100 },
+      { x: 300, y: 300 },
+      { x: 100, y: 100 },
+    ])
+      editor.gesture({ type: "tap", at, pointerType: "touch" });
+    editor.gesture({ type: "tap", at: { x: 350, y: 350 }, pointerType: "touch" });
     hold(editor, { x: 250, y: 150 });
-    expect(editor.shapes()).toHaveLength(2);
-    expect(editor.drawn().pill).toEqual({ kind: "drawing", points: 1, canClose: false });
+    expect(editor.drawn().pill).toEqual({ kind: "drawing", points: 2, canClose: false });
   });
 
   it("a hold with something selected places nothing: lifted it's a tap, moved it's a drag", () => {

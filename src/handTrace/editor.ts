@@ -503,15 +503,17 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
   };
 
   /**
-   * A touch hold: on a point or insert marker, a drag of it. Otherwise, while drawing or with nothing selected (even
-   * inside a shape, so a shape can start inside another), aim the loupe and place a point on lift. With something
-   * selected, it waits: a tap if it lifts, a drag once it moves.
+   * A touch hold: on a point or insert marker, a drag of it. Otherwise, where a tap would place a point (while
+   * drawing, or on empty space with nothing selected), aim the loupe and place the point on lift. Anywhere else
+   * (inside a shape with nothing being drawn, or with something selected) it waits: a tap if it lifts, a drag once
+   * it moves.
    */
   const holdGesture = (g: HoldGesture) => {
     if (g.phase === "start") {
       const hit = hitTest(g.from);
       if (hit?.kind === "point" || hit?.kind === "marker") return dragGesture({ ...g, type: "drag" });
-      drag = state.drawing !== null || !selection ? { kind: "aim", at: g.at } : { kind: "held" };
+      const places = state.drawing !== null || (!hit && !selection);
+      drag = places ? { kind: "aim", at: g.at } : { kind: "held" };
       return;
     }
     if (drag?.kind === "aim") {
