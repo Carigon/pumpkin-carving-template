@@ -11,7 +11,7 @@ export type Mode = "pumpkin" | "test-grid";
 export type StepId = "measure" | "design" | "grid" | "template";
 
 /** What the viewport can show. */
-export type View = "3d" | "blueprint" | "trace" | "paper";
+export type View = "3d" | "blueprint" | "photo" | "paper";
 
 export interface Step {
   id: StepId;
@@ -61,14 +61,14 @@ export function steps(state: StepState): Step[] {
 /** A step before its badge is known. */
 type StepViews = Omit<Step, "warned">;
 
-/** Design shows the image being traced until the trace is accepted, then the design on the pumpkin. */
+/** Design shows the Photo view until the design is done, then the design on the pumpkin. */
 function designStep(state: StepState): StepViews {
   return {
     id: "design",
     title: "Design",
-    defaultView: state.tracing ? "trace" : "3d",
-    // Trace only while there's an image to show, so the switcher never lands on an empty view.
-    views: state.tracing || state.hasImage ? ["3d", "trace"] : ["3d"],
+    defaultView: state.tracing ? "photo" : "3d",
+    // The Photo view only while there's an image to show, so the switcher never lands on an empty view.
+    views: state.tracing || state.hasImage ? ["3d", "photo"] : ["3d"],
   };
 }
 

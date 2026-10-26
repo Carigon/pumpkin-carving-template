@@ -17,8 +17,8 @@ export interface TracePanel {
 }
 
 /**
- * Crop, threshold, invert and speckle controls for a raster image. The crop image and the traced result go
- * in `view` (the viewport's Trace view), at viewport size. Every finished trace is reported through
+ * Crop, threshold, invert and speckle controls for a raster image. The crop image and the auto-trace result go
+ * in `view` (the viewport's Photo view), at viewport size. Every finished trace is reported through
  * `onTraced`; accepting the trace, or going back to adjust it, through `onAccepted`. The image never leaves
  * the browser.
  */
@@ -37,12 +37,12 @@ export function mountTracePanel(
       <figcaption>Drag on the image to crop. <button type="button" class="trace-reset">Use whole image</button></figcaption>
     </figure>
     <figure>
-      <div class="trace-fit trace-result" role="img" aria-label="Traced result"></div>
-      <figcaption>Traced result: black areas are carved.</figcaption>
+      <div class="trace-fit trace-result" role="img" aria-label="Auto-trace result"></div>
+      <figcaption>Auto-trace result: black areas are carved.</figcaption>
     </figure>
   `;
   root.innerHTML = `
-    <h3>Tracing</h3>
+    <h3>Tracing method</h3>
     <div class="trace-settings">
     <div class="field">
       <label for="t-threshold">Threshold</label>
@@ -64,8 +64,8 @@ export function mountTracePanel(
     </div>
     </div>
     <div class="trace-accept-row">
-      <button type="button" class="trace-accept">Done tracing</button>
-      <div class="hint trace-accepted-note" hidden>Trace accepted. Pick Trace above the preview to see it again.</div>
+      <button type="button" class="trace-accept">Done</button>
+      <div class="hint trace-accepted-note" hidden>Auto-trace accepted. Pick Photo above the preview to see it again.</div>
     </div>
   `;
 
@@ -80,7 +80,7 @@ export function mountTracePanel(
     accepted = next;
     settingsEl.hidden = next;
     acceptedNote.hidden = !next;
-    acceptButton.textContent = next ? "Adjust trace" : "Done tracing";
+    acceptButton.textContent = next ? "Edit" : "Done";
   };
   acceptButton.addEventListener("click", () => {
     setAccepted(!accepted);
@@ -113,13 +113,13 @@ export function mountTracePanel(
       resultEl.innerHTML = result.svg;
       fitAspect(resultEl.querySelector("svg"));
       const count = result.design
-        ? `${result.design.paths.length} shape${result.design.paths.length === 1 ? "" : "s"} traced.`
+        ? `${result.design.paths.length} shape${result.design.paths.length === 1 ? "" : "s"} auto-traced.`
         : "";
       onTraced(result.design, [count, ...result.notes].filter(Boolean).join(" "), result.design === null);
     } catch (err) {
       if (id !== traceId) return;
       resultEl.replaceChildren();
-      onTraced(null, `Tracing failed: ${err instanceof Error ? err.message : String(err)}`, true);
+      onTraced(null, `Auto-trace failed: ${err instanceof Error ? err.message : String(err)}`, true);
     }
   }
   const scheduleRetrace = () => {

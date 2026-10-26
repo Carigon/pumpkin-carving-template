@@ -26,17 +26,17 @@ export interface DesignPanel {
 /**
  * SVG upload plus placement controls: front-view width, vertical offset and rotation.
  * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. An image's crop
- * and traced result go in `traceView` (the viewport's Trace view).
+ * and auto-trace result go in `photoView` (the viewport's Photo view).
  */
-export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceView: HTMLElement): DesignPanel {
+export function mountDesignPanel(root: HTMLElement, onChange: () => void, photoView: HTMLElement): DesignPanel {
   root.innerHTML = `
     <form class="design" novalidate>
       <section class="card design-source">
       <h2>Design</h2>
       <div class="field">
-        <label for="d-file">SVG file or scanned stencil</label>
+        <label for="d-file">SVG file or photo</label>
         <input id="d-file" type="file" accept=".svg,image/svg+xml,image/*" />
-        <div class="hint" id="d-file-status">Closed shapes become the carve areas. Images are traced in your browser.</div>
+        <div class="hint" id="d-file-status">Photos never leave your browser.</div>
       </div>
       <div id="d-trace"></div>
       </section>
@@ -100,7 +100,7 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
       showStatus(text, failed);
       onChange();
     },
-    traceView,
+    photoView,
     onChange,
   );
 
@@ -109,7 +109,7 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
     if (!f) return;
     if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
       design = null;
-      showStatus("Tracing…", false);
+      showStatus("Auto-tracing…", false);
       onChange();
       await trace.load(f);
       return;
