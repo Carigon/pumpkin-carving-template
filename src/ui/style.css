@@ -977,7 +977,7 @@ body {
   display: none;
 }
 
-/* The Trace view: the crop image and the traced result side by side, each scaled to fit its half of the pane.
+/* The Photo view: the crop image and the auto-trace result side by side, each scaled to fit its half of the pane.
    Below the breakpoint the view is 4:3 like the 3D canvas; above it, it fills the pane. */
 .trace-views {
   display: grid;

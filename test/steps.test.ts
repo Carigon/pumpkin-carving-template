@@ -50,25 +50,25 @@ describe("step model", () => {
 
   const design = (state: StepState) => steps(state).find((s) => s.id === "design")!;
 
-  it("Design opens on the Trace view while an image is being traced, and can switch back to 3D", () => {
+  it("Design opens on the Photo view while an image is being traced, and can switch back to 3D", () => {
     const step = design({ mode: "pumpkin", tracing: true, hasImage: true, warnings: [] });
-    expect(step.defaultView).toBe("trace");
-    expect(step.views).toEqual(["3d", "trace"]);
+    expect(step.defaultView).toBe("photo");
+    expect(step.views).toEqual(["3d", "photo"]);
   });
 
-  it("Design opens on 3D once the trace is accepted, with Trace still available", () => {
+  it("Design opens on 3D once the trace is accepted, with the Photo view still available", () => {
     const step = design({ mode: "pumpkin", tracing: false, hasImage: true, warnings: [] });
     expect(step.defaultView).toBe("3d");
-    expect(step.views).toEqual(["3d", "trace"]);
+    expect(step.views).toEqual(["3d", "photo"]);
   });
 
   it.each([
     { mode: "pumpkin", tracing: true, hasImage: true, warnings: [] },
     { mode: "pumpkin", tracing: false, hasImage: true, warnings: [] },
     { mode: "test-grid", tracing: true, hasImage: true, warnings: [] },
-  ] as const)("only the Design step offers Trace ($mode, tracing: $tracing)", (state) => {
+  ] as const)("only the Design step offers the Photo view ($mode, tracing: $tracing)", (state) => {
     for (const step of steps(state).filter((s) => s.id !== "design")) {
-      expect(step.views).not.toContain("trace");
+      expect(step.views).not.toContain("photo");
     }
   });
 
