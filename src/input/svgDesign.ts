@@ -18,7 +18,8 @@ export const RECORD_ELEMENT = "hand-trace";
 
 const SKIP = new Set(["defs", "clipPath", "mask", "symbol", "marker", "pattern", "metadata", "title", "desc", "style", "script"]);
 
-interface RawPath {
+/** One drawable element's shape as path data (SVG space, y down), with the transforms above it, and whether it was left open. */
+export interface SvgPath {
   d: string;
   transform: string;
   open: boolean;
@@ -31,26 +32,10 @@ interface RawPath {
  * mirrored design stays centred on its symmetry axis.
  */
 export function readSvgDesign(text: string): SvgReadResult {
-  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
-  const root = doc.documentElement;
-  if (doc.getElementsByTagName("parsererror").length > 0 || root.localName !== "svg") {
-    return { design: null, notes: ["This file isn't a valid SVG."], record: null };
-  }
-  const record = doc.getElementsByTagNameNS(RECORD_NAMESPACE, RECORD_ELEMENT)[0]?.textContent ?? null;
-
-  const raw: RawPath[] = [];
-  let skippedUse = false;
-  const walk = (el: Element, transforms: string[]) => {
-    if (SKIP.has(el.localName)) return;
-    if (el.getAttribute("display") === "none" || el.getAttribute("visibility") === "hidden") return;
-    const t = el.getAttribute("transform");
-    const chain = t ? [...transforms, t] : transforms;
-    if (el.localName === "use") skippedUse = true;
-    const shape = shapeToPath(el);
-    if (shape) raw.push({ ...shape, transform: chain.join(" ") });
-    for (const child of Array.from(el.children)) walk(child, chain);
-  };
-  walk(root, []);
+  const root = svgRoot(text);
+  if (!root) return { design: null, notes: ["This file isn't a valid SVG."], record: null };
+  const record = root.getElementsByTagNameNS(RECORD_NAMESPACE, RECORD_ELEMENT)[0]?.textContent ?? null;
+  const { paths: raw, skippedUse } = svgPaths(root);
 
   const notes: string[] = [];
   if (skippedUse) notes.push("Reused symbols (<use>) were ignored.");
@@ -72,6 +57,35 @@ export function readSvgDesign(text: string): SvgReadResult {
   const box = bboxOf(paths);
   const viewBox = record === null ? null : viewBoxOf(root);
   return { design: { paths, bbox: viewBox ? union(box, viewBox) : box }, notes, record };
+}
+
+/** The `<svg>` root element of SVG text, or null when it isn't a valid SVG. */
+export function svgRoot(text: string): Element | null {
+  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const root = doc.documentElement;
+  return doc.getElementsByTagName("parsererror").length > 0 || root.localName !== "svg" ? null : root;
+}
+
+/**
+ * The shapes an SVG draws, in document order (so groups come out as ordered shapes): path, rect, circle, ellipse,
+ * polygon, polyline and line as path data, each with its transforms. Hidden elements (by attribute) and definitions
+ * are left out; `skippedUse` says a `<use>` was ignored.
+ */
+export function svgPaths(root: Element): { paths: SvgPath[]; skippedUse: boolean } {
+  const paths: SvgPath[] = [];
+  let skippedUse = false;
+  const walk = (el: Element, transforms: string[]) => {
+    if (SKIP.has(el.localName)) return;
+    if (el.getAttribute("display") === "none" || el.getAttribute("visibility") === "hidden") return;
+    const t = el.getAttribute("transform");
+    const chain = t ? [...transforms, t] : transforms;
+    if (el.localName === "use") skippedUse = true;
+    const shape = shapeToPath(el);
+    if (shape) paths.push({ ...shape, transform: chain.join(" ") });
+    for (const child of Array.from(el.children)) walk(child, chain);
+  };
+  walk(root, []);
+  return { paths, skippedUse };
 }
 
 /** The root's `viewBox` as a box in design units (y up), or null when it has none that's usable. */
