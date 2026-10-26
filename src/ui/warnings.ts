@@ -24,13 +24,27 @@ export function isShapeWarning(w: TemplateWarning): w is ShapeWarning {
 /** What the Design panel's lines depend on beyond the warnings. */
 export interface DesignWarningContext {
   units: Units;
-  /** The design is an image's auto-trace result, so tiny carve areas are likely specks. */
-  autoTrace: boolean;
+  /**
+   * Where the design comes from: an image's auto-trace result (tiny carve areas are likely specks), an SVG design
+   * (fixed by editing it as a hand-trace) or a hand-trace.
+   */
+  source: "auto-trace" | "svg" | "hand-trace";
 }
 
-/** A warning's line in the Design panel: shape warnings worded with their count, in the display units. */
-export function designWarningText(w: TemplateWarning, { units, autoTrace }: DesignWarningContext): string {
+/** The hint on an SVG design's shape warnings: Edit as hand-trace is how to fix them here. */
+const EDIT_HINT = "Edit it as a hand-trace to fix this.";
+
+/**
+ * A warning's line in the Design panel: shape warnings worded with their count, in the display units, with a hint
+ * for the design's source.
+ */
+export function designWarningText(w: TemplateWarning, { units, source }: DesignWarningContext): string {
   if (!isShapeWarning(w)) return w.message;
+  const line = shapeWarningText(w, units, source === "auto-trace");
+  return source === "svg" ? `${line} ${EDIT_HINT}` : line;
+}
+
+function shapeWarningText(w: ShapeWarning, units: Units, autoTrace: boolean): string {
   switch (w.kind) {
     case "crossing": {
       const n = w.at.length;

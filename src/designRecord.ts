@@ -59,11 +59,19 @@ export interface PhotoRecord {
   done: boolean;
 }
 
+/**
+ * A hand-trace on a page: a blank page, or an SVG design's after Edit as hand-trace, which keeps the file's `name`
+ * (for the download's) and lands on a page shaped to the design.
+ */
+export interface PageRecord {
+  source: "page";
+  page: Page;
+  handTrace: HandTraceRecord;
+  name?: string;
+}
+
 /** The loaded design and the work on it, by where it came from. */
-export type DesignRecord =
-  | { source: "svg"; svg: { name: string; text: string } }
-  | PhotoRecord
-  | { source: "page"; page: Page; handTrace: HandTraceRecord };
+export type DesignRecord = { source: "svg"; svg: { name: string; text: string } } | PhotoRecord | PageRecord;
 
 /** The part of IndexedDB the record needs: one slot of a few named entries, structured-cloned in and out. */
 export interface RecordStorage {
@@ -234,7 +242,8 @@ export function readRecord(raw: unknown): DesignRecord | null {
   }
   if (raw.source === "page") {
     const page = readPage(raw.page);
-    return page && { source: "page", page, handTrace: readHandTrace(raw.handTrace) };
+    const name = typeof raw.name === "string" ? { name: raw.name } : {};
+    return page && { source: "page", page, handTrace: readHandTrace(raw.handTrace), ...name };
   }
   return null;
 }

@@ -279,4 +279,18 @@ describe("hand-trace file: what other programs see", () => {
   ])("a photo's file is named for the photo: %s gives %s", (photo, file) => {
     expect(handTraceFileName(new Date(2026, 9, 5), photo)).toBe(file);
   });
+
+  it.each([
+    ["cat.svg", "cat-hand-trace.svg"],
+    ["cat-hand-trace.svg", "cat-hand-trace.svg"],
+  ])("an edited SVG design's file is named for the SVG file: %s gives %s", (svg, file) => {
+    expect(handTraceFileName(new Date(2026, 9, 5), svg)).toBe(file);
+  });
+
+  it("a hand-trace made from an SVG design reopens with that file's name and its page", () => {
+    const editor = createHandTrace({ toDesign: designFromPathData, page: { width: 1, height: 0.5 }, record: WORK });
+    const record = { source: "page", page: editor.page(), handTrace: editor.record(), name: "cat.svg" } as const;
+    const text = writeHandTraceFile({ record, page: editor.page(), pathData: editor.pathData(), design: editor.design(), width: 150 });
+    expect(readHandTraceFile(text)).toEqual({ kind: "hand-trace", record });
+  });
 });

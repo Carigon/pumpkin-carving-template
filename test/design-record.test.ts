@@ -116,6 +116,20 @@ describe("the record module", () => {
     expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(pageRecord);
   });
 
+  it("a hand-trace made from an SVG design comes back with its page and the file's name", async () => {
+    const storage = memoryStorage();
+    const edited = { ...pageRecord, page: { width: 1, height: 0.6 }, name: "cat.svg" } satisfies DesignRecord;
+    await createRecordKeeper(storage, noShrink).keep(edited);
+    expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(edited);
+  });
+
+  it("a file name that isn't text is dropped, and the hand-trace still comes back", async () => {
+    const storage = memoryStorage();
+    await createRecordKeeper(storage, noShrink).keep(pageRecord);
+    await storage.set("work", { ...((await storage.get("work")) as object), name: 42 });
+    expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(pageRecord);
+  });
+
   it("a record of another version restores nothing", async () => {
     const storage = memoryStorage();
     await createRecordKeeper(storage, noShrink).keep(pageRecord);
