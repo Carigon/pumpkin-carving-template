@@ -4,7 +4,7 @@
  * twin is reflected as a separate shape; a symmetric shape is its half joined to its reversed reflection at both
  * ends. Every function takes the axis as its x in design space and gives new shapes; nothing is changed in place.
  */
-import { handlesOf, type Side, type XY } from "./curves";
+import { handlesOf, withPoint, type Side, type XY } from "./curves";
 import type { Offset, Point, Shape } from "./model";
 
 /** How close (design units) a point is to the axis to be on it: points are put on it exactly, by snap or clamp. */
@@ -209,10 +209,6 @@ function squaredEnds(shape: Shape, axis: number): Shape {
     out = withPoint(out, i, Math.abs(h.x) > 1e-12 ? { ...rest, [own]: { x: h.x, y: 0 } } : rest);
   });
   return out;
-}
-
-function withPoint(shape: Shape, i: number, point: Point): Shape {
-  return { ...shape, points: shape.points.map((p, k) => (k === i ? point : p)) };
 }
 
 /** `p` reflected in the axis, its handles mirrored. */

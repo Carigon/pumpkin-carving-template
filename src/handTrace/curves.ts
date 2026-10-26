@@ -232,7 +232,8 @@ function handle(side: Side, offset: Offset | null): Partial<Point> {
   return offset && length(offset) > 1e-12 ? { [side]: offset } : {};
 }
 
-function withPoint(shape: Shape, i: number, point: Point): Shape {
+/** `shape` with point `i` replaced by `point`. */
+export function withPoint(shape: Shape, i: number, point: Point): Shape {
   return { ...shape, points: shape.points.map((p, k) => (k === i ? point : p)) };
 }
 

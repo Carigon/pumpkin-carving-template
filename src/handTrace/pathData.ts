@@ -1,12 +1,6 @@
-import { edgesOf } from "./curves";
+import { edgesOf, type XY } from "./curves";
 import type { Shape } from "./model";
 import { shapesAsDrawn } from "./symmetry";
-
-/** A position in some 2D space. */
-interface XY {
-  x: number;
-  y: number;
-}
 
 /** Significant digits kept in path data: far finer than the loader's tolerance. */
 const DIGITS = 6;
