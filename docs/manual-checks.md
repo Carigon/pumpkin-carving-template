@@ -106,20 +106,20 @@ These are guesses from the spec, to be tuned once the checks above have been run
 
 | Value | What it sets | Where |
 |---|---|---|
-| 22 px | Hit radius for points, handles, stubs and insert markers, whatever the zoom | `HIT_RADIUS_PX`, `src/handTrace/editor.ts` |
-| 22 px | Axis snap, the same radius (let go at 1.5 times it) | `HIT_RADIUS_PX`, `SNAP_RELEASE`, `src/handTrace/editor.ts` |
-| 22 px | Frame corner hit radius in Cleanup, the same radius | `HIT_RADIUS_PX`, `src/handTrace/editor.ts` |
-| 48 px | Edges shorter than this, along the curve, show no insert marker | `MARKER_MIN_EDGE_PX`, `src/handTrace/editor.ts` |
-| 40 px | How far a stub reaches out along its edge | `STUB_PX`, `src/handTrace/editor.ts` |
-| 10 px | A handle dragged this close to its point is removed | `RETRACT_PX`, `src/handTrace/editor.ts` |
+| 22 px | Hit radius for points, handles, stubs and insert markers, whatever the zoom | `HIT_RADIUS_PX`, `src/handTrace/hits.ts` |
+| 22 px | Axis snap, the same radius (let go at 1.5 times it) | `HIT_RADIUS_PX`, `src/handTrace/hits.ts`; `SNAP_RELEASE`, `src/handTrace/edits.ts` |
+| 22 px | Frame corner hit radius in Cleanup, the same radius | `HIT_RADIUS_PX`, `src/handTrace/hits.ts` |
+| 48 px | Edges shorter than this, along the curve, show no insert marker | `MARKER_MIN_EDGE_PX`, `src/handTrace/hits.ts` |
+| 40 px | How far a stub reaches out along its edge | `STUB_PX`, `src/handTrace/hits.ts` |
+| 10 px | A handle dragged this close to its point is removed | `RETRACT_PX`, `src/handTrace/edits.ts` |
 | 300 ms | Hold before the loupe shows | `HOLD_MS`, `src/handTrace/gestures.ts` |
 | 300 ms, 22 px | Double-tap: second tap within this time and distance | `DOUBLE_TAP_MS`, `DOUBLE_TAP_PX`, `src/handTrace/gestures.ts` |
-| 130 px, ×3 | The loupe's size and magnification over the current zoom | `LOUPE_PX`, `LOUPE_MAGNIFICATION`, `src/handTrace/editor.ts` |
-| about 200 | Undo steps kept | `UNDO_LIMIT`, `src/handTrace/editor.ts` |
+| 130 px, ×3 | The loupe's size and magnification over the current zoom | `LOUPE_PX`, `LOUPE_MAGNIFICATION`, `src/handTrace/loupe.ts` |
+| about 200 | Undo steps kept | `UNDO_LIMIT`, `src/handTrace/history.ts` |
 | 2,000 points | Above this, Edit as hand-trace warns that editing may be slow | `MANY_POINTS`, `src/ui/designPanel.ts` |
 
 Things to watch for while tuning:
 
 - **The axis snap on a small mouth.** At the fitted zoom, 22 px catches points near the middle of a small mouth, so they jump onto the axis. Zooming in avoids it; a smaller radius may be the fix.
-- **Short handles at the fitted zoom.** Points and handles compete for a tap and the nearest wins. If a short handle can't be grabbed because its point keeps winning, the fallback is "handle wins over point": any handle within the hit radius beats a point (`pointOrHandleAt` in `src/handTrace/editor.ts`).
+- **Short handles at the fitted zoom.** Points and handles compete for a tap and the nearest wins. If a short handle can't be grabbed because its point keeps winning, the fallback is "handle wins over point": any handle within the hit radius beats a point (`pointOrHandleAt` in `src/handTrace/hits.ts`).
 - **Slow editing.** Edit as hand-trace on an SVG design with well over 2,000 points, and on the auto-trace result of a busy photo: if dragging lags on a phone, move the hint's threshold to where it starts.
