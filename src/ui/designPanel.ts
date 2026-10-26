@@ -39,7 +39,7 @@ export interface DesignPanel {
 
 /**
  * SVG upload plus placement controls: front-view width, vertical offset and rotation.
- * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. An image's crop
+ * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. A photo's cleanup
  * and auto-trace result go in `photoView` (the viewport's Photo view); a hand-trace on a blank page in `pageView`
  * (the Page view). The loaded design and the work on it are kept across reloads by `keeper` (ADR 0002).
  */
@@ -133,7 +133,8 @@ export function mountDesignPanel(
   const record = (): DesignRecord | null => {
     const editor = handTrace.editor();
     if (editor) return { source: "page", page: editor.page(), handTrace: editor.record() };
-    if (photo && trace.loaded()) return { source: "photo", photo, autoTrace: trace.autoTrace(), done: trace.accepted() };
+    if (photo && trace.loaded())
+      return { source: "photo", photo, cleanup: trace.cleanup(), autoTrace: trace.autoTrace(), done: trace.accepted() };
     return svg && { source: "svg", svg };
   };
   /** Keep the work after a finished change; once that fails, say so, quietly and for good. */
@@ -157,6 +158,7 @@ export function mountDesignPanel(
       onChange();
       keep();
     },
+    keep,
   );
   // A slider released, Invert ticked or a speckle size typed: a finished change to auto-trace's settings.
   traceEl.addEventListener("change", keep);
@@ -259,10 +261,11 @@ export function mountDesignPanel(
     [svg, photo] = [null, null];
     if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
       design = null;
-      showStatus("Auto-tracing…", false);
+      showStatus("Frame the sheet in the photo, then press Start tracing.", false);
       onChange();
       photo = { name: f.name, type: f.type, bytes: await f.arrayBuffer() };
       await trace.load(f);
+      onChange(); // the photo shows in Cleanup now: its view comes up
       keep(); // The photo is written now, once; later keeps write only the work on it.
       return;
     }
@@ -282,7 +285,7 @@ export function mountDesignPanel(
     else if (kept.source === "photo") {
       photo = kept.photo;
       const restored = new File([kept.photo.bytes], kept.photo.name, { type: kept.photo.type });
-      await trace.load(restored, { settings: kept.autoTrace, accepted: kept.done });
+      await trace.load(restored, { cleanup: kept.cleanup, settings: kept.autoTrace, accepted: kept.done });
     } else {
       handTrace.startBlankPage(kept);
       design = handTrace.editor()?.design() ?? null;

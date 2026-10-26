@@ -44,4 +44,5 @@ so the choice is hard to change once hand-traces exist. Decided in Path model fo
   directions are averaged so they stay on one line; automatic handles are simply recomputed. The approximation is
   silent. Straight edges are unaffected.
 - Cleanup geometry must itself be stored relative to the photo's size, or the shrunk-copy fallback misaligns it.
-  The existing auto-trace crop (`TraceSettings.crop`, in source-image pixels) doesn't do this yet.
+  The frame corners are kept as fractions of the photo's size for this reason (the old auto-trace crop, in
+  source-image pixels, is gone).

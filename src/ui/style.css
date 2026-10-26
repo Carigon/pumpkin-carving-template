@@ -994,7 +994,8 @@ body {
   display: none;
 }
 
-/* The Photo view: the crop image and the auto-trace result side by side, each scaled to fit its half of the pane.
+/* The Photo view: two figures side by side, each scaled to fit its half of the pane: in Cleanup, the photo with
+   its frame and the cleaned-up photo; past it, the cleaned-up photo and the auto-trace result.
    Below the breakpoint the view is 4:3 like the 3D canvas; above it, it fills the pane. */
 .trace-views {
   display: grid;
@@ -1033,9 +1034,140 @@ body {
   height: auto;
 }
 
-.trace-crop {
-  cursor: crosshair;
+.trace-views figure[hidden] {
+  display: none;
+}
+
+/* A photo with an SVG drawn over it in the photo's px, scaled together to fit like a lone canvas. */
+.trace-fit > .cleanup-stack {
+  position: relative;
+  width: min(100cqw, 100cqh * var(--aspect, 1));
+  aspect-ratio: var(--aspect, 1);
+}
+
+.cleanup-stack > canvas,
+.cleanup-stack > svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cleanup-stack > svg[hidden] {
+  display: none;
+}
+
+/* Cleanup: the photo outside the frame is dimmed; the frame's top edge is heavier, to show which way is up. */
+.cleanup-overlay {
   touch-action: none;
+  cursor: crosshair;
+}
+
+.cleanup-outside {
+  fill: rgb(0 0 0 / 0.45);
+}
+
+.cleanup-frame {
+  fill: none;
+  stroke: #e07b00;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.cleanup-top {
+  stroke: #e07b00;
+  stroke-width: 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.cleanup-corner {
+  fill: rgb(224 123 0 / 0.35);
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+}
+
+.trace-views .symmetry-axis {
+  stroke: #2a9df4;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.cleanup-controls {
+  display: grid;
+  gap: 1rem;
+}
+
+.cleanup-controls[hidden],
+.trace-tracing[hidden] {
+  display: none;
+}
+
+.cleanup-controls h3 {
+  margin: 0;
+}
+
+.trace-tracing {
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+
+.trace-tracing > * {
+  justify-self: stretch;
+}
+
+.trace-tracing > button {
+  justify-self: start;
+}
+
+/* The aspect chips: a segmented radio group, like the view switcher. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.chips label {
+  position: relative;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.chips label + label {
+  border-left: 1px solid var(--border);
+}
+
+.chips input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.chips label:has(input:checked) {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.chips label:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+.cleanup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .trace-result svg {
