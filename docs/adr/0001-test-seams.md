@@ -18,13 +18,17 @@ the Paper view's geometry `paperView` (`test/paper-view.test.ts`), the Blueprint
 (`test/blueprint-view.test.ts`) and the ring-edit rules that drags and typed values share (`dragRing`,
 `dragHeight`, `dragBall`, `sortRings`, `canInsert`, `insertRing`, `deleteRing`, `nudgeLength` in `src/ringEdits.ts`: `test/ring-edits.test.ts`; the Measure form's typed
 values, `typeRingHeight`, `typeCircumference` and `typeHeight`: `test/typed-edits.test.ts`; and which of its rows a
-measurement warning marks, `placeMeasureWarnings`: `test/measure-warnings.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
+measurement warning marks, `placeMeasureWarnings`: `test/measure-warnings.test.ts`), and hand-tracing's gesture recognizer,
+which turns pointer events into taps, drags and wheel turns (`createGestureRecognizer` in `src/handTrace`:
+`test/gesture-recognizer.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).
 
 Hand-tracing (the map Hand-tracing a photo into a design, issue #4 in `Carigon/pumpkin-carving-template`) adds a
 path model, edit rules, live symmetry, curves, undo, points carried through photo cleanup, and the pointer and key
 dispatch. That is not a thin helper: it is a second deep module whose internals (curve maths, reflection, hit tests)
-should stay as free to change as the core's. Decided in Testing hand-tracing (issue #24).
+should stay as free to change as the core's. Decided in Testing hand-tracing (issue #24). The editor lives in
+`src/handTrace/` (`createHandTrace`), tested through its index in `test/hand-trace.test.ts` and, with random
+sequences, `test/hand-trace-properties.test.ts`; outlines are compared by `test/outlines.ts`.
 
 ## Decision
 

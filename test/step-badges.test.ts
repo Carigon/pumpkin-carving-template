@@ -3,7 +3,7 @@ import { steps, type Mode, type StepState } from "../src/steps";
 
 /** The steps whose tab carries a warning badge. */
 function badged(mode: Mode, warnings: StepState["warnings"]) {
-  return steps({ mode, tracing: false, hasImage: false, warnings })
+  return steps({ mode, tracing: false, hasImage: false, hasPage: false, warnings })
     .filter((s) => s.warned)
     .map((s) => s.id);
 }

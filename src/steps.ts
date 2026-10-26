@@ -11,7 +11,7 @@ export type Mode = "pumpkin" | "test-grid";
 export type StepId = "measure" | "design" | "grid" | "template";
 
 /** What the viewport can show. */
-export type View = "3d" | "blueprint" | "photo" | "paper";
+export type View = "3d" | "blueprint" | "photo" | "page" | "paper";
 
 export interface Step {
   id: StepId;
@@ -27,10 +27,12 @@ export interface Step {
 /** What the step list depends on. */
 export interface StepState {
   mode: Mode;
-  /** An image design is loaded and still being traced. */
+  /** A photo or a blank page is loaded and still being traced (not Done). */
   tracing: boolean;
-  /** An image design is loaded, being traced or with its trace accepted (implied by `tracing`). */
+  /** An image design is loaded, being traced or with its trace accepted. */
   hasImage: boolean;
+  /** A hand-trace on a blank page is loaded, being traced or Done. */
+  hasPage: boolean;
   /** The warnings showing now, for the badges. */
   warnings: readonly Pick<TemplateWarning, "kind">[];
 }
@@ -61,14 +63,18 @@ export function steps(state: StepState): Step[] {
 /** A step before its badge is known. */
 type StepViews = Omit<Step, "warned">;
 
-/** Design shows the Photo view until the design is done, then the design on the pumpkin. */
+/**
+ * Design shows the Photo view (the Page view on a blank page) until the design is done, then the design on the
+ * pumpkin.
+ */
 function designStep(state: StepState): StepViews {
+  // Only while there's a photo or a page to show, so the switcher never lands on an empty view.
+  const traced: View | null = state.hasImage ? "photo" : state.hasPage ? "page" : null;
   return {
     id: "design",
     title: "Design",
-    defaultView: state.tracing ? "photo" : "3d",
-    // The Photo view only while there's an image to show, so the switcher never lands on an empty view.
-    views: state.tracing || state.hasImage ? ["3d", "photo"] : ["3d"],
+    defaultView: state.tracing && traced ? traced : "3d",
+    views: traced ? ["3d", traced] : ["3d"],
   };
 }
 
