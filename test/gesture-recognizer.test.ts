@@ -230,12 +230,115 @@ describe("gesture recognizer", () => {
     });
   });
 
-  it("right and middle mouse buttons make no tap or drag", () => {
+  it("the right mouse button makes no tap or drag: the mouse only hovers", () => {
     const g = createGestureRecognizer();
-    for (const button of [1, 2]) {
-      g.down(at(10, 10, 0, { pointerType: "mouse", button }));
-      expect(g.move(at(60, 10, 10, { pointerType: "mouse", button }))).toEqual([]);
-      expect(g.up(at(60, 10, 20, { pointerType: "mouse", button }))).toEqual([]);
-    }
+    g.down(at(10, 10, 0, { pointerType: "mouse", button: 2 }));
+    expect(g.move(at(60, 10, 10, { pointerType: "mouse", button: 2 }))).toMatchObject([{ type: "hover" }]);
+    expect(g.up(at(60, 10, 20, { pointerType: "mouse", button: 2 }))).toEqual([]);
+  });
+
+  describe("panning from anywhere", () => {
+    const mouse = (x: number, y: number, t: number, button = 0) => at(x, y, t, { pointerType: "mouse", button });
+
+    it("a middle-button drag is a pan: start past the slop, moves, end on lift", () => {
+      const g = createGestureRecognizer();
+      g.down(mouse(100, 100, 0, 1));
+      expect(g.move(mouse(104, 100, 10, 1))).toEqual([]);
+      const from = { x: 100, y: 100 };
+      expect(g.move(mouse(130, 90, 20, 1))).toEqual([
+        { type: "pan", phase: "start", from, at: { x: 130, y: 90 }, pointerType: "mouse" },
+      ]);
+      expect(g.move(mouse(150, 80, 30, 1))).toEqual([
+        { type: "pan", phase: "move", from, at: { x: 150, y: 80 }, pointerType: "mouse" },
+      ]);
+      expect(g.up(mouse(150, 80, 40, 1))).toEqual([
+        { type: "pan", phase: "end", from, at: { x: 150, y: 80 }, pointerType: "mouse" },
+      ]);
+    });
+
+    it("a middle-button click without moving is no tap", () => {
+      const g = createGestureRecognizer();
+      g.down(mouse(10, 10, 0, 1));
+      expect(g.up(mouse(10, 10, 50, 1))).toEqual([]);
+    });
+
+    it("a drag pressed while Space is held is a pan; once Space is up, drags are drags again", () => {
+      const g = createGestureRecognizer();
+      g.space(true);
+      g.down(mouse(100, 100, 0));
+      expect(g.move(mouse(140, 100, 10))).toMatchObject([{ type: "pan", phase: "start" }]);
+      // Letting go of Space mid-drag doesn't turn the pan into a drag.
+      g.space(false);
+      expect(g.move(mouse(160, 100, 20))).toMatchObject([{ type: "pan", phase: "move" }]);
+      expect(g.up(mouse(160, 100, 30))).toMatchObject([{ type: "pan", phase: "end" }]);
+      g.down(mouse(100, 100, 100));
+      expect(g.move(mouse(140, 100, 110))).toMatchObject([{ type: "drag", phase: "start" }]);
+    });
+
+    it("a click while Space is held is no tap", () => {
+      const g = createGestureRecognizer();
+      g.space(true);
+      g.down(mouse(10, 10, 0));
+      expect(g.up(mouse(10, 10, 50))).toEqual([]);
+    });
+
+    it("a touch held still while Space is held pans rather than holds", () => {
+      const g = createGestureRecognizer();
+      g.space(true);
+      g.down(at(10, 10, 0));
+      expect(g.tick(500)).toEqual([]);
+      expect(g.move(at(60, 10, 600))).toMatchObject([{ type: "pan", phase: "start", pointerType: "touch" }]);
+    });
+
+    it("a cancelled pan ends as a cancel", () => {
+      const g = createGestureRecognizer();
+      g.down(mouse(0, 0, 0, 1));
+      g.move(mouse(50, 0, 10, 1));
+      expect(g.cancel(mouse(50, 0, 20, 1))).toMatchObject([{ type: "pan", phase: "cancel" }]);
+    });
+  });
+
+  describe("hover", () => {
+    it("a mouse or pen moving with nothing pressed hovers where it is; it leaves when it goes off the canvas", () => {
+      const g = createGestureRecognizer();
+      expect(g.move(at(30, 40, 0, { pointerType: "mouse" }))).toEqual([
+        { type: "hover", at: { x: 30, y: 40 }, pointerType: "mouse", pans: false },
+      ]);
+      expect(g.move(at(31, 40, 5, { pointerType: "pen" }))).toEqual([
+        { type: "hover", at: { x: 31, y: 40 }, pointerType: "pen", pans: false },
+      ]);
+      expect(g.leave()).toEqual([{ type: "hover", at: null, pointerType: "pen", pans: false }]);
+    });
+
+    it("a touch never hovers", () => {
+      const g = createGestureRecognizer();
+      expect(g.move(at(30, 40, 0))).toEqual([]);
+    });
+
+    it("hovers with pans while Space is held, and says so again when Space goes down or up", () => {
+      const g = createGestureRecognizer();
+      g.move(at(30, 40, 0, { pointerType: "mouse" }));
+      expect(g.space(true)).toEqual([{ type: "hover", at: { x: 30, y: 40 }, pointerType: "mouse", pans: true }]);
+      // Held keys repeat: no news.
+      expect(g.space(true)).toEqual([]);
+      expect(g.move(at(32, 40, 5, { pointerType: "mouse" }))).toEqual([
+        { type: "hover", at: { x: 32, y: 40 }, pointerType: "mouse", pans: true },
+      ]);
+      expect(g.space(false)).toEqual([{ type: "hover", at: { x: 32, y: 40 }, pointerType: "mouse", pans: false }]);
+    });
+
+    it("a press stops the hover; it hovers again from the next move after the lift", () => {
+      const g = createGestureRecognizer();
+      const mouse = (x: number, y: number, t: number) => at(x, y, t, { pointerType: "mouse" });
+      g.move(mouse(10, 10, 0));
+      g.down(mouse(10, 10, 10));
+      expect(g.move(mouse(12, 10, 20))).toEqual([]);
+      expect(g.space(true)).toEqual([]);
+      g.space(false);
+      expect(g.up(mouse(12, 10, 30))).toEqual([{ type: "tap", at: { x: 10, y: 10 }, pointerType: "mouse" }]);
+      expect(g.move(mouse(13, 10, 40))).toEqual([
+        { type: "hover", at: { x: 13, y: 10 }, pointerType: "mouse", pans: false },
+      ]);
+    });
   });
 });

@@ -81,6 +81,29 @@ export interface MultiTapGesture {
   pointerType: PointerKind;
 }
 
+/**
+ * A press that pans from anywhere, whatever is under it: a middle-button drag, or a drag pressed while Space is held.
+ * Phases as a drag's; a press that never moves past the slop makes no gesture at all (and no tap).
+ */
+export interface PanGesture {
+  type: "pan";
+  phase: "start" | "move" | "end" | "cancel";
+  from: ScreenPoint;
+  at: ScreenPoint;
+  pointerType: PointerKind;
+}
+
+/**
+ * A mouse or pen over the canvas with nothing pressed, at `at` (null once it has left), so the canvas can show what
+ * a click would hit. `pans` while Space is held, as a press then would pan. A touch never hovers.
+ */
+export interface HoverGesture {
+  type: "hover";
+  at: ScreenPoint | null;
+  pointerType: PointerKind;
+  pans: boolean;
+}
+
 /** A wheel turn at the cursor; positive `deltaY` scrolls down (zooms out). */
 export interface WheelGesture {
   type: "wheel";
@@ -88,7 +111,15 @@ export interface WheelGesture {
   deltaY: number;
 }
 
-export type Gesture = TapGesture | DragGesture | HoldGesture | PinchGesture | MultiTapGesture | WheelGesture;
+export type Gesture =
+  | TapGesture
+  | DragGesture
+  | HoldGesture
+  | PanGesture
+  | PinchGesture
+  | MultiTapGesture
+  | WheelGesture
+  | HoverGesture;
 
 export interface GestureRecognizer {
   down(e: PointerInput): Gesture[];
@@ -97,6 +128,10 @@ export interface GestureRecognizer {
   /** `pointercancel`: the browser took the pointer (e.g. for a scroll). */
   cancel(e: PointerInput): Gesture[];
   wheel(e: WheelInput): Gesture[];
+  /** Space went down (`held`) or up while the canvas has focus: a press while it's held pans. */
+  space(held: boolean): Gesture[];
+  /** The pointer left the canvas (`pointerleave`): nothing hovers now. */
+  leave(): Gesture[];
   /**
    * Time has passed: it's `t` ms now, on the clock `PointerInput.t` uses. The recognizer keeps no timers, so the
    * canvas calls this `HOLD_MS` after a press.
@@ -120,7 +155,8 @@ const MULTI_TAP_MS = 350;
 /**
  * Follows one press at a time: it's a tap if it lifts within the slop, else a drag; a touch press held still becomes
  * a hold. A second pointer landing cancels the press and starts a multi-finger gesture (a pinch, or a two- or
- * three-finger tap) that lasts until every finger has lifted. Only the main button presses.
+ * three-finger tap) that lasts until every finger has lifted. The main button presses; the middle button, or the
+ * main one while Space is held, presses to pan. A mouse or pen with nothing pressed hovers.
  */
 export function createGestureRecognizer(): GestureRecognizer {
   /** The one press being followed: when and where it started, where it is now, and what it has become. */
@@ -131,7 +167,13 @@ export function createGestureRecognizer(): GestureRecognizer {
     at: ScreenPoint;
     pointerType: PointerKind;
     as: "press" | "drag" | "hold";
+    /** It pans from anywhere: a middle-button press, or one made while Space was held. */
+    pans: boolean;
   } | null = null;
+  /** Space is held down. */
+  let spaceHeld = false;
+  /** Where the mouse or pen hovers, while nothing is pressed. */
+  let hover: { at: ScreenPoint; pointerType: PointerKind } | null = null;
   /**
    * The multi-finger gesture under way: when its first finger landed, the most fingers down at once, whether it can
    * no longer be a tap, each finger's landing and current position, and the pinch's last middle and spread.
@@ -187,30 +229,39 @@ export function createGestureRecognizer(): GestureRecognizer {
 
   const pt = (e: ScreenPoint): ScreenPoint => ({ x: e.x, y: e.y });
   const mine = (e: PointerInput) => press !== null && press.id === e.id;
-  const of = (type: "drag" | "hold", phase: DragGesture["phase"], at: ScreenPoint): Gesture => {
-    const { from, pointerType } = press!;
-    return { type, phase, from, at, pointerType };
+  const of = (as: "drag" | "hold", phase: DragGesture["phase"], at: ScreenPoint): Gesture => {
+    const { from, pointerType, pans } = press!;
+    return { type: pans ? "pan" : as, phase, from, at, pointerType };
   };
+  const hovering = (): Gesture[] => (hover ? [{ type: "hover", ...hover, pans: spaceHeld }] : []);
   /** A touch press still at `t` past `HOLD_MS` becomes a hold where it was last seen, however late the timer. */
   const holdBy = (t: number): Gesture[] => {
-    if (!press || press.as !== "press" || press.pointerType !== "touch" || t - press.t < HOLD_MS) return [];
+    if (!press || press.as !== "press" || press.pans || press.pointerType !== "touch" || t - press.t < HOLD_MS) return [];
     press.as = "hold";
     return [of("hold", "start", press.at)];
   };
 
   return {
     down(e) {
-      if (e.button !== 0 || mine(e)) return [];
+      if ((e.button !== 0 && e.button !== 1) || mine(e)) return [];
+      hover = null;
       const out = press ? secondFinger() : [];
       if (multi) {
         multi.fingers.set(e.id, { from: pt(e), at: pt(e) });
         multi.most = Math.max(multi.most, multi.fingers.size);
         multi.pair = pairOf(multi.fingers);
-      } else press = { id: e.id, t: e.t, from: pt(e), at: pt(e), pointerType: e.pointerType, as: "press" };
+      } else {
+        const pans = e.button === 1 || spaceHeld;
+        press = { id: e.id, t: e.t, from: pt(e), at: pt(e), pointerType: e.pointerType, as: "press", pans };
+      }
       return out;
     },
     move(e) {
       if (multi) return pinch(e);
+      if (!press && e.pointerType !== "touch") {
+        hover = { at: pt(e), pointerType: e.pointerType };
+        return hovering();
+      }
       if (!press || !mine(e)) return [];
       const out = holdBy(e.t);
       press.at = pt(e);
@@ -225,10 +276,12 @@ export function createGestureRecognizer(): GestureRecognizer {
       if (multi) return lift(e, true);
       if (!press || !mine(e)) return [];
       const out = holdBy(e.t);
-      const { from, pointerType, as } = press;
-      const ended: Gesture = as === "press" ? { type: "tap", at: from, pointerType } : of(as, "end", pt(e));
+      const { from, pointerType, as, pans } = press;
+      // It hovers again from the next move; the editor knows where a drag ended.
+      const tapped: Gesture[] = pans ? [] : [{ type: "tap", at: from, pointerType }];
+      const ended = as === "press" ? tapped : [of(as, "end", pt(e))];
       press = null;
-      return [...out, ended];
+      return [...out, ...ended];
     },
     cancel(e) {
       if (multi) return lift(e, false);
@@ -238,6 +291,17 @@ export function createGestureRecognizer(): GestureRecognizer {
       return ended;
     },
     wheel: (e) => [{ type: "wheel", at: pt(e), deltaY: e.deltaY }],
+    space(held) {
+      if (held === spaceHeld) return [];
+      spaceHeld = held;
+      return hovering();
+    },
+    leave() {
+      if (!hover) return [];
+      const { pointerType } = hover;
+      hover = null;
+      return [{ type: "hover", at: null, pointerType, pans: spaceHeld }];
+    },
     tick: holdBy,
   };
 }

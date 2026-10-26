@@ -1,5 +1,5 @@
 import { distanceToSegment, insidePolygon, signedArea, type BBox, type Design, type TemplateWarning } from "../core";
-import type { DragGesture, Gesture, HoldGesture, PointerKind, ScreenPoint } from "./gestures";
+import type { DragGesture, Gesture, HoldGesture, PanGesture, PointerKind, ScreenPoint } from "./gestures";
 import type { HandTraceRecord, Page, Point, Shape } from "./model";
 import { loopsPathData, pathData } from "./pathData";
 import { fitScale, fitView, pinchZoom, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
@@ -15,6 +15,13 @@ export interface HandTraceOptions {
   page?: Page;
   /** The stored record to reopen (validated by the record module), as after a reload; nothing drawn when left out. */
   record?: HandTraceRecord;
+}
+
+/** A key press: `KeyboardEvent.key`, with Ctrl (or Cmd on a Mac) and Shift as held. */
+export interface KeyInput {
+  key: string;
+  ctrl: boolean;
+  shift: boolean;
 }
 
 /** A screen rectangle, in CSS pixels. */
@@ -95,7 +102,22 @@ export interface Drawn {
   warnings: WarningMarks;
   /** The loupe, while a finger holds to place a point or drags one; never for a mouse or pen. */
   loupe: Loupe | null;
+  /** What a click where the mouse or pen hovers would act on, highlighted; null over empty space or with none. */
+  hover: HoverMark | null;
+  /** The pointer's cursor over the canvas: what a click or press there would do. */
+  cursor: Cursor;
+  /** While a shape is being drawn, its dashed edge from the last point to where a click would place (or close). */
+  rubberBand: { from: ScreenPoint; to: ScreenPoint } | null;
 }
+
+/** What a hovering click would act on: a point or insert marker where it's drawn, or a shape by its id. */
+export type HoverMark = { kind: "point" | "marker"; at: ScreenPoint } | { kind: "shape"; id: number };
+
+/**
+ * The cursor: a crosshair where a click places a point, a pointer where it selects, closes or ends, a move cursor
+ * on the selected shape, an open hand where a press pans (Space held) and a closed one while panning or moving.
+ */
+export type Cursor = "default" | "crosshair" | "pointer" | "move" | "grab" | "grabbing";
 
 /**
  * The loupe: a circle `box` wide, clear of the finger, showing the canvas as drawn magnified `magnification` times
@@ -112,6 +134,11 @@ export interface HandTrace {
   /** The canvas is now `width` × `height` px; the page refits unless the carver has panned or zoomed. */
   resize(width: number, height: number): void;
   gesture(g: Gesture): void;
+  /**
+   * A key pressed while the canvas has focus. True when it did something, so the canvas keeps it from the browser;
+   * false for keys that aren't the editor's or that had nothing to act on.
+   */
+  key(k: KeyInput): boolean;
   /** The pill's Close: close the shape being drawn (3 points or more). */
   close(): void;
   /** The pill's End: end the shape being drawn open. Not an undo step. */
@@ -167,6 +194,18 @@ const LOUPE_MAGNIFICATION = 3;
 const LOUPE_GAP_PX = 56;
 /** The loupe stays this far (px) inside the canvas's edges. */
 const LOUPE_MARGIN_PX = 4;
+/** How much + and − zoom, as the Blueprint view's zoom buttons do. */
+const KEY_ZOOM_STEP = 1.25;
+/** How far an arrow key nudges, in screen px, and with Shift. */
+const NUDGE_PX = 1;
+const SHIFT_NUDGE_PX = 10;
+/** Each arrow key's direction on screen (y down). */
+const ARROWS = new Map([
+  ["ArrowLeft", { x: -1, y: 0 }],
+  ["ArrowRight", { x: 1, y: 0 }],
+  ["ArrowUp", { x: 0, y: -1 }],
+  ["ArrowDown", { x: 0, y: 1 }],
+]);
 /** The pill's hint when nothing is being drawn. */
 const HINT = "Tap to place a point.";
 
@@ -191,6 +230,19 @@ interface Marker {
 
 /** What's selected: one point (by its shape and index) or one shape. Selecting isn't an undo step. */
 type Selection = { kind: "point"; shape: number; index: number } | { kind: "shape"; shape: number };
+
+/**
+ * What a tap or click at a spot would do, and what it would act on: place a point; close or end the shape being
+ * drawn on its first or last point; select a point or shape (ending the shape being drawn); add a point at an
+ * insert marker; clear the selection; or nothing. One rule for tapping and for showing a hover.
+ */
+type TapAction =
+  | { do: "place" }
+  | { do: "close" | "end"; hit: Hit & { kind: "point" } }
+  | { do: "select"; hit: Hit; selection: Selection }
+  | { do: "insert"; hit: Hit & { kind: "marker" } }
+  | { do: "deselect" }
+  | { do: "nothing" };
 
 /**
  * A drag or hold under way: a pan from the view it started at; a move of one point (`index`) or of a whole shape
@@ -235,6 +287,13 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
   let designOf: { shapes: readonly Shape[]; design: Design | null } | null = null;
   /** The warnings last shown, and the Design they were for: once that changes, they're out of date. */
   let warnings: { design: Design | null; warnings: readonly TemplateWarning[] } | null = null;
+  /** Where a mouse or pen hovers, and whether a press there pans (Space held); null once it has left. */
+  let pointer: { at: ScreenPoint; pans: boolean } | null = null;
+  /**
+   * The shapes and selection the last arrow nudge left. While both are still those (nothing else has changed or
+   * selected since), the next nudge joins its undo step: a run of presses is one step.
+   */
+  let nudged: { state: State; selection: Selection } | null = null;
 
   // SVG space is y down: flip on the way out, as the loader flips back.
   const closedPathData = () =>
@@ -397,31 +456,56 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     return smallest ? { kind: "shape", shape: smallest } : null;
   };
 
-  /** What a tap does, by what's under it and whether a shape is being drawn. */
-  const tap = (at: ScreenPoint) => {
+  /** What a tap at `at` would do, by what's under it and whether a shape is being drawn. */
+  const tapAction = (at: ScreenPoint): TapAction => {
     const hit = hitTest(at);
     const shape = drawingShape();
-    if (shape) {
-      if (hit?.kind !== "point") return place(at);
-      if (hit.shape.id !== shape.id) {
-        end();
-        selection = { kind: "point", shape: hit.shape.id, index: hit.index };
-        return;
-      }
-      const last = shape.points.length - 1;
-      if (hit.index === last) end();
-      else if (hit.index === 0) close();
-      else place(at);
-      return;
+    if (hit?.kind === "point") {
+      const selects: TapAction = { do: "select", hit, selection: { kind: "point", shape: hit.shape.id, index: hit.index } };
+      if (!shape || hit.shape.id !== shape.id) return selects;
+      if (hit.index === shape.points.length - 1) return { do: "end", hit };
+      if (hit.index === 0) return shape.points.length >= 3 ? { do: "close", hit } : { do: "nothing" };
+      return { do: "place" };
     }
-    if (hit?.kind === "point") selection = { kind: "point", shape: hit.shape.id, index: hit.index };
-    else if (hit?.kind === "marker") {
-      const { shape, index } = insert(hit.marker);
+    if (shape) return { do: "place" };
+    if (hit?.kind === "marker") return { do: "insert", hit };
+    if (hit) return { do: "select", hit, selection: { kind: "shape", shape: hit.shape.id } };
+    return selection ? { do: "deselect" } : { do: "place" };
+  };
+  const tap = (at: ScreenPoint) => {
+    const action = tapAction(at);
+    if (action.do === "place") place(at);
+    else if (action.do === "close") close();
+    else if (action.do === "end") end();
+    else if (action.do === "select") {
+      end();
+      selection = action.selection;
+    } else if (action.do === "insert") {
+      const { shape, index } = insert(action.hit.marker);
       change({ ...state, shapes: replace(shape) });
       selection = { kind: "point", shape: shape.id, index };
-    } else if (hit) selection = { kind: "shape", shape: hit.shape.id };
-    else if (selection) selection = null;
-    else place(at);
+    } else if (action.do === "deselect") selection = null;
+  };
+
+  /** Where the mouse or pen hovers: what a click there would act on, the cursor, and the rubber band. */
+  const hovering = (): Pick<Drawn, "hover" | "cursor" | "rubberBand"> => {
+    const none = { hover: null, rubberBand: null };
+    if (finished || !pointer) return { ...none, cursor: "default" };
+    if (drag) return { ...none, cursor: "grabbing" };
+    if (pointer.pans) return { ...none, cursor: "grab" };
+    const action = tapAction(pointer.at);
+    const last = drawingShape()?.points.at(-1);
+    const band = (to: { x: number; y: number }) => (last ? { from: toScreen(view, last), to: toScreen(view, to) } : null);
+    if (action.do === "place") return { hover: null, cursor: "crosshair", rubberBand: band(placeAt(pointer.at)) };
+    if (action.do === "deselect" || action.do === "nothing") return { ...none, cursor: "default" };
+    const { hit } = action;
+    if (hit.kind === "shape") {
+      const picked = selection?.kind === "shape" && selection.shape === hit.shape.id;
+      return { hover: { kind: "shape", id: hit.shape.id }, cursor: picked ? "move" : "pointer", rubberBand: null };
+    }
+    const at = hit.kind === "point" ? hit.shape.points[hit.index] : hit.marker.at;
+    const rubberBand = action.do === "close" ? band(at) : null;
+    return { hover: { kind: hit.kind, at: toScreen(view, at) }, cursor: "pointer", rubberBand };
   };
 
   /** `marker`'s shape with a corner point added at the marker, and the new point's index. */
@@ -455,15 +539,19 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     return { kind: "pan", from: view };
   };
 
+  /** A pan, from a drag on empty space or from anywhere (Space or the middle button): the page follows the pointer. */
+  const panGesture = (g: Pick<PanGesture, "phase" | "from" | "at">) => {
+    if (g.phase === "start") drag = { kind: "pan", from: view };
+    if (drag?.kind !== "pan") return;
+    view = { ...drag.from, tx: drag.from.tx + g.at.x - g.from.x, ty: drag.from.ty + g.at.y - g.from.y };
+    moved = true;
+    if (g.phase === "end" || g.phase === "cancel") drag = null;
+  };
+
   const dragGesture = (g: DragGesture) => {
     if (g.phase === "start") drag = startDrag(g.from, g.pointerType);
     if (!drag) return;
-    if (drag.kind === "pan") {
-      view = { ...drag.from, tx: drag.from.tx + g.at.x - g.from.x, ty: drag.from.ty + g.at.y - g.from.y };
-      moved = true;
-      if (g.phase === "end" || g.phase === "cancel") drag = null;
-      return;
-    }
+    if (drag.kind === "pan") return panGesture(g);
     if (drag.kind !== "move") return;
     drag.at = g.at;
     if (g.phase === "cancel") {
@@ -527,8 +615,93 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     } else dragGesture({ ...g, type: "drag" });
   };
 
+  /** Nudge the selected point or shape `by` screen px; a run of nudges is one undo step. */
+  const nudge = (by: { x: number; y: number }): boolean => {
+    const picked = selection;
+    const shape = picked && state.shapes.find((s) => s.id === picked.shape);
+    if (!picked || !shape) return false;
+    const index = picked.kind === "point" ? picked.index : null;
+    const next = moveBy(shape, index, { x: by.x / view.scale, y: -by.y / view.scale }, page);
+    const same = next.points.every((p, i) => p.x === shape.points[i].x && p.y === shape.points[i].y);
+    if (same) return true;
+    const after = { ...state, shapes: replace(next) };
+    if (nudged?.state === state && nudged.selection === picked) state = after;
+    else change(after);
+    nudged = { state, selection: picked };
+    return true;
+  };
+
+  /** Escape: cancel the drag under way, putting back what it moved (or the view a pan moved). */
+  const cancelDrag = () => {
+    if (drag?.kind === "move") selection = drag.selection;
+    if (drag?.kind === "pan") view = drag.from;
+    drag = null;
+  };
+
+  /** Backspace while drawing with nothing selected: take off the last point placed, and the shape with its only one. */
+  const removeLast = () => {
+    const shape = drawingShape()!;
+    const points = shape.points.slice(0, -1);
+    if (points.length > 0) change({ ...state, shapes: replace({ ...shape, points }) });
+    else change({ shapes: state.shapes.filter((s) => s !== shape), drawing: null });
+  };
+
+  /** Zoom by `factor` about the canvas's middle. */
+  const zoomBy = (factor: number) => {
+    const middle = { x: size.width / 2, y: size.height / 2 };
+    view = pinchZoom(view, fitScale(page, size.width, size.height), middle, middle, factor);
+    moved = true;
+  };
+
+  const key = ({ key: k, ctrl, shift }: KeyInput): boolean => {
+    if (finished || size.width === 0) return false;
+    const lower = k.toLowerCase();
+    const drawing = state.drawing !== null;
+    const can = (ok: boolean, act: () => void) => {
+      if (ok) act();
+      return ok;
+    };
+    if (ctrl) {
+      if (lower === "z" && !shift) return can(undoStack.length > 0, undo);
+      if ((lower === "z" && shift) || lower === "y") return can(redoStack.length > 0, redo);
+      return false;
+    }
+    if (k === "Enter") {
+      const shape = drawingShape();
+      if (shape) return can(true, shape.points.length >= 3 ? close : end);
+      return can(openEnd() !== null, carryOn);
+    }
+    if (k === "Escape") {
+      if (drag) return can(true, cancelDrag);
+      if (drawing) return can(true, end);
+      return can(selection !== null, () => (selection = null));
+    }
+    if (k === "Delete" || k === "Backspace") {
+      if (selection) return can(true, remove);
+      return can(k === "Backspace" && drawing, removeLast);
+    }
+    if (k === "+" || k === "=") return can(true, () => zoomBy(KEY_ZOOM_STEP));
+    if (k === "-") return can(true, () => zoomBy(1 / KEY_ZOOM_STEP));
+    if (k === "0") {
+      moved = false;
+      view = fitView(page, size.width, size.height);
+      return true;
+    }
+    const arrow = ARROWS.get(k);
+    if (!arrow) return false;
+    const step = shift ? SHIFT_NUDGE_PX : NUDGE_PX;
+    return nudge({ x: arrow.x * step, y: arrow.y * step });
+  };
+
   const gesture = (g: Gesture) => {
+    if (g.type === "hover") {
+      pointer = g.at && { at: g.at, pans: g.pans };
+      return;
+    }
     if (finished || size.width === 0) return;
+    // A mouse or pen still hovers where its drag ended.
+    const ends = (g.type === "drag" || g.type === "pan") && (g.phase === "end" || g.phase === "cancel");
+    if (ends && g.pointerType !== "touch") pointer = { at: g.at, pans: pointer?.pans ?? false };
     const fit = () => fitScale(page, size.width, size.height);
     const zoomTo = (next: ViewTransform) => {
       view = next;
@@ -537,9 +710,10 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     if (g.type === "tap") tap(g.at);
     else if (g.type === "drag") dragGesture(g);
     else if (g.type === "hold") holdGesture(g);
+    else if (g.type === "pan") panGesture(g);
     else if (g.type === "multiTap") (g.fingers === 2 ? undo : redo)();
     else if (g.type === "wheel") zoomTo(wheelZoom(view, fit(), g.at, g.deltaY));
-    else zoomTo(pinchZoom(view, fit(), g.from, g.at, g.scale));
+    else if (g.type === "pinch") zoomTo(pinchZoom(view, fit(), g.from, g.at, g.scale));
   };
 
   /** The loupe for the drag or hold under way, if it's by touch and aims at a point: clear of the finger. */
@@ -620,6 +794,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
         tiny: current.flatMap((w) => (w.kind === "tiny-carve-area" ? w.areas.map(({ bbox }) => ring(bbox)) : [])),
       },
       loupe: loupe(shapes),
+      ...hovering(),
     };
   };
 
@@ -629,6 +804,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       if (!moved && width > 0 && height > 0) view = fitView(page, width, height);
     },
     gesture,
+    key,
     close: () => !finished && close(),
     end: () => !finished && end(),
     delete: () => !finished && remove(),
