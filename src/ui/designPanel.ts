@@ -1,29 +1,20 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
-import type { DesignRecord, PageRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
+import type { PageRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
 import type { HandTraceRecord } from "../handTrace";
-import { editOnStalePhoto, handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
-import { filePhoto } from "../input/shrinkPhoto";
-import { autoTraceShapes, readSvgHandTrace, type SvgHandTrace } from "../input/svgHandTrace";
-import { downloadBlob } from "./download";
+import { editOnStalePhoto, readHandTraceFile } from "../input/handTraceFile";
+import { autoTraceShapes } from "../input/svgHandTrace";
+import { counted } from "./counted";
+import { designRecordOf, keepDesign } from "./designKeeping";
+import { mountDownloadSvg } from "./downloadSvg";
+import { mountEditSvgRow } from "./editSvgRow";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
-import { lengthFields } from "./lengthFields";
+import { mountPlacementCard } from "./placementCard";
 import { mountTracePanel } from "./tracePanel";
-import { designWarningText, renderWarnings } from "./warnings";
+import { CLEANUP_HINT, photoMethods } from "./tracingMethods";
 
-/** In mm; centered. */
-const DEFAULTS_MM = { width: 150, verticalOffset: 0 };
-const MAX_ROTATION = 30;
 /** The file input's hint, shown until a file's status replaces it. */
 const FILE_HINT = "Photos never leave your browser.";
-/** The status line while a photo is in Cleanup. */
-const CLEANUP_HINT = "Frame the sheet in the photo, then press Start tracing.";
-/** The status line while auto-trace runs. */
-const AUTO_TRACING = "Auto-tracing…";
-/** Above this many points, Edit as hand-trace warns that editing may be slow (a starting guess, to tune on phones). */
-const MANY_POINTS = 2000;
-/** A hand-trace with nothing drawn: a new photo's. */
-const EMPTY_HAND_TRACE: HandTraceRecord = { shapes: [], drawing: null, done: false };
 
 export interface DesignPanel {
   design(): Design | null;
@@ -55,7 +46,9 @@ export interface DesignPanel {
 }
 
 /**
- * SVG upload plus placement controls: front-view width, vertical offset and rotation.
+ * The Design card, loading an SVG file or photo or starting a blank page, then the Placement card. This wires them:
+ * which design is loaded, how each source opens, and the parts that show it (the trace panel, the hand-trace canvas,
+ * the Edit as hand-trace and Download SVG rows, the tracing methods, keeping and placement), each in its own module.
  * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. A photo's cleanup, its
  * auto-trace result and its hand-trace go in `photoView` (the viewport's Photo view); a hand-trace on a blank page in
  * `pageView` (the Page view). The loaded design and the work on it are kept across reloads by `keeper` (ADR 0002).
@@ -90,34 +83,7 @@ export function mountDesignPanel(
       <div class="hint" id="d-not-kept" hidden>This browser won't keep your work after a reload.
         <button type="button" class="link-button" data-download-svg>Download SVG</button></div>
       </section>
-      <section class="card">
-      <h2>Placement</h2>
-      <div class="field">
-        <label for="d-width">Width seen from the front</label>
-        <div class="input-row">
-          <input id="d-width" type="number" inputmode="decimal" min="0" step="any" />
-          <span class="unit-label">in</span>
-        </div>
-      </div>
-      <div class="field">
-        <label for="d-offset">Move up (negative = down)</label>
-        <div class="input-row">
-          <input id="d-offset" type="number" inputmode="decimal" step="any" />
-          <span class="unit-label">in</span>
-        </div>
-      </div>
-      <div class="field">
-        <label for="d-rotation">Rotation</label>
-        <div class="input-row">
-          <input id="d-rotation-range" type="range" min="${-MAX_ROTATION}" max="${MAX_ROTATION}" step="0.5" value="0"
-            aria-label="Rotation slider" />
-          <input id="d-rotation" type="number" step="0.5" value="0" />
-          <span>°</span>
-        </div>
-        <div class="hint">Counterclockwise as seen from the front.</div>
-      </div>
-      <div id="d-warnings" class="warnings" role="alert"></div>
-      </section>
+      <section class="card" id="d-placement"></section>
     </form>
   `;
 
@@ -125,25 +91,13 @@ export function mountDesignPanel(
   const $ = <T extends HTMLElement>(id: string) => form.querySelector<T>(`#${id}`)!;
   const file = $<HTMLInputElement>("d-file");
   const status = $<HTMLElement>("d-file-status");
-  const width = $<HTMLInputElement>("d-width");
-  const offset = $<HTMLInputElement>("d-offset");
-  const rotation = $<HTMLInputElement>("d-rotation");
-  const rotationRange = $<HTMLInputElement>("d-rotation-range");
-  const warningsEl = $<HTMLElement>("d-warnings");
 
-  const lengths = lengthFields(form, [width, offset]);
-  lengths.set(width, DEFAULTS_MM.width);
-  lengths.set(offset, DEFAULTS_MM.verticalOffset);
   let design: Design | null = null;
-  let warnings: TemplateWarning[] = [];
-  const showWarnings = () =>
-    renderWarnings(warningsEl, warnings, "design", (w) =>
-      designWarningText(w, { units: lengths.units(), source: warningSource() }),
-    );
   const warningSource = () => {
-    if (trace.loaded()) return trace.method() === "auto" ? "auto-trace" : "hand-trace";
+    if (trace.loaded()) return methods.source();
     return svg ? "svg" : "hand-trace";
   };
+  const placementCard = mountPlacementCard($("d-placement"), warningSource);
   const showStatus = (text: string, failed: boolean) => {
     status.textContent = text;
     status.classList.toggle("warning-text", failed);
@@ -154,54 +108,21 @@ export function mountDesignPanel(
   let photo: PhotoFile | null = null;
   /** The SVG file a hand-trace on a page was made from by Edit as hand-trace; undefined for a blank page's. */
   let pageName: string | undefined;
-  /** The kept design was restored, or the carver loaded one first: from now on the work is kept. */
-  let keeping = false;
-  const notKept = $<HTMLElement>("d-not-kept");
 
-  /** The loaded photo's auto-trace result and its status line: kept while hand-trace is chosen. */
-  let autoDesign: Design | null = null;
-  let autoStatus = { text: "", failed: false };
-
-  /** The loaded design and the work on it, as the record keeps it; null with none loaded. */
-  const record = (): DesignRecord | null => {
-    const editor = handTrace.editor();
-    if (photo && trace.loaded())
-      return {
-        source: "photo",
-        photo,
-        cleanup: trace.cleanup(),
-        tone: trace.tone(),
-        inCleanup: trace.inCleanup(),
-        autoTrace: trace.autoTrace(),
-        handTrace: editor?.record() ?? EMPTY_HAND_TRACE,
-        method: trace.method(),
-        done: trace.accepted(),
-      };
-    const name = pageName === undefined ? {} : { name: pageName };
-    if (editor) return { source: "page", page: editor.page(), handTrace: editor.record(), ...name };
-    return svg && { source: "svg", svg };
-  };
-  /** Keep the work after a finished change; once that fails, say so, quietly and for good. */
-  const keep = () => {
-    if (!keeping) return;
-    void keeper.keep(record()).then(() => {
-      notKept.hidden = keeper.keepsWork();
-    });
-  };
+  const record = () => designRecordOf({ photo, svg, pageName, trace, handTrace: handTrace.editor() });
+  const keeping = keepDesign(keeper, $("d-not-kept"), record);
+  const keep = () => keeping.keep();
 
   /** The design is the chosen method's result, even an empty one; a blank page's is its hand-trace's. */
   const pickDesign = () => {
-    if (trace.loaded()) design = trace.method() === "auto" ? autoDesign : (handTrace.editor()?.design() ?? null);
+    if (trace.loaded()) design = methods.design();
     else if (handTrace.editor()) design = handTrace.editor()?.design() ?? null;
   };
   /** The photo's status line: Cleanup's hint, auto-trace's last word while it's chosen, else the file hint. */
   const showPhotoStatus = () => {
-    if (autoStatus.failed || (trace.method() === "auto" && !trace.inCleanup()))
-      return showStatus(autoStatus.text, autoStatus.failed);
-    showStatus(trace.inCleanup() ? CLEANUP_HINT : FILE_HINT, false);
+    const shown = methods.status();
+    showStatus(shown?.text ?? FILE_HINT, shown?.failed ?? false);
   };
-  /** The photo's Done is the chosen method's: the hand-trace is Done only while it's chosen and accepted. */
-  const syncDone = () => handTrace.setDone(trace.method() === "hand" && trace.accepted());
   /**
    * A released cleanup change carries the hand-trace's points with the photo, as one undo step (whichever method is
    * chosen: the hand-trace is kept beside auto-trace's result). The canvas reports the changed Design. A tone change
@@ -217,11 +138,11 @@ export function mountDesignPanel(
   const traceEl = $<HTMLElement>("d-trace");
   const trace = mountTracePanel(traceEl, photoView, {
     onTracing() {
-      autoStatus = { text: AUTO_TRACING, failed: false };
+      methods.autoTracing();
       showPhotoStatus();
     },
     onTraced(traced, text, failed) {
-      [autoDesign, autoStatus] = [traced, { text, failed }];
+      methods.autoTraced(traced, { text, failed });
       if (trace.loaded()) {
         pickDesign();
         showPhotoStatus();
@@ -233,7 +154,7 @@ export function mountDesignPanel(
       onChange();
     },
     onAccepted() {
-      syncDone();
+      methods.syncDone();
       onChange();
       keep();
     },
@@ -246,7 +167,7 @@ export function mountDesignPanel(
     cleanupHooks: {
       onLive: () => handTrace.changeCleanup(trace.cleanup(), true),
       // Drawn over the photo while hand-trace is chosen: the shapes being traced.
-      shapes: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
+      shapes: (toPhoto) => chosenHandTrace()?.shapePaths(toPhoto) ?? null,
       // Cleanup changes are steps in the hand-trace's history, whichever method is chosen: Cleanup steps through it.
       history: {
         can: () => handTrace.editor()?.drawn().can ?? { undo: false, redo: false },
@@ -256,11 +177,11 @@ export function mountDesignPanel(
     },
     onCleaned: (href) => handTrace.setPhoto(href),
     onMethod() {
-      syncDone();
+      methods.syncDone();
       showHandTrace(); // Download SVG shows while hand-trace is chosen
       pickDesign();
       showPhotoStatus();
-      showWarnings(); // auto-trace's lines carry its own hint
+      placementCard.rewordWarnings(); // auto-trace's lines carry its own hint
       onChange();
       keep();
     },
@@ -291,6 +212,8 @@ export function mountDesignPanel(
       keep();
     },
   );
+  /** The photo's tracing methods: the chosen one's design, status line and Done. */
+  const methods = photoMethods(trace, handTrace);
   /** Start the photo's hand-trace over the cleaned-up photo, or reopen `kept`. */
   const startPhotoHandTrace = (kept?: HandTraceRecord) => {
     trace.handSlot.append(canvasHost);
@@ -307,13 +230,17 @@ export function mountDesignPanel(
   const handTraceEl = $<HTMLElement>("d-hand-trace");
   const handTraceAccept = handTraceEl.querySelector<HTMLButtonElement>(".trace-accept")!;
   const handTraceNote = handTraceEl.querySelector<HTMLElement>(".trace-accepted-note")!;
-  /** Download SVG, below Done/Edit and in the "won't keep your work" line. */
-  const downloads = Array.from(form.querySelectorAll<HTMLButtonElement>("[data-download-svg]"));
   /** The blank page's hand-trace; null over a photo, whose Done is the trace panel's. */
   const pageEditor = () => (photo ? null : handTrace.editor());
   const handTraceDone = () => pageEditor()?.isDone() ?? false;
   /** The hand-trace a Download SVG writes: the blank page's, or the photo's while hand-trace is chosen. */
   const chosenHandTrace = () => (handTraceView() ? handTrace.editor() : null);
+  /** At the placed Width: the default while the field is empty. */
+  const downloadSvg = mountDownloadSvg(form, {
+    handTrace: chosenHandTrace,
+    record,
+    width: () => placementCard.fileWidth(),
+  });
   const showHandTrace = () => {
     const editor = chosenHandTrace();
     // Over a photo the row holds Download SVG only, below the trace panel's Done/Edit.
@@ -321,36 +248,8 @@ export function mountDesignPanel(
     handTraceAccept.hidden = pageEditor() === null;
     handTraceAccept.textContent = handTraceDone() ? "Edit" : "Done";
     handTraceNote.hidden = !handTraceDone();
-    for (const b of downloads) {
-      b.hidden = editor === null;
-      b.disabled = (editor?.counts().points ?? 0) === 0;
-    }
+    downloadSvg.show(editor);
   };
-  /** The loaded photo as its hand-trace file carries it, made once per photo. */
-  let forFile: { of: PhotoFile; photo: Promise<PhotoFile> } | null = null;
-  /** Download the hand-trace as a hand-trace file, at the placed Width (the default while the field is empty). */
-  const downloadSvg = async () => {
-    const editor = chosenHandTrace();
-    const kept = record();
-    if (!editor || !kept || kept.source === "svg") return;
-    if (kept.source === "photo" && forFile?.of !== kept.photo) {
-      const chosen = kept.photo;
-      // A photo that loaded but won't decode again here goes in as chosen.
-      forFile = { of: chosen, photo: filePhoto(chosen).catch(() => chosen) };
-    }
-    const fileRecord = kept.source === "photo" && forFile ? { ...kept, photo: await forFile.photo } : kept;
-    const placed = lengths.value(width);
-    const text = writeHandTraceFile({
-      record: fileRecord,
-      page: editor.page(),
-      pathData: editor.pathData(),
-      design: editor.design(),
-      width: placed > 0 ? placed : DEFAULTS_MM.width,
-    });
-    const name = kept.source === "photo" ? kept.photo.name : kept.name;
-    downloadBlob(new Blob([text], { type: "image/svg+xml" }), handTraceFileName(new Date(), name));
-  };
-  for (const b of downloads) b.addEventListener("click", () => void downloadSvg());
   handTraceAccept.addEventListener("click", () => {
     handTrace.setDone(!handTraceDone());
     showHandTrace();
@@ -368,7 +267,7 @@ export function mountDesignPanel(
   };
   $<HTMLButtonElement>("d-blank").addEventListener("click", () => {
     if (!mayReplaceHandTrace()) return;
-    keeping = true;
+    keeping.start();
     trace.clear();
     [svg, photo] = [null, null];
     showEditSvg();
@@ -397,36 +296,22 @@ export function mountDesignPanel(
     const read = opened.design;
     design = read;
     svg = read && { name, text };
-    const count = read ? `${read.paths.length} shape${read.paths.length === 1 ? "" : "s"} loaded.` : "";
+    const count = read ? `${counted(read.paths.length, "shape")} loaded.` : "";
     showStatus([count, ...opened.notes].filter(Boolean).join(" "), read === null);
     showEditSvg();
   };
 
-  const editSvg = $<HTMLElement>("d-edit-svg");
-  const manyPoints = editSvg.querySelector<HTMLElement>(".hint")!;
-  /** The loaded SVG design as a hand-trace, worked out once per file: what Edit as hand-trace lands on. */
-  let svgHandTrace: { of: string; read: SvgHandTrace | null } | null = null;
-  const editedSvg = () => {
-    if (!svg) return null;
-    if (svgHandTrace?.of !== svg.text) svgHandTrace = { of: svg.text, read: readSvgHandTrace(svg.text) };
-    return svgHandTrace.read;
-  };
-  /** Edit as hand-trace shows for an SVG design with at least one shape, with a hint when it has a great many points. */
-  const showEditSvg = () => {
-    const edited = editedSvg();
-    const shapes = edited?.handTrace.shapes ?? [];
-    editSvg.hidden = shapes.length === 0;
-    manyPoints.hidden = shapes.reduce((n, s) => n + s.points.length, 0) <= MANY_POINTS;
-  };
+  const editSvgRow = mountEditSvgRow($("d-edit-svg"), () => void editSvgDesign());
+  /** Offer Edit as hand-trace for the loaded SVG design, if any. */
+  const showEditSvg = () => editSvgRow.show(svg?.text ?? null);
   /**
    * Edit as hand-trace: the SVG design becomes a hand-trace for good, looking as it did; the file isn't kept. A
    * hand-trace file changed in another program goes back over its stale record's photo, as that photo's hand-trace,
    * when the photo still reads; any other lands on a page shaped to it, in the Page view, the loader's notes staying
    * on the status line. It asks nothing.
    */
-  editSvg.querySelector("button")!.addEventListener("click", () => void editSvgDesign());
   async function editSvgDesign() {
-    const edited = editedSvg();
+    const edited = editSvgRow.edited();
     if (!svg || !edited) return;
     const { name, text } = svg;
     svg = null;
@@ -450,12 +335,13 @@ export function mountDesignPanel(
       file.value = "";
       return;
     }
-    keeping = true;
+    keeping.start();
     dropHandTrace();
     [svg, photo] = [null, null];
     showEditSvg();
     if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
-      [design, autoDesign, autoStatus] = [null, null, { text: "", failed: false }];
+      design = null;
+      methods.forget();
       showStatus(CLEANUP_HINT, false);
       onChange();
       photo = { name: f.name, type: f.type, bytes: await f.arrayBuffer() };
@@ -477,7 +363,7 @@ export function mountDesignPanel(
     const restored = new File([kept.photo.bytes], kept.photo.name, { type: kept.photo.type });
     const { cleanup, tone, inCleanup, autoTrace: settings, method, done: accepted } = kept;
     await trace.load(restored, { cleanup, tone, inCleanup, settings, method, accepted });
-    if (trace.loaded()) startPhotoHandTrace({ ...kept.handTrace, done: method === "hand" && accepted });
+    if (trace.loaded()) startPhotoHandTrace(methods.keptHandTrace(kept));
     pickDesign();
     showPhotoStatus();
   }
@@ -490,9 +376,7 @@ export function mountDesignPanel(
 
   /** Put the kept design back as it was left: the same source, settings, shapes and Done. */
   async function restoreDesign() {
-    const kept = await keeper.restore();
-    if (keeping) return; // The carver loaded a design while it was being read.
-    keeping = true;
+    const kept = await keeping.restore();
     if (!kept) return;
     if (kept.source === "svg") await openSvg(kept.svg.name, kept.svg.text);
     else if (kept.source === "photo") await openPhoto(kept);
@@ -500,20 +384,10 @@ export function mountDesignPanel(
     onChange();
   }
   function handTraceView(): "photo" | "page" | null {
-    if (trace.loaded()) return trace.method() === "hand" ? "photo" : null;
+    if (trace.loaded()) return methods.handTraceView();
     return pageEditor() ? "page" : null;
   }
-  // A phone may discard the tab once it's hidden: keep the work as it is then.
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") keep();
-  });
   file.addEventListener("change", () => void load());
-  rotationRange.addEventListener("input", () => {
-    rotation.value = rotationRange.value;
-  });
-  rotation.addEventListener("input", () => {
-    rotationRange.value = rotation.value;
-  });
   form.addEventListener("input", (e) => {
     if (e.target !== file && !traceEl.contains(e.target as Node)) onChange();
   });
@@ -526,30 +400,14 @@ export function mountDesignPanel(
     hasPage: () => pageEditor() !== null,
     handTraceView,
     openShapes: () => (handTraceView() ? (handTrace.editor()?.counts().open ?? null) : null),
-    placement: () => ({
-      width: lengths.value(width),
-      verticalOffset: lengths.value(offset) || 0,
-      rotation: num(rotation.value) || 0,
-    }),
-    restorePlacement(saved) {
-      if (saved.width !== undefined) lengths.set(width, saved.width);
-      if (saved.verticalOffset !== undefined) lengths.set(offset, saved.verticalOffset);
-      if (saved.rotation !== undefined) rotation.value = rotationRange.value = String(saved.rotation);
-    },
+    placement: () => placementCard.placement(),
+    restorePlacement: (saved) => placementCard.restore(saved),
     restoreDesign,
-    setUnits(next: Units) {
-      lengths.setUnits(next);
-      showWarnings();
-    },
-    showWarnings(next: TemplateWarning[]) {
-      warnings = next;
-      showWarnings();
+    setUnits: (next) => placementCard.setUnits(next),
+    showWarnings(next) {
+      placementCard.showWarnings(next);
       // Only a hand-trace is marked: never an auto-trace result or an SVG design.
       handTrace.showWarnings(next);
     },
   };
-}
-
-function num(raw: string): number {
-  return raw.trim() === "" ? Number.NaN : Number(raw);
 }

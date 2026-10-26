@@ -13,6 +13,7 @@ import { carryPoints, exifFocal35Mm, photoPage, START_FRAME, type Cleanup } from
 import { fitWithin } from "../input/rasterPrep";
 import { startCleanupWarp } from "../worker/cleanupWarp";
 import { mountCleanupPanel, toneFilter, type CleanupHooks } from "./cleanupPanel";
+import { counted } from "./counted";
 
 const RETRACE_DELAY_MS = 150;
 /**
@@ -335,9 +336,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
       show();
       resultEl.innerHTML = result.svg;
       fitAspect(resultEl.querySelector("svg"));
-      const count = result.design
-        ? `${result.design.paths.length} shape${result.design.paths.length === 1 ? "" : "s"} auto-traced.`
-        : "";
+      const count = result.design ? `${counted(result.design.paths.length, "shape")} auto-traced.` : "";
       hooks.onTraced(result.design, [count, ...result.notes].filter(Boolean).join(" "), result.design === null);
     } catch (err) {
       if (id !== traceId) return;

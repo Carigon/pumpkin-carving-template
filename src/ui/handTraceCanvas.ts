@@ -16,6 +16,7 @@ import {
 } from "../handTrace";
 import type { Cleanup } from "../input/cleanupFrame";
 import { designFromPathData } from "../input/pathDesign";
+import { counted } from "./counted";
 import { el } from "./svg";
 
 export interface HandTraceCanvas {
@@ -147,7 +148,7 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     if (state.kind === "hint") return void (pill.textContent = state.text);
     if (state.kind === "drawing") {
       const count = document.createElement("span");
-      count.textContent = `${state.points} point${state.points === 1 ? "" : "s"}`;
+      count.textContent = counted(state.points, "point");
       const close = pillButton("close", "Close", "Close (Enter)");
       close.disabled = !state.canClose;
       return pill.replaceChildren(count, close, pillButton("end", "End", "End (Esc)"));
