@@ -14,7 +14,7 @@ The app walks through three steps:
 2. **Design**: load an SVG, or a scanned stencil or photo that gets traced into outlines. Size, rotate and position it on the pumpkin.
 3. **Template**: check the flattened template on the page, with a tint showing where the paper stretches, then export a true-scale PDF on Letter or A4. Templates bigger than a page are split across pages.
 
-There's also a **test grid** mode that prints a square grid to tape on a ball, for checking the method on a shape you already know.
+There's also a **test grid** mode that prints a square grid to tape on a ball, for checking the method on a shape you already know. [docs/manual-checks.md](docs/manual-checks.md) says how, along with the other checks run by hand on real devices.
 
 All the work happens in the browser; nothing is uploaded.
 
