@@ -237,10 +237,16 @@ export function mountDesignPanel(
       showPhotoStatus();
       keep();
     },
-    overlay: {
+    cleanupHooks: {
       onLive: () => handTrace.changeCleanup(trace.cleanup(), true),
       // Drawn over the photo while hand-trace is chosen: the shapes being traced.
       shapes: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
+      // Cleanup changes are steps in the hand-trace's history, whichever method is chosen: Cleanup steps through it.
+      history: {
+        can: () => handTrace.editor()?.drawn().can ?? { undo: false, redo: false },
+        undo: () => handTrace.undo(),
+        redo: () => handTrace.redo(),
+      },
     },
     onCleaned: (href) => handTrace.setPhoto(href),
     onMethod() {

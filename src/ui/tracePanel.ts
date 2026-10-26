@@ -12,7 +12,7 @@ import type { HandTraceCleanup } from "../handTrace";
 import { carryPoints, exifFocal35Mm, photoPage, START_FRAME, type Cleanup } from "../input/cleanupFrame";
 import { fitWithin } from "../input/rasterPrep";
 import { startCleanupWarp } from "../worker/cleanupWarp";
-import { mountCleanupPanel, toneFilter, type CleanupOverlay } from "./cleanupPanel";
+import { mountCleanupPanel, toneFilter, type CleanupHooks } from "./cleanupPanel";
 
 const RETRACE_DELAY_MS = 150;
 /**
@@ -42,8 +42,11 @@ export interface TraceHooks {
   onAccepted(): void;
   /** A released change to the cleanup or its tone, or Cleanup was entered or left. */
   onCleanup(): void;
-  /** What Cleanup draws over the photo, and who hears of the frame's live changes (`cleanup()` is live then). */
-  overlay: CleanupOverlay;
+  /**
+   * What Cleanup draws over the photo, who hears of the frame's live changes (`cleanup()` is live then), and the undo
+   * history its Undo and Redo step through.
+   */
+  cleanupHooks: CleanupHooks;
   /** A new cleaned-up photo is ready, at `href`, for a hand-trace to be placed over. */
   onCleaned(href: string): void;
   /** The tracing method switch was flipped (which clears Done), or `chooseMethod` called. */
@@ -248,7 +251,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
       show();
       if (!live) hooks.onCleanup();
     },
-    hooks.overlay,
+    hooks.cleanupHooks,
   );
 
   acceptButton.addEventListener("click", () => {

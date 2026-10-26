@@ -92,6 +92,20 @@ describe("hand-trace editor: a cleanup change carries the points", () => {
     expect(editor.shapes()).toEqual(carried);
     expect(editor.cleanup()).toBe(cropped);
   });
+
+  it("can be undone and redone while the canvas isn't shown, as from Cleanup or with auto-trace chosen", () => {
+    const editor = overPhoto(WHOLE, triangle());
+    editor.resize(0, 0); // the canvas is hidden
+    const cropped = crop(40, 30, 360, 270);
+    editor.changeCleanup(cropped, false);
+    expect(editor.drawn().can).toMatchObject({ undo: true, redo: false });
+
+    editor.undo();
+    expect(editor.cleanup()).toBe(WHOLE);
+    expect(editor.drawn().can).toMatchObject({ undo: false, redo: true });
+    editor.redo();
+    expect(editor.cleanup()).toBe(cropped);
+  });
 });
 
 /** Each point's handle tips, `in` then `out` (where it has them), as design-space positions. */

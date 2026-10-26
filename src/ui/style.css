@@ -1146,6 +1146,18 @@ body {
   margin: 0;
 }
 
+/* Cleanup's heading, with Undo and Redo beside it. */
+.cleanup-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cleanup-heading h3 {
+  margin-right: auto;
+}
+
 .trace-tracing {
   display: grid;
   gap: 1rem;

@@ -36,6 +36,9 @@ export interface HandTraceCanvas {
   clear(): void;
   /** Edit as hand-trace's copy: `shapes` in place of the hand-trace's, as one undo step. */
   replace(shapes: readonly Shape[]): void;
+  /** Undo or redo one step from outside the canvas (Cleanup's Undo and Redo), reported as the canvas's own are. */
+  undo(): void;
+  redo(): void;
   /** The hand-trace being shown, or null when there's none. */
   editor(): HandTrace<Cleanup> | null;
   /** Done (true) or Edit (false): hide the tools and stop taking input, or bring them back. */
@@ -68,7 +71,7 @@ const DECIMALS = 1;
 const GESTURES_LABEL =
   "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point or handle to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); double-tap a point to make it smooth or a corner; Alt + drag a smooth point's handle to make it a corner; pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, S switches Smooth / Corner, M switches Symmetry, the arrows nudge, + − and 0 zoom.";
 /** How the keys' modifier is written in tooltips: Cmd on Apple devices, Ctrl elsewhere. */
-const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
+export const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
 /** Canvases mounted so far, to give each drawing its own id. */
 let canvases = 0;
 
@@ -280,6 +283,14 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     },
     replace(shapes) {
       editor?.replace(shapes);
+      render();
+    },
+    undo() {
+      editor?.undo();
+      render();
+    },
+    redo() {
+      editor?.redo();
       render();
     },
     editor: () => editor,
