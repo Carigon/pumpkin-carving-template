@@ -1,8 +1,8 @@
 import { distanceToSegment, insidePolygon, signedArea, type Design } from "../core";
-import type { DragGesture, Gesture, ScreenPoint } from "./gestures";
+import type { DragGesture, Gesture, HoldGesture, PointerKind, ScreenPoint } from "./gestures";
 import type { HandTraceRecord, Page, Point, Shape } from "./model";
 import { pathData } from "./pathData";
-import { fitScale, fitView, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
+import { fitScale, fitView, pinchZoom, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
 
 /** What the editor needs from outside. */
 export interface HandTraceOptions {
@@ -77,6 +77,18 @@ export interface Drawn {
   can: { undo: boolean; redo: boolean; clear: boolean };
   /** The tools (buttons, pill, note) show and the canvas takes input: false once Done. */
   tools: boolean;
+  /** The loupe, while a finger holds to place a point or drags one; never for a mouse or pen. */
+  loupe: Loupe | null;
+}
+
+/**
+ * The loupe: a circle `box` wide, clear of the finger, showing the canvas as drawn magnified `magnification` times
+ * about `focus`, where the point under the finger will land (its crosshair).
+ */
+export interface Loupe {
+  box: ScreenRect;
+  focus: ScreenPoint;
+  magnification: number;
 }
 
 /** The hand-trace editor: commands and gestures in; what's drawn, the `Design` and the shapes out. */
@@ -125,6 +137,13 @@ const HIT_RADIUS_PX = 22;
 const MARKER_MIN_EDGE_PX = 48;
 /** Undo steps kept; older ones are dropped. */
 const UNDO_LIMIT = 200;
+/** The loupe's width across (px), and how many times it magnifies the canvas as drawn (so over the current zoom). */
+const LOUPE_PX = 130;
+const LOUPE_MAGNIFICATION = 3;
+/** The gap (px) between the finger and the loupe, about a fingertip, so the finger never hides it. */
+const LOUPE_GAP_PX = 56;
+/** The loupe stays this far (px) inside the canvas's edges. */
+const LOUPE_MARGIN_PX = 4;
 /** The pill's hint when nothing is being drawn. */
 const HINT = "Tap to place a point.";
 
@@ -151,13 +170,24 @@ interface Marker {
 type Selection = { kind: "point"; shape: number; index: number } | { kind: "shape"; shape: number };
 
 /**
- * A drag under way: a pan from the view it started at, or a move of one point (`index`) or of a whole shape
- * (`index` null). A move is shown as `live` and kept out of the shapes until it ends, as one undo step; `selection`
- * is what was selected before, put back if the drag is cancelled.
+ * A drag or hold under way: a pan from the view it started at; a move of one point (`index`) or of a whole shape
+ * (`index` null); aiming the loupe at where a point will be placed, the finger `at`; or a hold that's waiting to
+ * be a tap or a drag. A move is shown as `live` and kept out of the shapes until it ends, as one undo step;
+ * `selection` is what was selected before, put back if the drag is cancelled; `loupe` says it's by touch.
  */
 type Drag =
   | { kind: "pan"; from: ViewTransform }
-  | { kind: "move"; shape: Shape; index: number | null; live: readonly Shape[] | null; selection: Selection | null };
+  | {
+      kind: "move";
+      shape: Shape;
+      index: number | null;
+      live: readonly Shape[] | null;
+      selection: Selection | null;
+      at: ScreenPoint;
+      loupe: boolean;
+    }
+  | { kind: "aim"; at: ScreenPoint }
+  | { kind: "held" };
 
 /** A blank page: square, with points relative to its size. */
 const BLANK_PAGE: Page = { width: 1, height: 1 };
@@ -366,29 +396,28 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
    * What a drag starting at `from` does: move the point under it, add a point at the insert marker under it and
    * move that, move the selected shape, or pan.
    */
-  const startDrag = (from: ScreenPoint): Drag => {
+  const startDrag = (from: ScreenPoint, pointerType: PointerKind): Drag => {
     const hit = hitTest(from);
+    const moving = { live: null, selection, at: from, loupe: pointerType === "touch" };
     if (hit?.kind === "point") {
-      const before = selection;
       if (hit.shape.id !== state.drawing) {
         end();
         selection = { kind: "point", shape: hit.shape.id, index: hit.index };
       }
-      return { kind: "move", shape: hit.shape, index: hit.index, live: null, selection: before };
+      return { kind: "move", shape: hit.shape, index: hit.index, ...moving };
     }
     if (hit?.kind === "marker") {
-      const before = selection;
       const { shape, index } = insert(hit.marker);
       selection = { kind: "point", shape: shape.id, index };
-      return { kind: "move", shape, index, live: null, selection: before };
+      return { kind: "move", shape, index, ...moving };
     }
     if (hit && selection?.kind === "shape" && selection.shape === hit.shape.id)
-      return { kind: "move", shape: hit.shape, index: null, live: null, selection };
+      return { kind: "move", shape: hit.shape, index: null, ...moving, loupe: false };
     return { kind: "pan", from: view };
   };
 
   const dragGesture = (g: DragGesture) => {
-    if (g.phase === "start") drag = startDrag(g.from);
+    if (g.phase === "start") drag = startDrag(g.from, g.pointerType);
     if (!drag) return;
     if (drag.kind === "pan") {
       view = { ...drag.from, tx: drag.from.tx + g.at.x - g.from.x, ty: drag.from.ty + g.at.y - g.from.y };
@@ -396,6 +425,8 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       if (g.phase === "end" || g.phase === "cancel") drag = null;
       return;
     }
+    if (drag.kind !== "move") return;
+    drag.at = g.at;
     if (g.phase === "cancel") {
       selection = drag.selection;
       drag = null;
@@ -413,13 +444,82 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     drag = null;
   };
 
+  const undo = () => {
+    const prev = finished ? undefined : undoStack.pop();
+    if (!prev) return;
+    drag = null;
+    const from = state;
+    redoStack.push(state);
+    state = prev;
+    settle(from);
+  };
+  const redo = () => {
+    const next = finished ? undefined : redoStack.pop();
+    if (!next) return;
+    drag = null;
+    const from = state;
+    undoStack.push(state);
+    state = next;
+    settle(from);
+  };
+
+  /**
+   * A touch hold: on a point or insert marker, a drag of it. Otherwise, while drawing or with nothing selected (even
+   * inside a shape, so a shape can start inside another), aim the loupe and place a point on lift. With something
+   * selected, it waits: a tap if it lifts, a drag once it moves.
+   */
+  const holdGesture = (g: HoldGesture) => {
+    if (g.phase === "start") {
+      const hit = hitTest(g.from);
+      if (hit?.kind === "point" || hit?.kind === "marker") return dragGesture({ ...g, type: "drag" });
+      drag = state.drawing !== null || !selection ? { kind: "aim", at: g.at } : { kind: "held" };
+      return;
+    }
+    if (drag?.kind === "aim") {
+      drag.at = g.at;
+      if (g.phase === "end") place(g.at);
+      if (g.phase === "end" || g.phase === "cancel") drag = null;
+    } else if (drag?.kind === "held") {
+      if (g.phase === "move") return dragGesture({ ...g, type: "drag", phase: "start" });
+      drag = null;
+      if (g.phase === "end") tap(g.from);
+    } else dragGesture({ ...g, type: "drag" });
+  };
+
   const gesture = (g: Gesture) => {
     if (finished || size.width === 0) return;
-    if (g.type === "tap") tap(g.at);
-    else if (g.type === "wheel") {
-      view = wheelZoom(view, fitScale(page, size.width, size.height), g.at, g.deltaY);
+    const fit = () => fitScale(page, size.width, size.height);
+    const zoomTo = (next: ViewTransform) => {
+      view = next;
       moved = true;
-    } else dragGesture(g);
+    };
+    if (g.type === "tap") tap(g.at);
+    else if (g.type === "drag") dragGesture(g);
+    else if (g.type === "hold") holdGesture(g);
+    else if (g.type === "multiTap") (g.fingers === 2 ? undo : redo)();
+    else if (g.type === "wheel") zoomTo(wheelZoom(view, fit(), g.at, g.deltaY));
+    else zoomTo(pinchZoom(view, fit(), g.from, g.at, g.scale));
+  };
+
+  /** The loupe for the drag or hold under way, if it's by touch and aims at a point: clear of the finger. */
+  const loupe = (shapes: readonly Shape[]): Loupe | null => {
+    if (drag?.kind === "aim") return loupeAt(drag.at, toScreen(view, placeAt(drag.at)));
+    if (drag?.kind !== "move" || !drag.loupe || drag.index === null) return null;
+    const { shape, index } = drag;
+    const point = (shapes.find((s) => s.id === shape.id) ?? shape).points[index];
+    return loupeAt(drag.at, toScreen(view, point));
+  };
+  const loupeAt = (finger: ScreenPoint, focus: ScreenPoint): Loupe => {
+    // Above the finger; beside it, on whichever side there's room, when there's no room above.
+    let x = finger.x - LOUPE_PX / 2;
+    let y = finger.y - LOUPE_GAP_PX - LOUPE_PX;
+    if (y < LOUPE_MARGIN_PX) {
+      y = Math.max(LOUPE_MARGIN_PX, finger.y - LOUPE_PX / 2);
+      const right = finger.x + LOUPE_GAP_PX;
+      x = right + LOUPE_PX <= size.width - LOUPE_MARGIN_PX ? right : finger.x - LOUPE_GAP_PX - LOUPE_PX;
+    }
+    x = Math.min(size.width - LOUPE_MARGIN_PX - LOUPE_PX, Math.max(LOUPE_MARGIN_PX, x));
+    return { box: { x, y, width: LOUPE_PX, height: LOUPE_PX }, focus, magnification: LOUPE_MAGNIFICATION };
   };
 
   const pill = (): Pill => {
@@ -464,6 +564,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       note: open === 0 ? null : `${open} ${open === 1 ? "shape isn't" : "shapes aren't"} closed and won't be carved`,
       can: { undo: undoStack.length > 0, redo: redoStack.length > 0, clear: state.shapes.length > 0 },
       tools: !finished,
+      loupe: loupe(shapes),
     };
   };
 
@@ -485,24 +586,8 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       change({ shapes: [], drawing: null });
       selection = null;
     },
-    undo() {
-      const prev = finished ? undefined : undoStack.pop();
-      if (!prev) return;
-      drag = null;
-      const from = state;
-      redoStack.push(state);
-      state = prev;
-      settle(from);
-    },
-    redo() {
-      const next = finished ? undefined : redoStack.pop();
-      if (!next) return;
-      drag = null;
-      const from = state;
-      undoStack.push(state);
-      state = next;
-      settle(from);
-    },
+    undo,
+    redo,
     done() {
       end();
       selection = null;

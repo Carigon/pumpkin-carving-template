@@ -5,6 +5,8 @@ import {
   type Gesture,
   type HandTrace,
   type HandTraceRecord,
+  HOLD_MS,
+  type Loupe,
   type Page,
   type PointerInput,
 } from "../handTrace";
@@ -32,6 +34,8 @@ const CLOSE_RING_PX = 12;
 const MARKER_HALF_PX = 5;
 /** Decimals kept in screen coordinates. */
 const DECIMALS = 1;
+/** Canvases mounted so far, to give each drawing its own id. */
+let canvases = 0;
 
 /**
  * The hand-trace canvas in the Page view: draws what the editor says is drawn, in SVG, and forwards pointer and
@@ -42,7 +46,7 @@ const DECIMALS = 1;
 export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, onKeep: () => void): HandTraceCanvas {
   view.classList.add("hand-trace");
   view.innerHTML = `
-    <svg class="ht-svg" role="img" aria-label="Blank page. Tap or click to place points or select them; drag a point to move it, or empty space to pan; scroll to zoom."></svg>
+    <svg class="ht-svg" role="img" aria-label="Blank page. Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point to move it, or empty space to pan; pinch or scroll to zoom; tap with two fingers to undo, three to redo."></svg>
     <div class="ht-tools">
       <div class="ht-top-left">
         <button type="button" data-act="undo">Undo</button>
@@ -62,6 +66,8 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   const button = (act: string) => tools.querySelector<HTMLButtonElement>(`[data-act="${act}"]`)!;
   let editor: HandTrace | null = null;
   let recognizer = createGestureRecognizer();
+  /** The drawing's id, for the loupe to show it by reference; one per canvas. */
+  const drawingId = `ht-drawing-${++canvases}`;
   /** The Design last reported through `onChange`, to tell when a change finished. */
   let reported: unknown = null;
   /** The stored record last reported through `onKeep`. */
@@ -71,7 +77,7 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   const render = () => {
     if (!editor) return svg.replaceChildren();
     const drawn = editor.drawn();
-    draw(svg, drawn);
+    draw(svg, drawn, drawingId);
     tools.hidden = !drawn.tools;
     svg.classList.toggle("ht-done", !drawn.tools);
     button("undo").disabled = !drawn.can.undo;
@@ -131,9 +137,17 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     render();
   };
   svg.addEventListener("pointerdown", (e) => {
-    svg.setPointerCapture(e.pointerId);
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch {
+      // A scripted pointer (checking by hand) can't be captured; it still counts.
+    }
     forward(recognizer.down(input(e)));
+    // The recognizer keeps no timers: tell it when a hold may be due (`timeStamp` and `now` share a clock).
+    window.setTimeout(() => forward(recognizer.tick(performance.now())), HOLD_MS);
   });
+  // A long press would otherwise open the browser's menu over the canvas.
+  svg.addEventListener("contextmenu", (e) => e.preventDefault());
   svg.addEventListener("pointermove", (e) => forward(recognizer.move(input(e))));
   svg.addEventListener("pointerup", (e) => forward(recognizer.up(input(e))));
   svg.addEventListener("pointercancel", (e) => forward(recognizer.cancel(input(e))));
@@ -185,8 +199,8 @@ function pillButton(act: string, text: string): HTMLButtonElement {
   return b;
 }
 
-/** Draw the page, the shapes and their points. */
-function draw(svg: SVGSVGElement, drawn: Drawn): void {
+/** Draw the page, the shapes and their points into a group with `id`, and the loupe over them. */
+function draw(svg: SVGSVGElement, drawn: Drawn, id: string): void {
   const { page, axis } = drawn;
   const parts: SVGElement[] = [el("rect", { class: "ht-page", ...page }, DECIMALS)];
   for (let i = 1; i < GRID_DIVISIONS; i++) {
@@ -220,5 +234,29 @@ function draw(svg: SVGSVGElement, drawn: Drawn): void {
     const square = { x: x - h, y: y - h, width: 2 * h, height: 2 * h };
     parts.push(el("rect", { class: "ht-marker", ...square, transform }, DECIMALS));
   }
-  svg.replaceChildren(...parts);
+  const drawing = el("g", { id });
+  drawing.replaceChildren(...parts);
+  svg.replaceChildren(drawing, ...(drawn.loupe ? [loupeOf(drawn.loupe, id)] : []));
+}
+
+/**
+ * The loupe: a circle showing the drawing (by reference, as drawn) magnified about its focus, with a crosshair
+ * where the point lands. Its points and markers are drawn faint so they don't hide the line under them.
+ */
+function loupeOf({ box, focus, magnification }: Loupe, drawingId: string): SVGElement {
+  const span = box.width / magnification;
+  const [x0, y0] = [focus.x - span / 2, focus.y - span / 2];
+  const lens = el("svg", { class: "ht-loupe", ...box, viewBox: `${x0} ${y0} ${span} ${span}` });
+  const clip = `${drawingId}-loupe`;
+  const clipPath = el("clipPath", { id: clip });
+  clipPath.append(el("circle", { cx: focus.x, cy: focus.y, r: span / 2 }));
+  const view = el("g", { "clip-path": `url(#${clip})` });
+  view.append(
+    el("circle", { class: "ht-loupe-back", cx: focus.x, cy: focus.y, r: span / 2 }),
+    el("use", { href: `#${drawingId}` }),
+    el("line", { class: "ht-loupe-cross", x1: x0, y1: focus.y, x2: x0 + span, y2: focus.y }),
+    el("line", { class: "ht-loupe-cross", x1: focus.x, y1: y0, x2: focus.x, y2: y0 + span }),
+  );
+  lens.append(clipPath, view, el("circle", { class: "ht-loupe-rim", cx: focus.x, cy: focus.y, r: span / 2 }));
+  return lens;
 }
