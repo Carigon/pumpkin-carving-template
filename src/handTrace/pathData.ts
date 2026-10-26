@@ -17,6 +17,15 @@ export function pathData(shapes: readonly Shape[], map: (p: XY) => XY): string {
   return shapes.map((s) => shapePath(s, map)).join("");
 }
 
+/** Path data (`M`, `L`, `Z`) for closed polylines, such as a region the core found, mapped through `map`. */
+export function loopsPathData(loops: readonly (readonly XY[])[], map: (p: XY) => XY): string {
+  const xy = (p: XY) => {
+    const q = map(p);
+    return `${num(q.x)} ${num(q.y)}`;
+  };
+  return loops.map((loop) => (loop.length === 0 ? "" : `M${loop.map(xy).join("L")}Z`)).join("");
+}
+
 function shapePath(shape: Shape, map: (p: XY) => XY): string {
   const pts = shape.points;
   if (pts.length === 0) return "";
