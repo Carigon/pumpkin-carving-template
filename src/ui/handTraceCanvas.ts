@@ -50,11 +50,15 @@ const CROSSING_RING_PX = 7;
 /** Room between a tiny carve area and its ring, and the least ring, so a speck's ring still shows. */
 const TINY_RING_GAP_PX = 4;
 const TINY_RING_MIN_PX = 10;
+/** The ring round the point or insert marker a click would act on. */
+const HOVER_RING_PX = 10;
 /** Decimals kept in screen coordinates. */
 const DECIMALS = 1;
 /** How the canvas is used, for its accessible label after what it shows. */
 const GESTURES_LABEL =
-  "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point to move it, or empty space to pan; pinch or scroll to zoom; tap with two fingers to undo, three to redo.";
+  "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, the arrows nudge, + − and 0 zoom.";
+/** How the keys' modifier is written in tooltips: Cmd on Apple devices, Ctrl elsewhere. */
+const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
 /** Canvases mounted so far, to give each drawing its own id. */
 let canvases = 0;
 
@@ -67,11 +71,11 @@ let canvases = 0;
 export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, onKeep: () => void): HandTraceCanvas {
   view.classList.add("hand-trace");
   view.innerHTML = `
-    <svg class="ht-svg" role="img" aria-label="Blank page. ${GESTURES_LABEL}"></svg>
+    <svg class="ht-svg" tabindex="0" role="img" aria-label="Blank page. ${GESTURES_LABEL}"></svg>
     <div class="ht-tools">
       <div class="ht-top-left">
-        <button type="button" data-act="undo">Undo</button>
-        <button type="button" data-act="redo">Redo</button>
+        <button type="button" data-act="undo" title="Undo (${MOD}Z)">Undo</button>
+        <button type="button" data-act="redo" title="Redo (${MOD}Shift+Z)">Redo</button>
       </div>
       <div class="ht-top-right"><button type="button" data-act="clear">Clear</button></div>
       <div class="ht-bottom">
@@ -101,6 +105,7 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     if (!editor) return svg.replaceChildren();
     const drawn = editor.drawn();
     draw(svg, drawn, drawingId, photo);
+    svg.style.cursor = drawn.cursor;
     tools.hidden = !drawn.tools;
     svg.classList.toggle("ht-done", !drawn.tools);
     button("undo").disabled = !drawn.can.undo;
@@ -126,17 +131,16 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     if (state.kind === "drawing") {
       const count = document.createElement("span");
       count.textContent = `${state.points} point${state.points === 1 ? "" : "s"}`;
-      const close = pillButton("close", "Close");
+      const close = pillButton("close", "Close", "Close (Enter)");
       close.disabled = !state.canClose;
-      return pill.replaceChildren(count, close, pillButton("end", "End"));
+      return pill.replaceChildren(count, close, pillButton("end", "End", "End (Esc)"));
     }
     // Never "Done": that belongs to the loaded design.
-    const deselect = pillButton("clearSelection", "✕");
-    deselect.title = "Clear selection";
+    const deselect = pillButton("clearSelection", "✕", "Clear selection (Esc)");
     deselect.setAttribute("aria-label", "Clear selection");
-    if (state.kind === "shape") return pill.replaceChildren(pillButton("delete", "Delete shape"), deselect);
-    const carry = state.canCarryOn ? [pillButton("carryOn", "Carry on")] : [];
-    pill.replaceChildren(pillButton("delete", "Delete point"), ...carry, deselect);
+    if (state.kind === "shape") return pill.replaceChildren(pillButton("delete", "Delete shape", "Delete shape (Delete)"), deselect);
+    const carry = state.canCarryOn ? [pillButton("carryOn", "Carry on", "Carry on (Enter)")] : [];
+    pill.replaceChildren(pillButton("delete", "Delete point", "Delete point (Delete)"), ...carry, deselect);
   };
 
   /** The editor commands the overlay's buttons press, by their `data-act`. */
@@ -160,6 +164,9 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     render();
   };
   svg.addEventListener("pointerdown", (e) => {
+    // A click focuses the canvas, for its keys; a middle press pans rather than autoscrolls.
+    svg.focus({ preventScroll: true });
+    if (e.button === 1) e.preventDefault();
     try {
       svg.setPointerCapture(e.pointerId);
     } catch {
@@ -174,6 +181,23 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   svg.addEventListener("pointermove", (e) => forward(recognizer.move(input(e))));
   svg.addEventListener("pointerup", (e) => forward(recognizer.up(input(e))));
   svg.addEventListener("pointercancel", (e) => forward(recognizer.cancel(input(e))));
+  svg.addEventListener("pointerleave", () => forward(recognizer.leave()));
+  // Keys only while the canvas has focus, so Ctrl+Z in a text field still undoes the typing there.
+  const isSpace = (e: KeyboardEvent) => e.code === "Space" || e.key === " ";
+  svg.addEventListener("keydown", (e) => {
+    if (isSpace(e)) {
+      e.preventDefault();
+      return forward(recognizer.space(true));
+    }
+    if (!editor || e.altKey) return;
+    if (!editor.key({ key: e.key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })) return;
+    e.preventDefault();
+    render();
+  });
+  svg.addEventListener("keyup", (e) => {
+    if (isSpace(e)) forward(recognizer.space(false));
+  });
+  svg.addEventListener("blur", () => forward(recognizer.space(false)));
   svg.addEventListener(
     "wheel",
     (e) => {
@@ -235,12 +259,13 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   };
 }
 
-/** A pill button that presses editor command `act`. */
-function pillButton(act: string, text: string): HTMLButtonElement {
+/** A pill button that presses editor command `act`, its tooltip `title` naming its key. */
+function pillButton(act: string, text: string, title: string): HTMLButtonElement {
   const b = document.createElement("button");
   b.type = "button";
   b.dataset.act = act;
   b.textContent = text;
+  b.title = title;
   return b;
 }
 
@@ -266,11 +291,21 @@ function draw(svg: SVGSVGElement, drawn: Drawn, id: string, photo: SVGElement): 
   if (drawn.fill) parts.push(el("path", { class: "ht-fill", d: drawn.fill }));
   const { warnings } = drawn;
   for (const d of warnings.floating) parts.push(el("path", { class: "ht-warn-tint", d }));
+  const { hover, rubberBand } = drawn;
   for (const shape of drawn.shapes) {
+    const hovered = hover?.kind === "shape" && hover.id === shape.id;
     const cls = ["ht-line", !shape.closed && "open", shape.drawing && "drawing", shape.selected && "selected"]
+      .concat(hovered && "hover")
       .filter(Boolean)
       .join(" ");
     parts.push(el("path", { class: cls, d: shape.d }));
+  }
+  if (rubberBand) {
+    const { from, to } = rubberBand;
+    parts.push(el("line", { class: "ht-rubber-band", x1: from.x, y1: from.y, x2: to.x, y2: to.y }, DECIMALS));
+  }
+  if (hover && hover.kind !== "shape") {
+    parts.push(el("circle", { class: "ht-hover", cx: hover.at.x, cy: hover.at.y, r: HOVER_RING_PX }, DECIMALS));
   }
   // Over the lines they mark, under the points so those stay plain to see.
   for (const { x, y } of warnings.crossings) {

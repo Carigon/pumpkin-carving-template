@@ -1089,6 +1089,17 @@ body {
   cursor: grab;
 }
 
+/* The corner the arrow keys nudge. */
+.cleanup-corner.selected {
+  fill: rgb(31 127 196 / 0.55);
+  stroke-width: 3;
+}
+
+.cleanup-overlay:focus-visible {
+  outline: 2px solid #1f7fc4;
+  outline-offset: -2px;
+}
+
 .trace-views .symmetry-axis {
   stroke: #2a9df4;
   stroke-width: 1.5;
@@ -1690,6 +1701,33 @@ body {
   fill: rgb(226 106 18 / 0.15);
   stroke: #e26a12;
   stroke-width: 2;
+}
+
+/* What a click would act on, under a mouse or pen. */
+.ht-line.hover {
+  stroke: #1f7fc4;
+  stroke-width: 3;
+  stroke-opacity: 0.7;
+}
+
+.ht-hover {
+  fill: rgb(31 127 196 / 0.15);
+  stroke: #1f7fc4;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+/* The edge a click would add, from the last point placed. */
+.ht-rubber-band {
+  stroke: #e26a12;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
+.ht-svg:focus-visible {
+  outline: 2px solid #1f7fc4;
+  outline-offset: -2px;
 }
 
 /* Warning marks: display only, so never in the way of a tap. Fixed colors, as the page is white in both themes. */
