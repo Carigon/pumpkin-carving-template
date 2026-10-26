@@ -36,6 +36,9 @@ export interface HandTraceCanvas {
   clear(): void;
   /** Edit as hand-trace's copy: `shapes` in place of the hand-trace's, as one undo step. */
   replace(shapes: readonly Shape[]): void;
+  /** Undo or redo one step from outside the canvas (Cleanup's Undo and Redo), reported as the canvas's own are. */
+  undo(): void;
+  redo(): void;
   /** The hand-trace being shown, or null when there's none. */
   editor(): HandTrace<Cleanup> | null;
   /** Done (true) or Edit (false): hide the tools and stop taking input, or bring them back. */
@@ -68,7 +71,7 @@ const DECIMALS = 1;
 const GESTURES_LABEL =
   "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point or handle to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); double-tap a point to make it smooth or a corner; Alt + drag a smooth point's handle to make it a corner; pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, S switches Smooth / Corner, M switches Symmetry, the arrows nudge, + − and 0 zoom.";
 /** How the keys' modifier is written in tooltips: Cmd on Apple devices, Ctrl elsewhere. */
-const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
+export const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
 /** Canvases mounted so far, to give each drawing its own id. */
 let canvases = 0;
 
@@ -282,6 +285,14 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
       editor?.replace(shapes);
       render();
     },
+    undo() {
+      editor?.undo();
+      render();
+    },
+    redo() {
+      editor?.redo();
+      render();
+    },
     editor: () => editor,
     setDone(done) {
       if (done) editor?.done();
@@ -387,23 +398,27 @@ function draw(svg: SVGSVGElement, drawn: Drawn, id: string, photo: SVGElement): 
 }
 
 /**
- * The loupe: a circle showing the drawing (by reference, as drawn) magnified about its focus, with a crosshair
- * where the point lands. Its points and markers are drawn faint so they don't hide the line under them.
+ * The loupe: a circle showing the drawing with id `drawingId` (by reference, as drawn) magnified about its focus,
+ * with a crosshair where the point lands. Its points and markers are drawn faint so they don't hide the line under
+ * them. The loupe is placed in screen px; `k` is the drawing's units per screen px (1 on the canvas; Cleanup's frame
+ * is drawn in the photo's px).
  */
-function loupeOf({ box, focus, magnification }: Loupe, drawingId: string): SVGElement {
-  const span = box.width / magnification;
-  const [x0, y0] = [focus.x - span / 2, focus.y - span / 2];
-  const lens = el("svg", { class: "ht-loupe", ...box, viewBox: `${x0} ${y0} ${span} ${span}` });
+export function loupeOf({ box, focus, magnification }: Loupe, drawingId: string, k = 1): SVGElement {
+  const span = (box.width / magnification) * k;
+  const [fx, fy] = [focus.x * k, focus.y * k];
+  const [x0, y0] = [fx - span / 2, fy - span / 2];
+  const at = { x: box.x * k, y: box.y * k, width: box.width * k, height: box.height * k };
+  const lens = el("svg", { class: "ht-loupe", ...at, viewBox: `${x0} ${y0} ${span} ${span}` });
   const clip = `${drawingId}-loupe`;
   const clipPath = el("clipPath", { id: clip });
-  clipPath.append(el("circle", { cx: focus.x, cy: focus.y, r: span / 2 }));
+  clipPath.append(el("circle", { cx: fx, cy: fy, r: span / 2 }));
   const view = el("g", { "clip-path": `url(#${clip})` });
   view.append(
-    el("circle", { class: "ht-loupe-back", cx: focus.x, cy: focus.y, r: span / 2 }),
+    el("circle", { class: "ht-loupe-back", cx: fx, cy: fy, r: span / 2 }),
     el("use", { href: `#${drawingId}` }),
-    el("line", { class: "ht-loupe-cross", x1: x0, y1: focus.y, x2: x0 + span, y2: focus.y }),
-    el("line", { class: "ht-loupe-cross", x1: focus.x, y1: y0, x2: focus.x, y2: y0 + span }),
+    el("line", { class: "ht-loupe-cross", x1: x0, y1: fy, x2: x0 + span, y2: fy }),
+    el("line", { class: "ht-loupe-cross", x1: fx, y1: y0, x2: fx, y2: y0 + span }),
   );
-  lens.append(clipPath, view, el("circle", { class: "ht-loupe-rim", cx: focus.x, cy: focus.y, r: span / 2 }));
+  lens.append(clipPath, view, el("circle", { class: "ht-loupe-rim", cx: fx, cy: fy, r: span / 2 }));
   return lens;
 }

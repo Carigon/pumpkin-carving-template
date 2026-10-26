@@ -12,7 +12,7 @@ import type { HandTraceCleanup } from "../handTrace";
 import { carryPoints, exifFocal35Mm, photoPage, START_FRAME, type Cleanup } from "../input/cleanupFrame";
 import { fitWithin } from "../input/rasterPrep";
 import { startCleanupWarp } from "../worker/cleanupWarp";
-import { mountCleanupPanel, toneFilter } from "./cleanupPanel";
+import { mountCleanupPanel, toneFilter, type CleanupHooks } from "./cleanupPanel";
 
 const RETRACE_DELAY_MS = 150;
 /**
@@ -36,18 +36,19 @@ export interface KeptTrace {
 
 /** What the trace panel reports. */
 export interface TraceHooks {
+  /** An auto-trace started: Potrace is running on the cleaned-up photo. */
+  onTracing(): void;
   /** An auto-trace finished (or failed, or the photo couldn't be read or cleaned up). */
   onTraced(design: Design | null, status: string, failed: boolean): void;
   /** Done or Edit was pressed. */
   onAccepted(): void;
   /** A released change to the cleanup or its tone, or Cleanup was entered or left. */
   onCleanup(): void;
-  /** The frame moved and hasn't been released yet (a corner dragged or nudged, Turn moving): `cleanup()` is live. */
-  onCleanupLive(): void;
   /**
-   * The hand-trace's shapes to draw over the photo in Cleanup, each position through `toPhoto`; null for none.
+   * What Cleanup draws over the photo, who hears of the frame's live changes (`cleanup()` is live then), and the undo
+   * history its Undo and Redo step through.
    */
-  shapesOver(toPhoto: (p: { x: number; y: number }) => { x: number; y: number }): { closed: string; open: string } | null;
+  cleanupHooks: CleanupHooks;
   /** A new cleaned-up photo is ready, at `href`, for a hand-trace to be placed over. */
   onCleaned(href: string): void;
   /** The tracing method switch was flipped (which clears Done), or `chooseMethod` called. */
@@ -101,8 +102,8 @@ export interface TracePanel {
 }
 
 /**
- * A photo's Cleanup, then the Tracing method switch with auto-trace's threshold, invert and speckle controls and
- * Done. The photo, the cleaned-up photo and the auto-trace result go in `view` (the viewport's Photo view), at
+ * The Tracing method switch, shown for as long as the photo is loaded; under it the photo's Cleanup, then past it
+ * auto-trace's threshold, invert and speckle controls and Done. The photo, the cleaned-up photo and the auto-trace result go in `view` (the viewport's Photo view), at
  * viewport size; so does the hand-trace canvas, through `handSlot`. Auto-trace runs only once it's been chosen past
  * Cleanup, and again on a cleanup change only while it's chosen. The image never leaves the browser.
  */
@@ -128,9 +129,6 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     <div class="trace-hand-slot" hidden></div>
   `;
   root.innerHTML = `
-    <div class="trace-cleanup"></div>
-    <div class="trace-tracing">
-    <button type="button" class="trace-straighten">Straighten photo</button>
     <fieldset class="field trace-method">
       <legend>Tracing method</legend>
       <div class="chips">
@@ -138,9 +136,12 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
         <label><input type="radio" name="t-method" value="hand" />Hand-trace</label>
       </div>
     </fieldset>
+    <div class="trace-cleanup"></div>
+    <div class="trace-tracing">
     <div class="trace-accept-row trace-edit-auto" hidden>
       <button type="button">Edit as hand-trace</button>
     </div>
+    <button type="button" class="trace-straighten">Straighten photo</button>
     <div class="trace-settings">
     <div class="field">
       <label for="t-threshold">Threshold</label>
@@ -252,7 +253,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
       show();
       if (!live) hooks.onCleanup();
     },
-    { shapes: (toPhoto) => hooks.shapesOver(toPhoto), onLive: () => hooks.onCleanupLive() },
+    hooks.cleanupHooks,
   );
 
   acceptButton.addEventListener("click", () => {
@@ -266,6 +267,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     show();
     traceIfShown();
     hooks.onMethod();
+    if (cleaning) cleanupPanel.redraw(); // the hand-trace's shapes are drawn over the photo only while it's chosen
   };
   for (const m of methods)
     m.addEventListener("change", () => {
@@ -323,6 +325,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     if (!cleaned) return; // traced once the warp lands
     const id = ++traceId;
     const from = cleaned;
+    hooks.onTracing();
     try {
       const { traceImage } = await import("../input/traceImage"); // Potrace loads only when needed
       const result = await traceImage(from, autoTrace());

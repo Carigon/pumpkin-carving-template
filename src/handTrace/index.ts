@@ -3,7 +3,11 @@
  * packages, the core only through its index.
  */
 export {
+  ARROWS,
   createHandTrace,
+  HIT_RADIUS_PX,
+  NUDGE_PX,
+  SHIFT_NUDGE_PX,
   type Drawn,
   type HandTrace,
   type HandTraceCleanup,

@@ -63,7 +63,7 @@ describe("shape warnings", () => {
     const design = designOf([[0, 0], [60, 0], [60, 60], [0, 60]], [[96, 28], [100, 28], [100, 32], [96, 32]]);
     const [warning] = warningsOf({ measurements: sphere, ...placed(design, 100) }, "tiny-carve-area");
 
-    expect(warning.minSize).toBe(5);
+    expect(warning.minSizeMm).toBe(5);
     expect(warning.areas).toHaveLength(1);
     expectBox(warning.areas[0].bbox, [96, 28, 100, 32]);
     // 5.2 mm in the front view, and more on the skin.
@@ -79,6 +79,17 @@ describe("shape warnings", () => {
     // The same square in the middle of the pumpkin is 4.5 mm across on the skin too.
     const inMiddle = designOf([[0, 0], [40, 0], [40, 40], [0, 40]], [[198, 18], [202, 18], [202, 22], [198, 22]], [[360, 0], [400, 0], [400, 40], [360, 40]]);
     expect(warningsOf({ measurements: sphere, ...placed(inMiddle, 450) }, "tiny-carve-area")).toHaveLength(1);
+  });
+
+  it("measures a carve area's box in the design's own axes, so rotating the placement doesn't change the warning", () => {
+    // A 4.5 mm square in the middle of the pumpkin: turned 30°, its front-view box is over 6 mm across.
+    const design = designOf([[0, 0], [40, 0], [40, 40], [0, 40]], [[198, 18], [202, 18], [202, 22], [198, 22]], [[360, 0], [400, 0], [400, 40], [360, 40]]);
+    const turned = (rotation: number) => ({ measurements: sphere, design, placement: { width: 450, verticalOffset: 0, rotation } });
+
+    const [upright] = warningsOf(turned(0), "tiny-carve-area");
+    expect(upright.areas).toHaveLength(1);
+    expect(warningsOf(turned(30), "tiny-carve-area")).toEqual([upright]);
+    expect(warningsOf(turned(-30), "tiny-carve-area")).toEqual([upright]);
   });
 
   it("the quick preview gives the same shape warnings as the full build", () => {

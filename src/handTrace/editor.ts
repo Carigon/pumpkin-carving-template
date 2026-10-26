@@ -1,4 +1,4 @@
-import { distanceToSegment, insidePolygon, signedArea, type BBox, type Design, type TemplateWarning } from "../core";
+import { distanceToSegment, insidePolygon, polylineLength, signedArea, type BBox, type Design, type TemplateWarning } from "../core";
 import type { DragGesture, Gesture, HoldGesture, PanGesture, PointerKind, ScreenPoint } from "./gestures";
 import {
   edgeAt,
@@ -24,10 +24,10 @@ import {
   keptToSide,
   mirrorOffset,
   onAxis,
-  outlinesOf,
+  shapesAsDrawn,
   sideOf,
-  type Outline,
-  type OutlineNode,
+  type ShapeAsDrawn,
+  type PointAsDrawn,
 } from "./symmetry";
 import { fitScale, fitView, pinchZoom, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
 
@@ -82,7 +82,7 @@ export interface ScreenRect {
   height: number;
 }
 
-/** One shape as drawn: its outline as screen path data, dashed while open. */
+/** One shape as drawn: its edge as screen path data, dashed while open. */
 export interface DrawnShape {
   id: number;
   d: string;
@@ -153,7 +153,7 @@ export interface Drawn {
    * snapped onto it, or where a hovering click would place one.
    */
   axis: { from: ScreenPoint; to: ScreenPoint; snapped: boolean } | null;
-  /** Every closed shape's outline in one path, filled even-odd: what's carved. */
+  /** Every closed shape's edge in one path, filled even-odd: what's carved. */
   fill: string;
   shapes: DrawnShape[];
   points: DrawnPoint[];
@@ -282,8 +282,11 @@ export interface HandTrace<C = unknown> {
   showWarnings(warnings: readonly TemplateWarning[]): void;
 }
 
-/** Screen radius (px) within which a tap hits a point or an outline, whatever the zoom; the axis snap's too. */
-const HIT_RADIUS_PX = 22;
+/**
+ * Screen radius (px) within which a tap hits a point or a shape's edge, whatever the zoom; the axis snap's too, and
+ * Cleanup's frame corners'.
+ */
+export const HIT_RADIUS_PX = 22;
 /** How many hit radii a snapped point is dragged off the axis before it lets go: clearly past the snap. */
 const SNAP_RELEASE = 1.5;
 /** Edges shorter than this on screen (px), measured along the curve, show no insert marker. */
@@ -307,11 +310,11 @@ const LOUPE_GAP_PX = 56;
 const LOUPE_MARGIN_PX = 4;
 /** How much + and − zoom, as the Blueprint view's zoom buttons do. */
 const KEY_ZOOM_STEP = 1.25;
-/** How far an arrow key nudges, in screen px, and with Shift. */
-const NUDGE_PX = 1;
-const SHIFT_NUDGE_PX = 10;
+/** How far an arrow key nudges, in screen px, and with Shift (Cleanup's frame corners too). */
+export const NUDGE_PX = 1;
+export const SHIFT_NUDGE_PX = 10;
 /** Each arrow key's direction on screen (y down). */
-const ARROWS = new Map([
+export const ARROWS: ReadonlyMap<string, { x: number; y: number }> = new Map([
   ["ArrowLeft", { x: -1, y: 0 }],
   ["ArrowRight", { x: 1, y: 0 }],
   ["ArrowUp", { x: 0, y: -1 }],
@@ -331,7 +334,7 @@ interface State {
 
 /**
  * What's under a tap or the start of a drag: a point (its shape and index), a handle or stub, an insert marker, or a
- * shape by its outline or inside. `reflected` when it's a mirrored shape's reflection that's under it.
+ * shape by its edge or inside. `reflected` when it's a mirrored shape's reflection that's under it.
  */
 type Hit =
   | { kind: "point"; shape: Shape; index: number; reflected: boolean }
@@ -340,15 +343,15 @@ type Hit =
   | { kind: "shape"; shape: Shape; reflected: boolean };
 
 /**
- * A handle or stub showing for the selected point, in design space: on `side` of `node` (the `k`th of the shape's
- * outline `o` as drawn), from `base` to `tip`; `source` says which of the shape's handles that is, and whether the
+ * A handle or stub showing for the selected point, in design space: on `side` of `pointAsDrawn` (the `k`th point of
+ * the shape as drawn `o`), from `base` to `tip`; `source` says which of the shape's handles that is, and whether the
  * drawing mirrors it. `role` is the selected point's own, or a neighbour's on one of its edges.
  */
 interface Knob {
   shape: Shape;
   o: number;
   k: number;
-  node: OutlineNode;
+  pointAsDrawn: PointAsDrawn;
   side: Side;
   source: { side: Side; mirrored: boolean };
   base: XY;
@@ -519,13 +522,13 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     return designOf.design;
   };
 
-  /** Each shape's outlines as drawn, worked out once per shape and axis: shapes are never changed in place. */
-  const outlineCache = new WeakMap<Shape, { axis: number; outlines: Outline[] }>();
-  const outlines = (shape: Shape): Outline[] => {
-    const known = outlineCache.get(shape);
-    if (known?.axis === axis) return known.outlines;
-    const made = outlinesOf(shape, axis);
-    outlineCache.set(shape, { axis, outlines: made });
+  /** The shapes each shape is drawn as, worked out once per shape and axis: shapes are never changed in place. */
+  const asDrawnCache = new WeakMap<Shape, { axis: number; asDrawn: ShapeAsDrawn[] }>();
+  const asDrawn = (shape: Shape): ShapeAsDrawn[] => {
+    const known = asDrawnCache.get(shape);
+    if (known?.axis === axis) return known.asDrawn;
+    const made = shapesAsDrawn(shape, axis);
+    asDrawnCache.set(shape, { axis, asDrawn: made });
     return made;
   };
 
@@ -567,15 +570,15 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     reframing = null;
   };
   /**
-   * Where `shape`'s point `index` is drawn, as placed or `reflected`: its outline (`o`), node and place there (`k`)
-   * and position. A symmetric shape's end on the axis is one node, whichever copy is asked for.
+   * Where `shape`'s point `index` is drawn, as placed or `reflected`: its shape as drawn (`o`), the point there and its place (`k`)
+   * and position. A symmetric shape's end on the axis is one point as drawn, whichever copy is asked for.
    */
-  const nodeOf = (shape: Shape, index: number, reflected: boolean) => {
-    const all = outlines(shape).flatMap((outline, o) =>
-      outline.nodes.map((node, k) => ({ outline, o, k, node, at: outline.shape.points[k] })),
+  const findAsDrawn = (shape: Shape, index: number, reflected: boolean) => {
+    const all = asDrawn(shape).flatMap((shapeAsDrawn, o) =>
+      shapeAsDrawn.pointsAsDrawn.map((pointAsDrawn, k) => ({ shapeAsDrawn, o, k, pointAsDrawn, at: shapeAsDrawn.shape.points[k] })),
     );
-    const exact = all.find((n) => n.node.index === index && n.node.reflected === reflected);
-    return exact ?? all.find((n) => n.node.index === index) ?? null;
+    const exact = all.find((n) => n.pointAsDrawn.index === index && n.pointAsDrawn.reflected === reflected);
+    return exact ?? all.find((n) => n.pointAsDrawn.index === index) ?? null;
   };
 
   const drawingShape = () => state.shapes.find((s) => s.id === state.drawing) ?? null;
@@ -676,9 +679,9 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
    */
   const tooSmall = (shape: Shape): boolean => {
     if (shape.mirror !== "symmetric") return shape.points.length < 3;
-    const [whole] = outlines(shape);
+    const [whole] = asDrawn(shape);
     const poly = edgesOf(whole.shape).flatMap((e) => edgePolyline(e, CURVE_PIECES).slice(1));
-    return whole.nodes.length < 3 || Math.abs(signedArea(poly)) <= NO_AREA * page.width * page.height;
+    return whole.pointsAsDrawn.length < 3 || Math.abs(signedArea(poly)) <= NO_AREA * page.width * page.height;
   };
 
   /** Delete the selected point (its source, if it's on a reflection) or shape, and a shape the point leaves too small. */
@@ -711,10 +714,10 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
   const markers = (shapes: readonly Shape[]): Marker[] => {
     const shape = state.drawing === null && selection && shapes.find((s) => s.id === selection?.shape);
     if (!shape) return [];
-    return outlines(shape).flatMap(({ shape: drawn, nodes }) =>
+    return asDrawn(shape).flatMap(({ shape: drawn, pointsAsDrawn }) =>
       edgesOf(drawn).flatMap((e): Marker[] => {
         if (polylineLength(edgePolyline(e, CURVE_PIECES)) * view.scale < MARKER_MIN_EDGE_PX) return [];
-        const [u, v] = [nodes[e.after], nodes[(e.after + 1) % nodes.length]];
+        const [u, v] = [pointsAsDrawn[e.after], pointsAsDrawn[(e.after + 1) % pointsAsDrawn.length]];
         // A point and its own reflection: a symmetric shape's join across the axis, at its half's start or end.
         const insert =
           u.index === v.index
@@ -735,16 +738,16 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
   const knobs = (shapes: readonly Shape[]): Knob[] => {
     const picked = state.drawing === null && selection?.kind === "point" ? selection : null;
     const shape = picked && shapes.find((s) => s.id === picked.shape);
-    const found = picked && shape?.points[picked.index] && nodeOf(shape, picked.index, !!picked.reflected);
+    const found = picked && shape?.points[picked.index] && findAsDrawn(shape, picked.index, !!picked.reflected);
     if (!picked || !shape || !found) return [];
-    const { outline, o, k, at: p } = found;
-    const { nodes, shape: drawn } = outline;
+    const { shapeAsDrawn, o, k, at: p } = found;
+    const { pointsAsDrawn, shape: drawn } = shapeAsDrawn;
     const acting = handlesOf(drawn);
     const out: Knob[] = [];
     const tipOf = (at: XY, h: XY) => ({ x: at.x + h.x, y: at.y + h.y });
     const knob = (j: number, side: Side, tip: XY, stub: boolean, role: Knob["role"]) => {
-      const source = nodes[j][side];
-      if (source) out.push({ shape, o, k: j, node: nodes[j], side, source, base: drawn.points[j], tip, stub, role });
+      const source = pointsAsDrawn[j][side];
+      if (source) out.push({ shape, o, k: j, pointAsDrawn: pointsAsDrawn[j], side, source, base: drawn.points[j], tip, stub, role });
     };
     for (const side of ["in", "out"] as const) {
       const j = neighbour(drawn, k, side);
@@ -768,10 +771,10 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
 
   /**
    * What's under screen point `at`: the nearest point or handle within the hit radius (the shape being drawn
-   * winning ties among points), else the nearest insert marker within it, else the nearest outline within it, else
+   * winning ties among points), else the nearest insert marker within it, else the nearest shape's edge within it, else
    * the smallest closed shape it's inside. Reflections count as their shapes.
    */
-  const hitTest = (at: ScreenPoint): Hit | null => pointOrHandleAt(at) ?? markerAt(at) ?? outlineAt(at) ?? insideAt(at);
+  const hitTest = (at: ScreenPoint): Hit | null => pointOrHandleAt(at) ?? markerAt(at) ?? shapeEdgeAt(at) ?? insideAt(at);
   const pointOrHandleAt = (at: ScreenPoint): Hit | null => {
     const point = pointAt(at);
     let best: Hit | null = null;
@@ -797,8 +800,8 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     let best: { hit: Hit & { kind: "point" }; distance: number } | null = null;
     const order = [...state.shapes].sort((a, b) => Number(b.id === state.drawing) - Number(a.id === state.drawing));
     for (const shape of order) {
-      for (const { shape: drawn, nodes } of outlines(shape)) {
-        nodes.forEach(({ index, reflected }, k) => {
+      for (const { shape: drawn, pointsAsDrawn } of asDrawn(shape)) {
+        pointsAsDrawn.forEach(({ index, reflected }, k) => {
           const s = toScreen(view, drawn.points[k]);
           const d = Math.hypot(s.x - at.x, s.y - at.y);
           if (d < (best?.distance ?? HIT_RADIUS_PX)) best = { hit: { kind: "point", shape, index, reflected }, distance: d };
@@ -808,11 +811,11 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     return best;
   };
   /** Along the curves, as drawn. */
-  const outlineAt = (at: ScreenPoint): Hit | null => {
+  const shapeEdgeAt = (at: ScreenPoint): Hit | null => {
     let best: Hit | null = null;
     let bestDistance = HIT_RADIUS_PX;
     for (const shape of state.shapes) {
-      for (const { shape: drawn, reflected } of outlines(shape)) {
+      for (const { shape: drawn, reflected } of asDrawn(shape)) {
         for (const e of edgesOf(drawn)) {
           const pts = edgePolyline(e, CURVE_PIECES).map((p) => toScreen(view, p));
           for (let k = 1; k < pts.length; k++) {
@@ -829,7 +832,7 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     const polygon = (s: Shape) => edgesOf(s).flatMap((e: Edge) => edgePolyline(e, CURVE_PIECES).slice(1));
     const around = state.shapes
       .filter((s) => s.closed)
-      .flatMap((s) => outlines(s).map(({ shape: drawn, reflected }) => ({ s, reflected, poly: polygon(drawn) })))
+      .flatMap((s) => asDrawn(s).map(({ shape: drawn, reflected }) => ({ s, reflected, poly: polygon(drawn) })))
       .filter(({ poly }) => insidePolygon(p, poly));
     const smallest = around.sort((a, b) => Math.abs(signedArea(a.poly)) - Math.abs(signedArea(b.poly)))[0];
     return smallest ? { kind: "shape", shape: smallest.s, reflected: smallest.reflected } : null;
@@ -854,7 +857,7 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     if (hit?.kind === "handle") {
       const { knob } = hit;
       const handle = knob.stub ? {} : { handle: knob.side };
-      const { index, reflected } = knob.node;
+      const { index, reflected } = knob.pointAsDrawn;
       return { do: "select", hit, selection: { kind: "point", shape: knob.shape.id, index, ...copy(reflected), ...handle } };
     }
     if (hit?.kind === "marker") return { do: "insert", hit };
@@ -895,13 +898,13 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     if (hit.kind === "handle") {
       return { hover: { kind: "handle", at: toScreen(view, hit.knob.tip) }, cursor: "move", rubberBand: null };
     }
-    const at = hit.kind === "point" ? nodeOf(hit.shape, hit.index, hit.reflected)!.at : hit.marker.at;
+    const at = hit.kind === "point" ? findAsDrawn(hit.shape, hit.index, hit.reflected)!.at : hit.marker.at;
     const rubberBand = action.do === "close" ? band(at) : null;
     return { hover: { kind: hit.kind, at: toScreen(view, at) }, cursor: "pointer", rubberBand };
   };
 
   /**
-   * `marker`'s shape with a corner point added at the marker (keeping the outline, and its side of the axis), the
+   * `marker`'s shape with a corner point added at the marker (keeping its edge where it was, and its side of the axis), the
    * new point's index, and whether it's drawn under the marker on the reflection. On a symmetric shape's join across
    * the axis, it's a new end on the axis, and the old end, now between, keeps the straight join as a corner.
    */
@@ -988,7 +991,7 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     const held = (shape: Shape, index: number) => shape.mirror !== "none" && onAxis(shape.points[index], axis);
     if (hit?.kind === "handle") {
       const { knob } = hit;
-      const { index, reflected } = knob.node;
+      const { index, reflected } = knob.pointAsDrawn;
       selection = { kind: "point", shape: knob.shape.id, index, ...copy(reflected), handle: knob.side };
       const tip = toScreen(view, knob.tip);
       return { kind: "handle", knob, grab: { x: tip.x - from.x, y: tip.y - from.y }, alone, ...moving };
@@ -1023,22 +1026,22 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
   };
 
   /**
-   * `shape` with the handle on `side` of its outline node `knob` set to design-space `offset` as drawn, or (null)
+   * `shape` with the handle on `side` of its point as drawn `knob` set to design-space `offset` as drawn, or (null)
    * removed (as it is within `RETRACT_PX` of its point, when it `retracts`): the shape's own handle, mirrored back
    * when it's drawn on a reflection (a smooth end on the axis then levels it, as every edit does).
    */
   const withKnob = (knob: Knob, offset: XY, alone: boolean, retracts = true): Shape => {
-    const { shape, node, source } = knob;
+    const { shape, pointAsDrawn, source } = knob;
     const own = source.mirrored ? mirrorOffset(offset) : offset;
     const short = Math.hypot(own.x, own.y) * view.scale < (retracts ? RETRACT_PX : 1e-9);
     const kept = short ? null : own;
-    return editMirrored(shape, axis, [node.index], (s) => withHandle(s, node.index, source.side, kept, alone));
+    return editMirrored(shape, axis, [pointAsDrawn.index], (s) => withHandle(s, pointAsDrawn.index, source.side, kept, alone));
   };
 
-  /** The handle on `side` of `shape`'s node `k` in its outline `o`, as it acts now. */
+  /** The handle on `side` of point `k` of `shape` as drawn `o`, as it acts now. */
   const handleAt = (shape: Shape, o: number, k: number, side: Side) => {
-    const outline = outlines(shape)[o];
-    return outline && handlesOf(outline.shape)[k]?.[side];
+    const shapeAsDrawn = asDrawn(shape)[o];
+    return shapeAsDrawn && handlesOf(shapeAsDrawn.shape)[k]?.[side];
   };
 
   /**
@@ -1053,14 +1056,14 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
       drag = null;
       return;
     }
-    const { shape, base, o, k, side, node } = d.knob;
+    const { shape, base, o, k, side, pointAsDrawn } = d.knob;
     const tip = toDesignSpace(view, { x: g.at.x + d.grab.x, y: g.at.y + d.grab.y });
     const clamped = { x: Math.min(page.width, Math.max(0, tip.x)), y: Math.min(page.height, Math.max(0, tip.y)) };
     const next = withKnob(d.knob, { x: clamped.x - base.x, y: clamped.y - base.y }, d.alone);
     d.live = replace(next);
     if (g.phase !== "end") return;
     const kept = handleAt(next, o, k, side) ? { handle: side } : {};
-    selection = { kind: "point", shape: shape.id, index: node.index, ...copy(node.reflected), ...kept };
+    selection = { kind: "point", shape: shape.id, index: pointAsDrawn.index, ...copy(pointAsDrawn.reflected), ...kept };
     if (JSON.stringify(next) !== JSON.stringify(shape)) change({ ...state, shapes: d.live });
     drag = null;
   };
@@ -1297,7 +1300,7 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     }
     if (drag?.kind !== "move" || !drag.loupe || drag.index === null) return null;
     const { shape, index, reflected } = drag;
-    const found = nodeOf(shapes.find((s) => s.id === shape.id) ?? shape, index, reflected);
+    const found = findAsDrawn(shapes.find((s) => s.id === shape.id) ?? shape, index, reflected);
     return found && loupeAt(drag.at, toScreen(view, found.at));
   };
   const loupeAt = (finger: ScreenPoint, focus: ScreenPoint): Loupe => placeLoupe(finger, focus, size.width);
@@ -1334,7 +1337,7 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
       selected: !stub && role === "own" && picked?.handle === side,
     }));
     const chosen = picked && shapes.find((s) => s.id === picked.shape);
-    const pickedNode = chosen && nodeOf(chosen, picked.index, !!picked.reflected);
+    const pickedAsDrawn = chosen && findAsDrawn(chosen, picked.index, !!picked.reflected);
     const open = shapes.filter((s) => !s.closed).length;
     const mirrored = (id: number | null | undefined) => shapes.some((s) => s.id === id && s.mirror !== "none");
     // The axis shows over a photo only while it's needed: Symmetry on, or a mirrored shape picked or being drawn.
@@ -1359,13 +1362,13 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
       })),
       // Reflections' points too, as the drawn side's.
       points: shapes.flatMap((s) =>
-        outlines(s).flatMap((outline, o) =>
-          outline.nodes.map(({ index: i }, k) => ({
-            at: screen(outline.shape.points[k]),
+        asDrawn(s).flatMap((shapeAsDrawn, o) =>
+          shapeAsDrawn.pointsAsDrawn.map(({ index: i }, k) => ({
+            at: screen(shapeAsDrawn.shape.points[k]),
             kind: s.points[i].kind,
             end: !s.closed && (i === 0 || i === s.points.length - 1),
             closable: s.id === state.drawing && i === 0 && s.points.length >= 3,
-            selected: chosen === s && pickedNode?.o === o && pickedNode.k === k,
+            selected: chosen === s && pickedAsDrawn?.o === o && pickedAsDrawn.k === k,
           })),
         ),
       ),
@@ -1484,11 +1487,6 @@ export function placeLoupe(finger: ScreenPoint, focus: ScreenPoint, width: numbe
 function aboutAxis(design: Design, axis: number): Design {
   const half = Math.max(axis - design.bbox.minX, design.bbox.maxX - axis);
   return { ...design, bbox: { ...design.bbox, minX: axis - half, maxX: axis + half } };
-}
-
-/** How long a polyline is, end to end. */
-function polylineLength(pts: readonly XY[]): number {
-  return pts.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y)), 0);
 }
 
 /**

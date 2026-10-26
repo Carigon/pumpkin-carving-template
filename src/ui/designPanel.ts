@@ -18,6 +18,8 @@ const MAX_ROTATION = 30;
 const FILE_HINT = "Photos never leave your browser.";
 /** The status line while a photo is in Cleanup. */
 const CLEANUP_HINT = "Frame the sheet in the photo, then press Start tracing.";
+/** The status line while auto-trace runs. */
+const AUTO_TRACING = "Auto-tracing…";
 /** Above this many points, Edit as hand-trace warns that editing may be slow (a starting guess, to tune on phones). */
 const MANY_POINTS = 2000;
 /** A hand-trace with nothing drawn: a new photo's. */
@@ -214,6 +216,10 @@ export function mountDesignPanel(
 
   const traceEl = $<HTMLElement>("d-trace");
   const trace = mountTracePanel(traceEl, photoView, {
+    onTracing() {
+      autoStatus = { text: AUTO_TRACING, failed: false };
+      showPhotoStatus();
+    },
     onTraced(traced, text, failed) {
       [autoDesign, autoStatus] = [traced, { text, failed }];
       if (trace.loaded()) {
@@ -237,9 +243,17 @@ export function mountDesignPanel(
       showPhotoStatus();
       keep();
     },
-    onCleanupLive: () => handTrace.changeCleanup(trace.cleanup(), true),
-    // Drawn over the photo while hand-trace is chosen: the shapes being traced.
-    shapesOver: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
+    cleanupHooks: {
+      onLive: () => handTrace.changeCleanup(trace.cleanup(), true),
+      // Drawn over the photo while hand-trace is chosen: the shapes being traced.
+      shapes: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
+      // Cleanup changes are steps in the hand-trace's history, whichever method is chosen: Cleanup steps through it.
+      history: {
+        can: () => handTrace.editor()?.drawn().can ?? { undo: false, redo: false },
+        undo: () => handTrace.undo(),
+        redo: () => handTrace.redo(),
+      },
+    },
     onCleaned: (href) => handTrace.setPhoto(href),
     onMethod() {
       syncDone();

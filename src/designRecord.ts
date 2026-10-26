@@ -6,6 +6,7 @@
 import type { HandTraceRecord, Offset, Page, Point, Shape } from "./handTrace";
 import { isFrame, START_FRAME, type AspectChoice, type Cleanup, type FrameCorners, type FramePoint } from "./input/cleanupFrame";
 import type { TraceSettings } from "./input/traceImage";
+import { finite, integerIn, isRecord, oneOf, positive } from "./validate";
 
 /** A photo as the carver chose it: the file's bytes, never pixels. */
 export interface PhotoFile {
@@ -349,26 +350,4 @@ function readOffset(x: unknown): Offset | null | undefined {
   if (!isRecord(x)) return null;
   const [ox, oy] = [finite(x.x), finite(x.y)];
   return ox === undefined || oy === undefined ? null : { x: ox, y: oy };
-}
-
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null && !Array.isArray(x);
-}
-
-function oneOf<T extends string>(x: unknown, options: readonly T[]): T | undefined {
-  return options.includes(x as T) ? (x as T) : undefined;
-}
-
-function finite(x: unknown): number | undefined {
-  return typeof x === "number" && Number.isFinite(x) ? x : undefined;
-}
-
-function positive(x: unknown): number | undefined {
-  const n = finite(x);
-  return n !== undefined && n > 0 ? n : undefined;
-}
-
-function integerIn(x: unknown, min: number, max: number): number | undefined {
-  const n = finite(x);
-  return n !== undefined && Number.isInteger(n) && n >= min && n <= max ? n : undefined;
 }

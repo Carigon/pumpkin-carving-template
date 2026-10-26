@@ -49,8 +49,7 @@ const square = (x0: number, y0: number, x1: number, y1: number): Point2[] => [
 ];
 
 /**
- * A figure-eight whose edges cross at page point (0.3, 0.3), its loops unequal (equal loops have no area in all,
- * so they'd leave no Design).
+ * A figure-eight whose edges cross at page point (0.3, 0.3), its loops unequal.
  */
 const FIGURE_EIGHT: Point2[] = [
   { x: 0.2, y: 0.2 },

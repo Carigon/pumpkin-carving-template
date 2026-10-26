@@ -1,12 +1,6 @@
-import { edgesOf } from "./curves";
+import { edgesOf, type XY } from "./curves";
 import type { Shape } from "./model";
-import { outlinesOf } from "./symmetry";
-
-/** A position in some 2D space. */
-interface XY {
-  x: number;
-  y: number;
-}
+import { shapesAsDrawn } from "./symmetry";
 
 /** Significant digits kept in path data: far finer than the loader's tolerance. */
 const DIGITS = 6;
@@ -17,7 +11,7 @@ const DIGITS = 6;
  * automatic ones included) is a cubic, one with none a straight line. Closed shapes end with `Z`.
  */
 export function pathData(shapes: readonly Shape[], map: (p: XY) => XY, axis: number): string {
-  return shapes.flatMap((s) => outlinesOf(s, axis).map((o) => shapePath(o.shape, map))).join("");
+  return shapes.flatMap((s) => shapesAsDrawn(s, axis).map((o) => shapePath(o.shape, map))).join("");
 }
 
 /** Path data (`M`, `L`, `Z`) for closed polylines, such as a region the core found, mapped through `map`. */

@@ -1,4 +1,5 @@
-import { placeLoupe, type Loupe } from "../handTrace";
+// A frame corner is grabbed and nudged as a point on the hand-trace canvas is.
+import { ARROWS, HIT_RADIUS_PX, NUDGE_PX, placeLoupe, SHIFT_NUDGE_PX, type Loupe } from "../handTrace";
 import {
   applyHomography,
   cleanUp,
@@ -15,24 +16,13 @@ import {
   type PhotoSize,
 } from "../input/cleanupFrame";
 import { TONE_DEFAULTS, TONE_RANGE, type Tone } from "../designRecord";
+import { loupeOf, MOD } from "./handTraceCanvas";
 import { el } from "./svg";
 
-/** How near a press must be to a frame corner to grab it, in screen px (as the Blueprint view's handles). */
-const HIT_RADIUS = 22;
 /** A frame corner's drawn radius, in screen px. */
 const CORNER_RADIUS = 9;
-/** How far an arrow key nudges the selected frame corner, in screen px, and with Shift (as on the hand-trace canvas). */
-const NUDGE_PX = 1;
-const SHIFT_NUDGE_PX = 10;
 /** A run of nudges ends this long after the last one if no key release ends it first, ms (as the Blueprint view's). */
 const NUDGE_IDLE_MS = 600;
-/** Each arrow key's direction on screen (y down). */
-const ARROWS = new Map([
-  ["ArrowLeft", { x: -1, y: 0 }],
-  ["ArrowRight", { x: 1, y: 0 }],
-  ["ArrowUp", { x: 0, y: -1 }],
-  ["ArrowDown", { x: 0, y: 1 }],
-]);
 /** Turn's reach either way, in degrees. */
 const MAX_TURN_DEGREES = 45;
 /** Cleanup panels mounted so far, to give each frame drawing its own id (the loupe shows it by reference). */
@@ -68,8 +58,8 @@ export interface CleanupPanel {
   redraw(): void;
 }
 
-/** What else Cleanup draws over the photo, and who hears of the frame's live changes. */
-export interface CleanupOverlay {
+/** What else Cleanup draws over the photo, who hears of the frame's live changes, and the undo history it drives. */
+export interface CleanupHooks {
   /**
    * The hand-trace's shapes and reflections to draw over the photo, each position taken through `toPhoto` (design
    * space to photo px): closed ones and open ones as path data; null for none.
@@ -77,6 +67,15 @@ export interface CleanupOverlay {
   shapes(toPhoto: (p: { x: number; y: number }) => { x: number; y: number }): { closed: string; open: string } | null;
   /** The frame moved and hasn't been released yet: a corner dragged or nudged, or Turn moving. */
   onLive(): void;
+  /**
+   * The undo history each released change joins (the hand-trace's): Cleanup's Undo and Redo, and their keys, step
+   * through it. A step that changes the cleanup puts it back through `setCleanup`.
+   */
+  history: {
+    can(): { undo: boolean; redo: boolean };
+    undo(): void;
+    redo(): void;
+  };
 }
 
 /** `tone` as a CSS filter: a display filter only, never on the pixels auto-trace traces. */
@@ -86,12 +85,13 @@ export function toneFilter(tone: Tone): string {
 
 /**
  * Cleanup (spec #27): the photo with its frame in `figure`, its controls (Rotate 90°, Turn, the aspect chips,
- * Brightness and Contrast, Start tracing, Use whole photo, Reset) in `controls`. The frame's rules are the cleanup
- * frame's (`src/input/cleanupFrame.ts`); this only draws and dispatches. Each released change is reported through
- * `onChange`; Start tracing and Use whole photo through `onStart`. A tone slider is reported through `onTone`, live
- * while it moves and once more (`live` false) on release: tone never changes the cleaned-up photo's pixels. The
- * frame's live changes go to `overlay.onLive`, before it's drawn again with the shapes `overlay` gives (follow the
- * frame there first). A touch drag of a frame corner shows the loupe.
+ * Brightness and Contrast, Start tracing, Use whole photo, Reset, Undo and Redo) in `controls`. The frame's rules are
+ * the cleanup frame's (`src/input/cleanupFrame.ts`); this only draws and dispatches. Each released change is reported
+ * through `onChange`; Start tracing and Use whole photo through `onStart`. A tone slider is reported through `onTone`,
+ * live while it moves and once more (`live` false) on release: tone never changes the cleaned-up photo's pixels. The
+ * frame's live changes go to `hooks.onLive`, before it's drawn again with the shapes `hooks` gives (follow the frame
+ * there first). Undo and Redo, and their keys while Cleanup has focus, step through `hooks.history`. A touch drag of a
+ * frame corner shows the loupe.
  */
 export function mountCleanupPanel(
   controls: HTMLElement,
@@ -99,11 +99,15 @@ export function mountCleanupPanel(
   onChange: () => void,
   onStart: () => void,
   onTone: (live: boolean) => void,
-  overlay: CleanupOverlay,
+  hooks: CleanupHooks,
 ): CleanupPanel {
   controls.classList.add("cleanup-controls");
   controls.innerHTML = `
-    <h3>Cleanup</h3>
+    <div class="cleanup-heading">
+      <h3>Cleanup</h3>
+      <button type="button" class="c-undo" title="Undo (${MOD}Z)">Undo</button>
+      <button type="button" class="c-redo" title="Redo (${MOD}Shift+Z)">Redo</button>
+    </div>
     <div class="hint">Drag the frame's corners onto the sheet's corners. Click one to nudge it with the arrow keys.</div>
     <div class="field">
       <label for="c-turn">Turn</label>
@@ -192,10 +196,11 @@ export function mountCleanupPanel(
     resetTurn();
     onChange();
     draw();
+    showHistory();
   };
   /** A live change to the frame: reported, then drawn. */
   const moved = () => {
-    overlay.onLive();
+    hooks.onLive();
     draw();
   };
 
@@ -210,7 +215,7 @@ export function mountCleanupPanel(
     const bottom = applyHomography(cleaned.homography, cleaned.width / 2, cleaned.height);
     const k = pxPerScreen();
     const ring = corners.map((p, i) => `${i === 0 ? "M" : "L"}${p.x} ${p.y}`).join(" ") + " Z";
-    const shapes = overlay.shapes((p) => designToPhoto(cleaned, p));
+    const shapes = hooks.shapes((p) => designToPhoto(cleaned, p));
     frameSvg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     for (const name of ["width", "height"] as const) photoImage.setAttribute(name, String(photo[name]));
     const drawing = el("g", { id: drawingId });
@@ -229,7 +234,7 @@ export function mountCleanupPanel(
         return el("circle", { class: cls, cx: p.x, cy: p.y, r: CORNER_RADIUS * k });
       }),
     );
-    frameSvg.replaceChildren(drawing, ...(loupe ? [loupeOf(loupe, k)] : []));
+    frameSvg.replaceChildren(drawing, ...(loupe ? [loupeOf(loupe, drawingId, k)] : []));
     for (const chip of chips) chip.checked = chip.value === cleaned.aspect;
   }
 
@@ -246,25 +251,6 @@ export function mountCleanupPanel(
     const focus = { x: c.x * r.width, y: c.y * r.height };
     return placeLoupe({ x: e.clientX - r.left, y: e.clientY - r.top }, focus, r.width);
   };
-  /** The loupe as drawn over the frame: the drawing magnified by reference, clipped round, with a crosshair. */
-  const loupeOf = ({ box, focus, magnification }: Loupe, k: number): SVGElement => {
-    const span = (box.width / magnification) * k;
-    const [fx, fy] = [focus.x * k, focus.y * k];
-    const [x0, y0] = [fx - span / 2, fy - span / 2];
-    const lens = el("svg", { class: "ht-loupe", x: box.x * k, y: box.y * k, width: box.width * k, height: box.height * k, viewBox: `${x0} ${y0} ${span} ${span}` });
-    const clip = `${drawingId}-loupe`;
-    const clipPath = el("clipPath", { id: clip });
-    clipPath.append(el("circle", { cx: fx, cy: fy, r: span / 2 }));
-    const view = el("g", { "clip-path": `url(#${clip})` });
-    view.append(
-      el("circle", { class: "ht-loupe-back", cx: fx, cy: fy, r: span / 2 }),
-      el("use", { href: `#${drawingId}` }),
-      el("line", { class: "ht-loupe-cross", x1: x0, y1: fy, x2: x0 + span, y2: fy }),
-      el("line", { class: "ht-loupe-cross", x1: fx, y1: y0, x2: fx, y2: y0 + span }),
-    );
-    lens.append(clipPath, view, el("circle", { class: "ht-loupe-rim", cx: fx, cy: fy, r: span / 2 }));
-    return lens;
-  };
   const spotOf = (e: PointerEvent): FramePoint => {
     const r = frameSvg.getBoundingClientRect();
     return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
@@ -272,7 +258,7 @@ export function mountCleanupPanel(
   frameSvg.addEventListener("pointerdown", (e) => {
     frameSvg.focus({ preventScroll: true });
     endNudges();
-    dragging = cornerAt(cleanup.corners, spotOf(e), photo, HIT_RADIUS * pxPerScreen());
+    dragging = cornerAt(cleanup.corners, spotOf(e), photo, HIT_RADIUS_PX * pxPerScreen());
     selected = dragging;
     loupe = dragging !== null && e.pointerType === "touch" ? loupeFor(e, dragging) : null;
     draw();
@@ -346,6 +332,7 @@ export function mountCleanupPanel(
     turn.value = turnOut.value.replace("°", "");
     onChange();
     draw();
+    showHistory();
   });
   for (const chip of chips)
     chip.addEventListener("change", () => {
@@ -367,6 +354,37 @@ export function mountCleanupPanel(
     onStart();
   });
   $<HTMLButtonElement>(controls, ".c-start").addEventListener("click", onStart);
+
+  // Undo and Redo step through the history every released change joins; a nudge run under way ends first.
+  const undoButton = $<HTMLButtonElement>(controls, ".c-undo");
+  const redoButton = $<HTMLButtonElement>(controls, ".c-redo");
+  function showHistory(): void {
+    const can = hooks.history.can();
+    undoButton.disabled = !can.undo;
+    redoButton.disabled = !can.redo;
+  }
+  const step = (redo: boolean) => {
+    if (dragging !== null) return;
+    endNudges();
+    if (redo) hooks.history.redo();
+    else hooks.history.undo();
+    draw(); // the shapes over the photo, when the step was theirs
+    showHistory();
+  };
+  undoButton.addEventListener("click", () => step(false));
+  redoButton.addEventListener("click", () => step(true));
+  // Keys only while Cleanup has focus, as on the hand-trace canvas.
+  const historyKey = (e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const lower = e.key.toLowerCase();
+    const redo = (lower === "z" && e.shiftKey) || lower === "y";
+    if (lower !== "z" && !redo) return;
+    e.preventDefault();
+    const can = hooks.history.can();
+    if (redo ? can.redo : can.undo) step(redo);
+  };
+  controls.addEventListener("keydown", historyKey);
+  frameSvg.addEventListener("keydown", historyKey);
 
   return {
     show(bitmap, next, nextTone, focal35Mm) {
@@ -395,6 +413,7 @@ export function mountCleanupPanel(
       });
       stack.style.setProperty("--aspect", String(photo.width / photo.height));
       draw();
+      showHistory();
     },
     cleanup: () => cleanup,
     tone: () => tone,
@@ -405,7 +424,11 @@ export function mountCleanupPanel(
       cleanup = next;
       resetTurn();
       draw();
+      showHistory();
     },
-    redraw: draw,
+    redraw() {
+      draw();
+      showHistory();
+    },
   };
 }

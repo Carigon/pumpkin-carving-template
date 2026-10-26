@@ -2,6 +2,7 @@ import type { Units } from "./core";
 import type { Paper } from "./paper";
 import { MAX_RINGS } from "./ringEdits";
 import { STEP_IDS, stepInMode, VIEWS, type Mode, type StepId, type View } from "./steps";
+import { finite, inRange, integerIn, isRecord, oneOf, positive } from "./validate";
 
 /** The inputs a returning carver gets back on reload; designs are kept elsewhere. Every length is in mm. */
 export interface Settings {
@@ -174,25 +175,8 @@ function rings(x: unknown): Settings["measurements"]["rings"] | undefined {
   return valid.length > 0 ? valid : undefined;
 }
 
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null && !Array.isArray(x);
-}
-
 function record(x: unknown): Record<string, unknown> {
   return isRecord(x) ? x : {};
-}
-
-function oneOf<T extends string>(x: unknown, options: readonly T[]): T | undefined {
-  return options.includes(x as T) ? (x as T) : undefined;
-}
-
-function finite(x: unknown): number | undefined {
-  return typeof x === "number" && Number.isFinite(x) ? x : undefined;
-}
-
-function positive(x: unknown): number | undefined {
-  const n = finite(x);
-  return n !== undefined && n > 0 ? n : undefined;
 }
 
 /** Strictly between 0 and 1. */
@@ -204,16 +188,6 @@ function fraction(x: unknown): number | undefined {
 function nonNegative(x: unknown): number | undefined {
   const n = finite(x);
   return n !== undefined && n >= 0 ? n : undefined;
-}
-
-function inRange(x: unknown, min: number, max: number): number | undefined {
-  const n = finite(x);
-  return n !== undefined && n >= min && n <= max ? n : undefined;
-}
-
-function integerIn(x: unknown, min: number, max: number): number | undefined {
-  const n = inRange(x, min, max);
-  return n !== undefined && Number.isInteger(n) ? n : undefined;
 }
 
 /** null (an empty field) is kept as-is; anything else must pass `check`. */
