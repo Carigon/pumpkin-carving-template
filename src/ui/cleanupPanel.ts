@@ -12,6 +12,7 @@ import {
   type FramePoint,
   type PhotoSize,
 } from "../input/cleanupFrame";
+import { TONE_DEFAULTS, TONE_RANGE, type Tone } from "../designRecord";
 import { el } from "./svg";
 
 /** How near a press must be to a frame corner to grab it, in screen px (as the Blueprint view's handles). */
@@ -39,23 +40,45 @@ const ASPECT_CHIPS: [AspectChoice, string][] = [
   ["square", "Square"],
   ["estimated", "As estimated"],
 ];
+/** The tone sliders, in order, with their labels. */
+const TONE_SLIDERS: [keyof Tone, string][] = [
+  ["brightness", "Brightness"],
+  ["contrast", "Contrast"],
+];
 
 export interface CleanupPanel {
-  /** Show `photo` (decoded, px) framed by `cleanup`; `focal35Mm` is its camera's, from its EXIF, when known. */
-  show(photo: ImageBitmap, cleanup: Cleanup, focal35Mm: number | undefined): void;
+  /**
+   * Show `photo` (decoded, px) framed by `cleanup` and toned by `tone`; `focal35Mm` is its camera's, from its EXIF,
+   * when known.
+   */
+  show(photo: ImageBitmap, cleanup: Cleanup, tone: Tone, focal35Mm: number | undefined): void;
   /** The cleanup as it is now. */
   cleanup(): Cleanup;
+  /** The tone as it is now, live while a slider moves. */
+  tone(): Tone;
   /** The cleaned-up photo the cleanup makes. */
   cleanedUp(): CleanedUp;
 }
 
+/** `tone` as a CSS filter: a display filter only, never on the pixels auto-trace traces. */
+export function toneFilter(tone: Tone): string {
+  return `brightness(${tone.brightness}%) contrast(${tone.contrast}%)`;
+}
+
 /**
  * Cleanup (spec #27): the photo with its frame in `figure`, its controls (Rotate 90°, Turn, the aspect chips,
- * Start tracing, Use whole photo, Reset) in `controls`. The frame's rules are the cleanup frame's
- * (`src/input/cleanupFrame.ts`); this only draws and dispatches. Each released change is reported through
- * `onChange`; Start tracing and Use whole photo through `onStart`.
+ * Brightness and Contrast, Start tracing, Use whole photo, Reset) in `controls`. The frame's rules are the cleanup
+ * frame's (`src/input/cleanupFrame.ts`); this only draws and dispatches. Each released change is reported through
+ * `onChange`; Start tracing and Use whole photo through `onStart`. A tone slider is reported through `onTone`, live
+ * while it moves and once more (`live` false) on release: tone never changes the cleaned-up photo's pixels.
  */
-export function mountCleanupPanel(controls: HTMLElement, figure: HTMLElement, onChange: () => void, onStart: () => void): CleanupPanel {
+export function mountCleanupPanel(
+  controls: HTMLElement,
+  figure: HTMLElement,
+  onChange: () => void,
+  onStart: () => void,
+  onTone: (live: boolean) => void,
+): CleanupPanel {
   controls.classList.add("cleanup-controls");
   controls.innerHTML = `
     <h3>Cleanup</h3>
@@ -75,6 +98,17 @@ export function mountCleanupPanel(controls: HTMLElement, figure: HTMLElement, on
       </div>
       <div class="hint">The sheet's shape once squared up: picked from the frame until you choose.</div>
     </fieldset>
+    ${TONE_SLIDERS.map(
+      ([name, label]) => `
+    <div class="field">
+      <label for="c-${name}">${label}</label>
+      <div class="input-row">
+        <input id="c-${name}" type="range" min="${TONE_RANGE.min}" max="${TONE_RANGE.max}" step="5" value="${TONE_DEFAULTS[name]}" />
+        <output for="c-${name}">${TONE_DEFAULTS[name]}%</output>
+      </div>
+    </div>`,
+    ).join("")}
+    <div class="hint">Brightness and Contrast help faint lines show while you hand-trace; auto-trace sees the photo as it is.</div>
     <div class="cleanup-actions">
       <button type="button" class="c-start primary">Start tracing</button>
       <button type="button" class="c-whole">Use whole photo</button>
@@ -98,7 +132,23 @@ export function mountCleanupPanel(controls: HTMLElement, figure: HTMLElement, on
 
   let photo: PhotoSize = { width: 1, height: 1 };
   let cleanup: Cleanup = { corners: WHOLE_PHOTO, aspect: null };
+  let tone: Tone = TONE_DEFAULTS;
   let focal: number | undefined;
+  const toneInputs = TONE_SLIDERS.map(([name]) => {
+    const input = $<HTMLInputElement>(controls, `#c-${name}`);
+    const out = $<HTMLOutputElement>(controls, `output[for="c-${name}"]`);
+    const show = () => {
+      input.value = String(tone[name]);
+      out.value = `${tone[name]}%`;
+    };
+    input.addEventListener("input", () => {
+      tone = { ...tone, [name]: Number(input.value) };
+      show();
+      onTone(true);
+    });
+    input.addEventListener("change", () => onTone(false));
+    return show;
+  });
   /** The frame as Turn found it: Turn turns from here until another change. */
   let turnedFrom: Cleanup["corners"] | null = null;
 
@@ -240,12 +290,14 @@ export function mountCleanupPanel(controls: HTMLElement, figure: HTMLElement, on
   $<HTMLButtonElement>(controls, ".c-start").addEventListener("click", onStart);
 
   return {
-    show(bitmap, next, focal35Mm) {
+    show(bitmap, next, nextTone, focal35Mm) {
       window.clearTimeout(nudgeIdle);
       nudging = false;
       selected = null;
       photo = { width: bitmap.width, height: bitmap.height };
       cleanup = next;
+      tone = nextTone;
+      for (const show of toneInputs) show();
       focal = focal35Mm;
       turnedFrom = null;
       turn.value = "0";
@@ -258,6 +310,7 @@ export function mountCleanupPanel(controls: HTMLElement, figure: HTMLElement, on
       draw();
     },
     cleanup: () => cleanup,
+    tone: () => tone,
     cleanedUp,
   };
 }

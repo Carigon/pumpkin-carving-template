@@ -839,6 +839,7 @@ describe("hand-trace editor: zoom and pan", () => {
   it("draws the symmetry axis down the page's middle", () => {
     const editor = blankPage();
     const { page, axis } = editor.drawn();
+    if (!axis) throw new Error("no axis drawn");
     expect(axis.from.x).toBeCloseTo(page.x + page.width / 2, 9);
     expect(axis.to.x).toBeCloseTo(page.x + page.width / 2, 9);
     expect([axis.from.y, axis.to.y].sort((a, b) => a - b)).toEqual([page.y, page.y + page.height]);

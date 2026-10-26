@@ -6,6 +6,7 @@ import {
   exifFocal35Mm,
   isFrame,
   moveCorner,
+  photoPage,
   rotateFrame,
   START_FRAME,
   turnFrame,
@@ -56,6 +57,13 @@ describe("the cleanup frame: the homography and output size", () => {
       expect(p.x).toBeCloseTo(expected[i][0], 6);
       expect(p.y).toBeCloseTo(expected[i][1], 6);
     });
+  });
+
+  it("a hand-trace's design space over the cleaned-up photo is one unit wide, with the photo's shape", () => {
+    const portrait = cornersAt([1000, 300], [2400, 300], [2400, 2700], [1000, 2700]);
+    const page = photoPage(cleanUp({ corners: portrait, aspect: "a4" }, PHOTO));
+    expect(page.width).toBe(1);
+    expect(page.height).toBeCloseTo(297 / 210, 3);
   });
 });
 
