@@ -14,7 +14,6 @@ import {
   type Side,
   type XY,
 } from "./curves";
-import { carried } from "./carry";
 import type { HandTraceRecord, Page, Point, Shape } from "./model";
 import { loopsPathData, pathData } from "./pathData";
 import {
@@ -28,6 +27,7 @@ import {
   type PointAsDrawn,
 } from "./symmetry";
 import { copy, createEditor, type Drag, type Selection, type State } from "./context";
+import { createHistory, type Steps } from "./history";
 import { placeLoupe, type Loupe } from "./loupe";
 import { fitScale, fitView, pinchZoom, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
 
@@ -295,8 +295,6 @@ const RETRACT_PX = 10;
 const CURVE_PIECES = 16;
 /** A symmetric shape enclosing no more than this, as a fraction of the page's area, encloses none: it's deleted. */
 const NO_AREA = 1e-12;
-/** Undo steps kept; older ones are dropped. */
-const UNDO_LIMIT = 200;
 /** How much + and − zoom, as the Blueprint view's zoom buttons do. */
 const KEY_ZOOM_STEP = 1.25;
 /** How far an arrow key nudges, in screen px, and with Shift (Cleanup's frame corners too). */
@@ -366,24 +364,16 @@ type TapAction =
   | { do: "nothing" };
 
 /** Everything a tap may change, kept so a double-tap can take the tap back. */
-interface Before {
+interface Before extends Steps {
   state: State;
-  undo: State[];
-  redo: State[];
   selection: Selection | null;
   nextId: number;
 }
 
 export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): HandTrace<C> {
-  const cleanups = options.cleanup;
   const ed = createEditor(options);
-  /**
-   * A run of live cleanup changes under way: the state before it, which every change in the run is carried from and
-   * which the `Design` and the record still show; null with none.
-   */
-  let reframing: { from: State } | null = null;
-  const undoStack: State[] = [];
-  let redoStack: State[] = [];
+  const history = createHistory(ed, options.cleanup);
+  const { committed, change, changeCleanup, endReframing, undo, redo } = history;
   /** The record last handed out, and what it was made from. */
   let recordOf: { state: State; finished: boolean; symmetry: boolean; record: HandTraceRecord } | null = null;
   /** The shapes `design` was last worked out from, and the result. */
@@ -407,8 +397,6 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     selection: Selection | null;
   } | null = null;
 
-  /** The state the `Design` and the record show: the one before a run of live cleanup changes, while there's one. */
-  const committed = () => reframing?.from ?? ed.state;
   // SVG space is y down: flip on the way out, as the loader flips back.
   const closedPathData = () => {
     const { shapes, page: under } = committed();
@@ -431,44 +419,6 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
       designOf = { shapes, design: made && mirrored ? aboutAxis(made, under.width / 2) : made };
     }
     return designOf.design;
-  };
-
-  /**
-   * A cleanup change: the shapes carried from the state before any live run under way, onto `cleanup`'s page.
-   * Live, it's shown; released, it's one undo step from that state, unless it's that state's own cleanup.
-   */
-  const changeCleanup = (cleanup: C, live: boolean) => {
-    if (!cleanups) return;
-    const from = committed();
-    const map = cleanups.carry(from.cleanup as C, cleanup);
-    const to = cleanups.page(cleanup);
-    const shapes = from.shapes.map((s) => carried(s, map, to.width / 2));
-    const next = { ...from, shapes, page: to, cleanup };
-    ed.drag = null;
-    if (live) {
-      reframing = { from };
-      return ed.setState(next);
-    }
-    reframing = null;
-    ed.setState(from);
-    if (cleanup !== from.cleanup) change(next);
-  };
-  /** A live cleanup run something else interrupts: it stands as it got, as one undo step. */
-  const endReframing = () => {
-    if (!reframing) return;
-    undoStack.push(reframing.from);
-    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
-    redoStack = [];
-    reframing = null;
-  };
-  /** Make a change to the shapes, as one undo step. A move under way is dropped: it was built on the old shapes. */
-  const change = (next: State) => {
-    endReframing();
-    ed.drag = null;
-    undoStack.push(ed.state);
-    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
-    redoStack = [];
-    ed.setState(next);
   };
 
   /**
@@ -572,16 +522,6 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     const shapes = gone ? ed.state.shapes.filter((s) => s !== shape) : ed.replace(left);
     change({ ...ed.state, shapes });
     ed.selection = null;
-  };
-
-  /**
-   * After an undo or redo from `from`: keep the selection while its shape is still there with as many points, so
-   * a point index still means the same point, and nothing is being drawn.
-   */
-  const settle = (from: State) => {
-    const find = (shapes: readonly Shape[]) => ed.selection && shapes.find((s) => s.id === ed.selection?.shape);
-    const [was, now] = [find(from.shapes), find(ed.state.shapes)];
-    if (!was || !now || was.points.length !== now.points.length || ed.state.drawing !== null) ed.selection = null;
   };
 
   /**
@@ -807,7 +747,7 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
 
   /** A tap, kept so that a double-tap straight after it can take it back. */
   const firstTap = (at: ScreenPoint) => {
-    const before: Before = { state: ed.state, undo: [...undoStack], redo: [...redoStack], selection: ed.selection, nextId: ed.nextId };
+    const before: Before = { state: ed.state, ...history.steps(), selection: ed.selection, nextId: ed.nextId };
     const hit = pointOrHandleAt(at);
     const point = hit?.kind === "point" ? { shape: hit.shape.id, index: hit.index } : null;
     tap(at);
@@ -825,8 +765,8 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
     if (!first?.point || first.state !== ed.state || first.selection !== ed.selection) return tap(at);
     const { before } = first;
     ed.setState(before.state);
-    [ed.selection, ed.nextId, redoStack] = [before.selection, before.nextId, [...before.redo]];
-    undoStack.splice(0, undoStack.length, ...before.undo);
+    [ed.selection, ed.nextId] = [before.selection, before.nextId];
+    history.restore(before);
     const hit = pointAt(at)?.hit;
     if (hit?.kind !== "point" || hit.shape.id !== first.point.shape || hit.index !== first.point.index) {
       tap(first.at);
@@ -982,26 +922,6 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
   };
 
 
-  const undo = () => {
-    endReframing();
-    const prev = ed.finished ? undefined : undoStack.pop();
-    if (!prev) return;
-    ed.drag = null;
-    const from = ed.state;
-    redoStack.push(ed.state);
-    ed.setState(prev);
-    settle(from);
-  };
-  const redo = () => {
-    endReframing();
-    const next = ed.finished ? undefined : redoStack.pop();
-    if (!next) return;
-    ed.drag = null;
-    const from = ed.state;
-    undoStack.push(ed.state);
-    ed.setState(next);
-    settle(from);
-  };
 
   /**
    * A touch hold: on a point or insert marker, a drag of it. Otherwise, where a tap would place a point (while
@@ -1094,8 +1014,8 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
       return ok;
     };
     if (ctrl) {
-      if (lower === "z" && !shift) return can(undoStack.length > 0, undo);
-      if ((lower === "z" && shift) || lower === "y") return can(redoStack.length > 0, redo);
+      if (lower === "z" && !shift) return can(history.can().undo, undo);
+      if ((lower === "z" && shift) || lower === "y") return can(history.can().redo, redo);
       return false;
     }
     if (k === "Enter") {
@@ -1250,7 +1170,7 @@ export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): Hand
       pill: pill(),
       markers: markers(shapes).map((m) => screen(m.at)),
       note: open === 0 ? null : `${open} ${open === 1 ? "shape isn't" : "shapes aren't"} closed and won't be carved`,
-      can: { undo: undoStack.length > 0, redo: redoStack.length > 0, clear: ed.state.shapes.length > 0 },
+      can: { ...history.can(), clear: ed.state.shapes.length > 0 },
       tools: !ed.finished,
       symmetry: ed.symmetry,
       warnings: {
