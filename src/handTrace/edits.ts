@@ -15,6 +15,9 @@ const RETRACT_PX = 10;
 /** A symmetric shape enclosing no more than this, as a fraction of the page's area, encloses none: it's deleted. */
 const NO_AREA = 1e-12;
 
+/** What each command does to the shapes and the selection. */
+export type Edits = ReturnType<typeof createEdits>;
+
 /** The edit rules on `ed`'s shapes; each change is one undo step in `history`. */
 export function createEdits(ed: Editor, history: Pick<History, "change">, hits: Pick<Hits, "knobs">) {
   const { change } = history;

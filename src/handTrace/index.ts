@@ -2,11 +2,9 @@
  * The hand-trace editor's public interface: the only way in from outside `src/handTrace` (ADR 0001). No DOM, no
  * packages, the core only through its index.
  */
+export { ARROWS, NUDGE_PX, SHIFT_NUDGE_PX } from "./dispatch";
 export {
-  ARROWS,
   createHandTrace,
-  NUDGE_PX,
-  SHIFT_NUDGE_PX,
   type Drawn,
   type HandTrace,
   type HandTraceCleanup,
