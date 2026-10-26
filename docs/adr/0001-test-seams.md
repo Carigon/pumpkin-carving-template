@@ -74,9 +74,10 @@ sequences, `test/hand-trace-properties.test.ts`; outlines are compared by `test/
 - Tests that read SVG text (the SVG loader, Edit as hand-trace, the hand-trace file) run in jsdom, set per file;
   every other test runs in Node.
 - Rendering (pdf-lib drawing beyond "it produces a valid document"), the Three.js preview, Potrace
-  itself and DOM wiring stay untested automatically, as do IndexedDB, the canvas that shrinks a photo, and drawing
-  warning marks. The manual checks (the printed basketball grid; a hand-trace on a real phone and on a desktop) are
-  listed in `docs/manual-checks.md`.
+  itself and DOM wiring stay untested automatically, as do the hand-trace canvas's SVG drawing, the loupe's pixels,
+  IndexedDB, the canvas that shrinks a photo, the worker plumbing, the tone filter and drawing warning marks. The
+  manual checks (the printed basketball grid; a hand-trace on a real phone and on a desktop; printing and carving one
+  design) are listed in [`docs/manual-checks.md`](../manual-checks.md).
 
 ## Consequences
 
