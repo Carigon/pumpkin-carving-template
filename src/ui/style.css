@@ -570,6 +570,23 @@ body {
   line-height: 1.35;
 }
 
+/* A button that reads as a link inside a line of text, e.g. "Download SVG" in the "won't keep your work" hint
+   (specific enough to undo card buttons' padding). */
+.controls .card .link-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.controls .card .link-button[hidden] {
+  display: none;
+}
+
 /* "more": the full detail behind a short hint. The link follows the short text; open, it reads "less" and the
    detail follows on the lines below. */
 .more {

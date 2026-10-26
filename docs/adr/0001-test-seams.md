@@ -20,9 +20,12 @@ the Paper view's geometry `paperView` (`test/paper-view.test.ts`), the Blueprint
 values, `typeRingHeight`, `typeCircumference` and `typeHeight`: `test/typed-edits.test.ts`; and which of its rows a
 measurement warning marks, `placeMeasureWarnings`: `test/measure-warnings.test.ts`), and hand-tracing's gesture recognizer,
 which turns pointer events into taps, drags and wheel turns (`createGestureRecognizer` in `src/handTrace`:
-`test/gesture-recognizer.test.ts`), and the record module, which keeps the loaded design and its work across reloads
+`test/gesture-recognizer.test.ts`), the record module, which keeps the loaded design and its work across reloads
 (`createRecordKeeper`, `readRecord` and `writeRecord` in `src/designRecord.ts`, against an in-memory store:
-`test/design-record.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
+`test/design-record.test.ts`), and the hand-trace file's writer and reader with the SVG loader under it, which
+reopen a downloaded hand-trace or load a changed one as an SVG design (`writeHandTraceFile`, `readHandTraceFile` and
+`handTraceFileName` in `src/input/handTraceFile.ts`, and `readSvgDesign` in `src/input/svgDesign.ts`, in jsdom:
+`test/hand-trace-file.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).
 
 Hand-tracing (the map Hand-tracing a photo into a design, issue #4 in `Carigon/pumpkin-carving-template`) adds a
