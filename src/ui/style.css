@@ -1087,12 +1087,37 @@ body {
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
   cursor: grab;
+  /* Faded in the loupe (see `.ht-loupe use`), so the sheet's corner under the crosshair shows. */
+  opacity: var(--ht-mark-opacity, 1);
 }
 
 /* The corner the arrow keys nudge. */
 .cleanup-corner.selected {
   fill: rgb(31 127 196 / 0.55);
   stroke-width: 3;
+}
+
+/* The hand-trace's shapes over the photo during Cleanup: drawn as on the canvas, but never hit. */
+.cleanup-shape {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.cleanup-shape.closed {
+  fill: rgb(43 33 24 / 0.22);
+  fill-rule: evenodd;
+}
+
+.cleanup-shape.open {
+  stroke-dasharray: 7 5;
+}
+
+/* The photo again, inside the frame's drawing, only so the loupe magnifies it: the canvas under it shows the same. */
+.cleanup-photo-copy {
+  pointer-events: none;
 }
 
 .cleanup-overlay:focus-visible {
