@@ -36,6 +36,8 @@ export interface KeptTrace {
 
 /** What the trace panel reports. */
 export interface TraceHooks {
+  /** An auto-trace started: Potrace is running on the cleaned-up photo. */
+  onTracing(): void;
   /** An auto-trace finished (or failed, or the photo couldn't be read or cleaned up). */
   onTraced(design: Design | null, status: string, failed: boolean): void;
   /** Done or Edit was pressed. */
@@ -323,6 +325,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     if (!cleaned) return; // traced once the warp lands
     const id = ++traceId;
     const from = cleaned;
+    hooks.onTracing();
     try {
       const { traceImage } = await import("../input/traceImage"); // Potrace loads only when needed
       const result = await traceImage(from, autoTrace());
