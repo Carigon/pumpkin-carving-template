@@ -18,6 +18,7 @@ import {
   StandardFonts,
   stroke,
 } from "pdf-lib";
+import { downloadBlob } from "../ui/download";
 import type { DocumentLayout, Mark } from "./layout";
 
 /** Draw a laid-out document with pdf-lib. Vector only: paths are raw PDF path operators in points. */
@@ -66,10 +67,5 @@ function pathOperators(mark: Extract<Mark, { kind: "path" }>): PDFOperator[] {
 
 /** Offer the PDF as a download in the browser. */
 export function downloadPdf(bytes: Uint8Array, filename: string): void {
-  const url = URL.createObjectURL(new Blob([bytes.slice()], { type: "application/pdf" }));
-  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(new Blob([bytes.slice()], { type: "application/pdf" }), filename);
 }

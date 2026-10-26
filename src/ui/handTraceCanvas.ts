@@ -1,3 +1,4 @@
+import type { TemplateWarning } from "../core";
 import {
   createGestureRecognizer,
   createHandTrace,
@@ -22,6 +23,8 @@ export interface HandTraceCanvas {
   editor(): HandTrace | null;
   /** Done (true) or Edit (false): hide the tools and stop taking input, or bring them back. */
   setDone(done: boolean): void;
+  /** The core's warnings for the hand-trace's Design: its shape warnings are marked where they are. */
+  showWarnings(warnings: readonly TemplateWarning[]): void;
 }
 
 /** Grid lines across the blank page, each way: faint, so pan and zoom show. */
@@ -32,6 +35,11 @@ const END_RING_PX = 9;
 const CLOSE_RING_PX = 12;
 /** Half the insert marker's diagonal. */
 const MARKER_HALF_PX = 5;
+/** The ring round a crossing: small, so it doesn't hide the edges it marks. */
+const CROSSING_RING_PX = 7;
+/** Room between a tiny carve area and its ring, and the least ring, so a speck's ring still shows. */
+const TINY_RING_GAP_PX = 4;
+const TINY_RING_MIN_PX = 10;
 /** Decimals kept in screen coordinates. */
 const DECIMALS = 1;
 /** Canvases mounted so far, to give each drawing its own id. */
@@ -187,6 +195,11 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
       else editor?.edit();
       render();
     },
+    showWarnings(warnings) {
+      if (!editor) return;
+      editor.showWarnings(warnings);
+      draw(svg, editor.drawn(), drawingId);
+    },
   };
 }
 
@@ -210,11 +223,21 @@ function draw(svg: SVGSVGElement, drawn: Drawn, id: string): void {
   }
   parts.push(el("line", { class: "ht-axis", x1: axis.from.x, y1: axis.from.y, x2: axis.to.x, y2: axis.to.y }, DECIMALS));
   if (drawn.fill) parts.push(el("path", { class: "ht-fill", d: drawn.fill }));
+  const { warnings } = drawn;
+  for (const d of warnings.floating) parts.push(el("path", { class: "ht-warn-tint", d }));
   for (const shape of drawn.shapes) {
     const cls = ["ht-line", !shape.closed && "open", shape.drawing && "drawing", shape.selected && "selected"]
       .filter(Boolean)
       .join(" ");
     parts.push(el("path", { class: cls, d: shape.d }));
+  }
+  // Over the lines they mark, under the points so those stay plain to see.
+  for (const { x, y } of warnings.crossings) {
+    parts.push(el("circle", { class: "ht-warn-ring", cx: x, cy: y, r: CROSSING_RING_PX }, DECIMALS));
+  }
+  for (const { at, r } of warnings.tiny) {
+    const radius = Math.max(r + TINY_RING_GAP_PX, TINY_RING_MIN_PX);
+    parts.push(el("circle", { class: "ht-warn-ring", cx: at.x, cy: at.y, r: radius }, DECIMALS));
   }
   for (const p of drawn.points) {
     const { x, y } = p.at;
