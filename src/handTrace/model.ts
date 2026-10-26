@@ -33,6 +33,16 @@ export interface Shape {
   points: Point[];
 }
 
+/** A hand-trace as the stored record holds it: what a reload or a reopened hand-trace file puts back. */
+export interface HandTraceRecord {
+  /** In the order drawn. */
+  shapes: Shape[];
+  /** The id of the open shape being drawn, so a reload mid-shape carries on drawing it; null when none is. */
+  drawing: number | null;
+  /** Done was pressed (and not Edit since). */
+  done: boolean;
+}
+
 /** The photo or blank page the points are placed on, in design units (a blank page is 1 × 1). */
 export interface Page {
   width: number;

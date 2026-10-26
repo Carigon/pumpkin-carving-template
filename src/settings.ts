@@ -1,9 +1,9 @@
 import type { Units } from "./core";
 import type { Paper } from "./paper";
 import { MAX_RINGS } from "./ringEdits";
-import { STEP_IDS, stepInMode, type Mode, type StepId } from "./steps";
+import { STEP_IDS, stepInMode, VIEWS, type Mode, type StepId, type View } from "./steps";
 
-/** The inputs a returning carver gets back on reload. Never images or designs. Every length is in mm. */
+/** The inputs a returning carver gets back on reload; designs are kept elsewhere. Every length is in mm. */
 export interface Settings {
   mode: Mode;
   /** Test-grid squares across. */
@@ -28,6 +28,8 @@ export interface Settings {
   filled: boolean;
   /** The step the carver was last on. */
   step: StepId;
+  /** The view the viewport last showed. */
+  view: View;
   /** Whether deleting a ring with its × asks first (the header's settings menu, or "Don't ask again"). */
   askBeforeDeletingRing: boolean;
 }
@@ -46,6 +48,8 @@ export interface RestoredSettings {
   filled?: boolean;
   /** Always there when settings were saved: an unknown step restores to Measure. */
   step?: StepId;
+  /** Missing when unknown: the step's default view shows. */
+  view?: View;
   /** Always there when settings were saved: a missing or corrupt value restores to on. */
   askBeforeDeletingRing?: boolean;
 }
@@ -90,6 +94,7 @@ export function saveSettings(storage: SettingsStorage | undefined, s: Settings):
     paper: s.paper,
     filled: s.filled,
     step: s.step,
+    view: s.view,
     askBeforeDeletingRing: s.askBeforeDeletingRing,
   };
   try {
@@ -139,6 +144,7 @@ function validate(s: Record<string, unknown>): RestoredSettings {
     filled: typeof s.filled === "boolean" ? s.filled : undefined,
     // The app starts in pumpkin mode when the saved mode is unusable.
     step: stepInMode(oneOf(s.step, STEP_IDS) ?? "measure", mode ?? "pumpkin"),
+    view: oneOf(s.view, VIEWS),
     askBeforeDeletingRing: s.askBeforeDeletingRing !== false,
   });
 }

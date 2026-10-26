@@ -1,4 +1,5 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
+import type { DesignRecord, PhotoFile, RecordKeeper } from "../designRecord";
 import { readSvgDesign } from "../input/svgDesign";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
 import { lengthFields } from "./lengthFields";
@@ -28,19 +29,25 @@ export interface DesignPanel {
   showWarnings(warnings: TemplateWarning[]): void;
   /** Put back saved placement values (width null = empty), in mm. Doesn't call `onChange`. */
   restorePlacement(saved: Partial<{ width: number | null; verticalOffset: number; rotation: number }>): void;
+  /**
+   * Put back the kept design and its work, silently, unless the carver has loaded one meanwhile. Calls `onChange`
+   * when there was one.
+   */
+  restoreDesign(): Promise<void>;
 }
 
 /**
  * SVG upload plus placement controls: front-view width, vertical offset and rotation.
  * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. An image's crop
  * and auto-trace result go in `photoView` (the viewport's Photo view); a hand-trace on a blank page in `pageView`
- * (the Page view).
+ * (the Page view). The loaded design and the work on it are kept across reloads by `keeper` (ADR 0002).
  */
 export function mountDesignPanel(
   root: HTMLElement,
   onChange: () => void,
   photoView: HTMLElement,
   pageView: HTMLElement,
+  keeper: RecordKeeper,
 ): DesignPanel {
   root.innerHTML = `
     <form class="design" novalidate>
@@ -57,6 +64,7 @@ export function mountDesignPanel(
         <button type="button" class="trace-accept">Done</button>
         <div class="hint trace-accepted-note" hidden>Hand-trace done. Pick Page above the preview to see it again.</div>
       </div>
+      <div class="hint" id="d-not-kept" hidden>This browser won't keep your work after a reload.</div>
       </section>
       <section class="card">
       <h2>Placement</h2>
@@ -110,6 +118,29 @@ export function mountDesignPanel(
     status.textContent = text;
     status.classList.toggle("warning-text", failed);
   };
+  /** The loaded SVG design's file, until another design replaces it. */
+  let svg: { name: string; text: string } | null = null;
+  /** The loaded photo as chosen, until another design replaces it. */
+  let photo: PhotoFile | null = null;
+  /** The kept design was restored, or the carver loaded one first: from now on the work is kept. */
+  let keeping = false;
+  const notKept = $<HTMLElement>("d-not-kept");
+
+  /** The loaded design and the work on it, as the record keeps it; null with none loaded. */
+  const record = (): DesignRecord | null => {
+    const editor = handTrace.editor();
+    if (editor) return { source: "page", page: editor.page(), handTrace: editor.record() };
+    if (photo && trace.loaded()) return { source: "photo", photo, autoTrace: trace.autoTrace(), done: trace.accepted() };
+    return svg && { source: "svg", svg };
+  };
+  /** Keep the work after a finished change; once that fails, say so, quietly and for good. */
+  const keep = () => {
+    if (!keeping) return;
+    void keeper.keep(record()).then(() => {
+      notKept.hidden = keeper.keepsWork();
+    });
+  };
+
   const traceEl = $<HTMLElement>("d-trace");
   const trace = mountTracePanel(
     traceEl,
@@ -119,13 +150,22 @@ export function mountDesignPanel(
       onChange();
     },
     photoView,
-    onChange,
+    () => {
+      onChange();
+      keep();
+    },
   );
+  // A slider released, Invert ticked or a speckle size typed: a finished change to auto-trace's settings.
+  traceEl.addEventListener("change", keep);
 
-  const handTrace = mountHandTraceCanvas(pageView, () => {
-    design = handTrace.editor()?.design() ?? null;
-    onChange();
-  });
+  const handTrace = mountHandTraceCanvas(
+    pageView,
+    () => {
+      design = handTrace.editor()?.design() ?? null;
+      onChange();
+    },
+    keep,
+  );
   const handTraceEl = $<HTMLElement>("d-hand-trace");
   const handTraceAccept = handTraceEl.querySelector<HTMLButtonElement>(".trace-accept")!;
   const handTraceNote = handTraceEl.querySelector<HTMLElement>(".trace-accepted-note")!;
@@ -149,14 +189,26 @@ export function mountDesignPanel(
   };
   $<HTMLButtonElement>("d-blank").addEventListener("click", () => {
     if (!mayReplaceHandTrace()) return;
+    keeping = true;
     trace.clear();
+    [svg, photo] = [null, null];
     file.value = "";
     handTrace.startBlankPage();
     showHandTrace();
     design = null;
     showStatus(FILE_HINT, false);
     onChange();
+    keep();
   });
+
+  /** Show an SVG design read from its file; kept as that file while it reads as one. */
+  const showSvg = (name: string, text: string) => {
+    const { design: read, notes } = readSvgDesign(text);
+    design = read;
+    svg = read && { name, text };
+    const count = read ? `${read.paths.length} shape${read.paths.length === 1 ? "" : "s"} loaded.` : "";
+    showStatus([count, ...notes].filter(Boolean).join(" "), read === null);
+  };
 
   async function load() {
     const f = file.files?.[0];
@@ -165,21 +217,46 @@ export function mountDesignPanel(
       file.value = "";
       return;
     }
+    keeping = true;
     dropHandTrace();
+    [svg, photo] = [null, null];
     if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
       design = null;
       showStatus("Auto-tracing…", false);
       onChange();
+      photo = { name: f.name, type: f.type, bytes: await f.arrayBuffer() };
       await trace.load(f);
+      keep(); // The photo is written now, once; later keeps write only the work on it.
       return;
     }
     trace.clear();
-    const { design: read, notes } = readSvgDesign(await f.text());
-    design = read;
-    const count = read ? `${read.paths.length} shape${read.paths.length === 1 ? "" : "s"} loaded.` : "";
-    showStatus([count, ...notes].filter(Boolean).join(" "), read === null);
+    showSvg(f.name, await f.text());
+    onChange();
+    keep();
+  }
+
+  /** Put the kept design back as it was left: the same source, settings, shapes and Done. */
+  async function restoreDesign() {
+    const kept = await keeper.restore();
+    if (keeping) return; // The carver loaded a design while it was being read.
+    keeping = true;
+    if (!kept) return;
+    if (kept.source === "svg") showSvg(kept.svg.name, kept.svg.text);
+    else if (kept.source === "photo") {
+      photo = kept.photo;
+      const restored = new File([kept.photo.bytes], kept.photo.name, { type: kept.photo.type });
+      await trace.load(restored, { settings: kept.autoTrace, accepted: kept.done });
+    } else {
+      handTrace.startBlankPage(kept);
+      design = handTrace.editor()?.design() ?? null;
+      showHandTrace();
+    }
     onChange();
   }
+  // A phone may discard the tab once it's hidden: keep the work as it is then.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") keep();
+  });
   file.addEventListener("change", () => void load());
   rotationRange.addEventListener("input", () => {
     rotation.value = rotationRange.value;
@@ -208,6 +285,7 @@ export function mountDesignPanel(
       if (saved.verticalOffset !== undefined) lengths.set(offset, saved.verticalOffset);
       if (saved.rotation !== undefined) rotation.value = rotationRange.value = String(saved.rotation);
     },
+    restoreDesign,
     setUnits(next: Units) {
       lengths.setUnits(next);
       showWarnings();

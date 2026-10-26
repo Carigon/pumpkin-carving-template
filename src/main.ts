@@ -25,9 +25,12 @@ import {
   type MeasureState,
 } from "./measureState";
 import type { RingMeasurements } from "./ringEdits";
+import { createRecordKeeper } from "./designRecord";
+import { indexedDbStorage } from "./indexedDbStorage";
+import { shrinkPhoto } from "./input/shrinkPhoto";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
-import { stepInMode, steps, type Step, type StepId } from "./steps";
+import { stepInMode, steps, type Step, type StepId, type View } from "./steps";
 import { startBackgroundBuild, type BuildOutcome } from "./worker/backgroundBuild";
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -55,7 +58,13 @@ app.innerHTML = `
 const $ = (id: string) => app.querySelector<HTMLElement>(`#${id}`)!;
 const infoEl = $("surface-info");
 const header = mountHeader($("header"), changeMode, changeUnits, persist);
-const viewport = mountViewport($("viewport"), followHold);
+/** The view showing at the last reload, until the kept design is back to show it on (or the carver moves on). */
+let viewToRestore: View | undefined;
+const viewport = mountViewport($("viewport"), () => {
+  viewToRestore = undefined;
+  followHold();
+  persist();
+});
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
 // The measurements the form and the Blueprint view both render from and edit.
@@ -88,7 +97,13 @@ const blueprint = mountBlueprintView(viewport.blueprintView, {
   confirmDelete,
 });
 const gridPanel = mountGridPanel($("grid"), update);
-const designPanel = mountDesignPanel($("design"), update, viewport.photoView, viewport.pageView);
+const designPanel = mountDesignPanel(
+  $("design"),
+  update,
+  viewport.photoView,
+  viewport.pageView,
+  createRecordKeeper(indexedDbStorage(), shrinkPhoto),
+);
 const slitPanel = mountSlitPanel($("slits"), update);
 const exportPanel = mountExportPanel($("export"), () => header.units(), changePaper);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs
@@ -121,9 +136,17 @@ let built: ExportSource | null = null;
 restore();
 showUnits();
 syncMode();
-enterStep();
+enterStep(viewToRestore);
 update();
 measures.subscribe(followMeasures);
+// The kept design comes back silently, then the view it was on (the Photo or Page view needs it loaded).
+void designPanel.restoreDesign().then(() => {
+  if (!viewToRestore) return;
+  enterStep(viewToRestore);
+  viewToRestore = undefined;
+  followHold();
+  persist();
+});
 
 /** Put back the last-used settings (lengths in mm; the display units go to the header). */
 function restore(): void {
@@ -139,9 +162,10 @@ function restore(): void {
   slitPanel.restore(saved.slits ?? {}, saved.cut);
   exportPanel.restore(saved);
   if (saved.step) step = saved.step;
+  viewToRestore = saved.view;
 }
 
-/** Remember the current settings (never the design). */
+/** Remember the current settings (the design is kept by the design panel). */
 function persist(): void {
   const m = measures.get().measurements;
   const p = designPanel.placement();
@@ -161,6 +185,8 @@ function persist(): void {
     cut: slitPanel.cut(),
     ...exportPanel.options(),
     step,
+    // Until the kept design is back, the view it was on still counts as the one showing.
+    view: viewToRestore ?? viewport.current(),
     askBeforeDeletingRing: header.askBeforeDeletingRing(),
   });
 }
@@ -179,6 +205,7 @@ function stepList(): Step[] {
 /** A tab or Back/Next picked a step. */
 function goTo(next: StepId): void {
   step = next;
+  viewToRestore = undefined;
   enterStep();
   persist();
   followHold();
@@ -197,11 +224,11 @@ function followHold(): void {
   if (buildHeld() !== lastHeld) update();
 }
 
-/** Show the current step's tab and panel, and switch the viewport to its default view. */
-function enterStep(): void {
+/** Show the current step's tab and panel, and switch the viewport to `view` if the step offers it, else its default. */
+function enterStep(view?: View): void {
   const list = stepList();
   renderTabs(list);
-  viewport.enter(list.find((s) => s.id === step)!);
+  viewport.enter(list.find((s) => s.id === step)!, view);
 }
 
 /**
