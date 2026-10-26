@@ -16,7 +16,9 @@
  * - C "Whole shape + pill": every handle on the selected shape, point or shape selected; a "+ Handles" pill action
  *   gives a corner handles along its edges, to drag from there.
  * ⚙ also sets hit priority between handles and points, the loupe on handle drags, and the double-tap window.
- * "∿ Curves" beside Symmetry makes placed points smooth. "Demo" in the bar loads curved shapes as if imported (a round
+ * B was chosen. Placed points are always corners (a "Curves" setting placing smooth points was tried and dropped: the
+ * shape isn't known until it's closed). ⚙ "New point on a curve" swaps inserting a smooth point that splits the curve
+ * exactly for a corner with no handles. "Demo" in the bar loads curved shapes as if imported (a round
  * eye, a crescent with corner tips, a symmetric smile) to try the handles on straight away. Shapes are drawn with
  * corner points as squares and smooth points as circles.
  *
@@ -135,6 +137,7 @@ interface TapRecord {
 type Show = "point" | "neighbours" | "shape";
 type Pull = "smooth" | "stub" | "pill";
 type Priority = "nearest" | "handles" | "points";
+type Split = "smooth" | "corner";
 interface Tuning {
   /** Hit radius on screen, px. */
   hit: number;
@@ -150,6 +153,8 @@ interface Tuning {
   pull: Pull;
   /** Which wins when a handle and a point are both in reach. */
   priority: Priority;
+  /** A point inserted on a curve: smooth, splitting it exactly, or a corner without handles. */
+  split: Split;
   /** The loupe on handle drags. */
   hloupe: boolean;
   /** Double-tap window, ms; 0 turns double-tap off. */
@@ -166,6 +171,7 @@ const KEYS = Object.keys(VARIANTS) as VariantKey[];
 const SHOWS: readonly Show[] = ["point", "neighbours", "shape"];
 const PULLS: readonly Pull[] = ["smooth", "stub", "pill"];
 const PRIORITIES: readonly Priority[] = ["nearest", "handles", "points"];
+const SPLITS: readonly Split[] = ["smooth", "corner"];
 const SIDES: readonly Side[] = ["in", "out"];
 const DEFAULTS = { hit: 22, zoom: 3, hold: 300, loupe: 130, priority: "nearest" as Priority, dbl: 300 };
 const SLOP = 9;
@@ -208,7 +214,7 @@ function setOff(a: Anchor, side: Side, o: Pt | undefined): void {
 export function mountHandTracePrototype(root: HTMLElement): void {
   injectStyle();
   const params = new URLSearchParams(location.search);
-  let variant: VariantKey = KEYS.find((k) => k === params.get("variant")) ?? "A";
+  let variant: VariantKey = KEYS.find((k) => k === params.get("variant")) ?? "B";
   const pick = <T extends string>(key: string, options: readonly T[], fallback: T): T =>
     options.find((o) => o === params.get(key)) ?? fallback;
   const tuning: Tuning = {
@@ -219,6 +225,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     show: pick("show", SHOWS, VARIANTS[variant].show),
     pull: pick("pull", PULLS, VARIANTS[variant].pull),
     priority: pick("priority", PRIORITIES, DEFAULTS.priority),
+    split: pick("split", SPLITS, "smooth"),
     hloupe: params.get("hloupe") !== "0",
     dbl: params.has("dbl") ? Number(params.get("dbl")) : DEFAULTS.dbl,
     showHits: params.get("showHits") === "1",
@@ -268,7 +275,6 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   let drawingId: number | null = null;
   let selection: Selection = null;
   let symmetry = false;
-  let curves = params.get("curves") === "1";
   let undoStack: string[] = [];
   let redoStack: string[] = [];
   const logLines: string[] = [];
@@ -456,7 +462,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   }
 
   function placePoint(p: Pt, snapped: boolean, how: string): void {
-    change(`${how} → place ${curves ? "smooth" : "corner"} point`, () => {
+    change(`${how} → place point`, () => {
       let s = drawing();
       if (!s) {
         s = { id: nextId++, points: [], closed: false, mirror: symmetry ? "twin" : "none" };
@@ -464,7 +470,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
         drawingId = s.id;
         logLines.unshift(`new shape #${s.id}${symmetry ? " (mirrored)" : ""}`);
       }
-      s.points.push({ ...p, kind: curves ? "smooth" : "corner" });
+      s.points.push({ ...p, kind: "corner" });
       const offAxis = s.points.some((q) => !onAxis(q));
       if (s.mirror !== "none" && snapped && s.points.length >= 3 && onAxis(s.points[0]) && offAxis) {
         s.mirror = "symmetric";
@@ -513,7 +519,12 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     log(`${how} → carry on #${s.id}`);
     renderAll();
   }
-  /** Split source segment `k` (ending at point k, or the closing one when k = n) at its middle, exactly. */
+  /**
+   * Split source segment `k` (ending at point k, or the closing one when k = n) at its middle. With ⚙ split
+   * "smooth", exactly: the new point is smooth and the outline doesn't move. With "corner", the new point is a
+   * corner with no handles at the curve's middle, and the neighbours keep their exact-split handles, so each half
+   * bends at its outer end only.
+   */
   function splitAt(s: Shape, k: number): number {
     const n = s.points.length;
     const [i, j] = [k - 1, k % n];
@@ -533,7 +544,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     freeze(s, j);
     setOff(A, "out", sub(p01, a));
     setOff(B, "in", sub(p23, b));
-    s.points.splice(k, 0, { ...m, kind: "smooth", in: sub(p012, m), out: sub(p123, m) });
+    s.points.splice(k, 0, tuning.split === "smooth" ? { ...m, kind: "smooth", in: sub(p012, m), out: sub(p123, m) } : { ...m, kind: "corner" });
     return k;
   }
   /** Smooth ⇄ Corner, by the rules of "Curves in v1". */
@@ -1190,7 +1201,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     const d = drawing();
     if (preview) {
       if (d?.points.length) {
-        const temp: Shape = { ...d, points: [...d.points, { ...preview, kind: curves ? "smooth" : "corner" }] };
+        const temp: Shape = { ...d, points: [...d.points, { ...preview, kind: "corner" }] };
         for (const o of geometry(temp).outlines)
           out.push(`<path class="ht-band" d="${pathOf(o, map, Math.max(0, d.points.length - 2))}"/>`);
       }
@@ -1298,7 +1309,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     } else if (selection?.kind === "shape") pill = btn("delete", "Delete shape") + btn("deselect", "✓");
     else pill = `<span class="ht-pill-text">Tap to place · hold for loupe · double-tap a point to curve it</span>`;
     const html = `<div class="ht-b-tl">${btn("undo", "↶", can.undo, "icon")}${btn("redo", "↷", can.redo, "icon")}</div>
-      <div class="ht-b-tr">${btn("sym", "⇋ Sym", true, symmetry ? "on" : "")}${btn("curves", "∿ Curves", true, curves ? "on" : "")}${btn("clear", "Clear", can.clear)}</div>
+      <div class="ht-b-tr">${btn("sym", "⇋ Symmetry", true, symmetry ? "on" : "")}${btn("clear", "Clear", can.clear)}</div>
       <div class="ht-pill">${pill}</div>`;
     if (html !== uiKey) {
       uiKey = html;
@@ -1333,11 +1344,11 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       };
       selText = `point ${i} of #${s.id}: ${a.kind}${own ? " on the axis" : ""} · ${fmt("in")} · ${fmt("out")}`;
     }
-    const short = `${curves ? "curves" : "corners"} · ${shapes.length} shape${shapes.length === 1 ? "" : "s"} (${shapes.length - closed} open) · last: ${logLines[0] ?? "—"}`;
+    const short = `${shapes.length} shape${shapes.length === 1 ? "" : "s"} (${shapes.length - closed} open) · last: ${logLines[0] ?? "—"}`;
     if (!showDetail) return void (stateEl.textContent = short);
     const lines = [
       `variant ${variant} · show ${tuning.show} · pull ${tuning.pull} · priority ${tuning.priority} · zoom ${(view.s / fitScale()).toFixed(1)}×`,
-      `symmetry ${symmetry ? "on" : "off"} · curves ${curves ? "on" : "off"} · drawing: ${d ? `#${d.id}, ${d.points.length} pts` : "none"}`,
+      `symmetry ${symmetry ? "on" : "off"} · split ${tuning.split} · drawing: ${d ? `#${d.id}, ${d.points.length} pts` : "none"}`,
       `selected: ${selText}`,
       `undo ${undoStack.length} · redo ${redoStack.length} · hit ${tuning.hit}px · double-tap ${tuning.dbl ? `${tuning.dbl}ms` : "off"}`,
       ...shapes.map(
@@ -1359,11 +1370,6 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       case "sym":
         symmetry = !symmetry;
         log(`Symmetry ${symmetry ? "on" : "off"} (next shape)`);
-        return renderAll();
-      case "curves":
-        curves = !curves;
-        setParam("curves", curves ? "1" : null);
-        log(`Curves ${curves ? "on: points placed smooth" : "off: points placed as corners"}`);
         return renderAll();
       case "undo":
         return undo("↶ button");
@@ -1450,7 +1456,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     const range = (key: "hit" | "zoom" | "hold" | "loupe" | "dbl", label: string, min: number, max: number, step: number) =>
       `<label>${label} <output data-out="${key}">${tuning[key]}</output>
         <input type="range" data-tune="${key}" min="${min}" max="${max}" step="${step}" value="${tuning[key]}" /></label>`;
-    const select = (key: "show" | "pull" | "priority", label: string, options: [string, string][]) =>
+    const select = (key: "show" | "pull" | "priority" | "split", label: string, options: [string, string][]) =>
       `<label>${label} <select data-tune="${key}">${options
         .map(([v, text]) => `<option value="${v}"${tuning[key] === v ? " selected" : ""}>${text}</option>`)
         .join("")}</select></label>`;
@@ -1458,6 +1464,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       ${select("show", "Handles shown", [["point", "selected point's only"], ["neighbours", "+ neighbours' on its edges"], ["shape", "whole selected shape"]])}
       ${select("pull", "Handle out of a corner", [["smooth", "Smooth, then Corner"], ["stub", "stubs on the selected corner"], ["pill", "+ Handles in the pill"]])}
       ${select("priority", "Handle vs point in reach", [["nearest", "nearest wins"], ["handles", "handle wins"], ["points", "point wins"]])}
+      ${select("split", "New point on a curve", [["smooth", "smooth, splits it exactly"], ["corner", "corner, no handles"]])}
       <label class="check"><input type="checkbox" data-tune="hloupe" ${tuning.hloupe ? "checked" : ""}/> Loupe on handle drags</label>
       ${range("dbl", "Double-tap window (ms, 0 = off)", 0, 600, 50)}
       ${range("hit", "Hit radius (px)", 10, 36, 1)}
@@ -1475,6 +1482,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     if (key === "show") v = tuning.show = el.value as Show;
     else if (key === "pull") v = tuning.pull = el.value as Pull;
     else if (key === "priority") v = tuning.priority = el.value as Priority;
+    else if (key === "split") v = tuning.split = el.value as Split;
     else if (key === "hloupe") {
       tuning.hloupe = (el as HTMLInputElement).checked;
       v = tuning.hloupe ? null : "0";
@@ -1494,7 +1502,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
   });
   tuneEl.addEventListener("click", (e) => {
     if (!(e.target as HTMLElement).closest("[data-tune-reset]")) return;
-    for (const k of ["hit", "zoom", "hold", "loupe", "dbl", "show", "pull", "priority", "hloupe", "showHits"]) setParam(k, null);
+    for (const k of ["hit", "zoom", "hold", "loupe", "dbl", "show", "pull", "priority", "split", "hloupe", "showHits"]) setParam(k, null);
     location.reload();
   });
 
