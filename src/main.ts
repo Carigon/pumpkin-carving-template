@@ -54,7 +54,7 @@ app.innerHTML = `
 const $ = (id: string) => app.querySelector<HTMLElement>(`#${id}`)!;
 const infoEl = $("surface-info");
 const header = mountHeader($("header"), changeMode, changeUnits, persist);
-const viewport = mountViewport($("viewport"));
+const viewport = mountViewport($("viewport"), followHold);
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
 // The measurements the form and the Blueprint view both render from and edit.
@@ -87,7 +87,7 @@ const blueprint = mountBlueprintView(viewport.blueprintView, {
   confirmDelete,
 });
 const gridPanel = mountGridPanel($("grid"), update);
-const designPanel = mountDesignPanel($("design"), update, viewport.photoView);
+const designPanel = mountDesignPanel($("design"), update, viewport.photoView, viewport.pageView);
 const slitPanel = mountSlitPanel($("slits"), update);
 const exportPanel = mountExportPanel($("export"), () => header.units(), changePaper);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs
@@ -103,6 +103,9 @@ let step: StepId = "measure";
 /** Whether an image is being traced and whether one is loaded, as last seen by `followTrace` (none at start). */
 let lastTracing = false;
 let lastHasImage = false;
+let lastHasPage = false;
+/** Whether `update` last held the slow template build back (the hand-trace canvas was showing). */
+let lastHeld = false;
 /** The warnings showing now, for the step tabs' badges. */
 let warnings: TemplateWarning[] = [];
 /** The fitted surface showing now (null: the measurements are impossible), for its size in the display units. */
@@ -163,7 +166,13 @@ function persist(): void {
 
 /** The steps for the current mode, design and warnings, from the step model. */
 function stepList(): Step[] {
-  return steps({ mode: header.mode(), tracing: designPanel.tracing(), hasImage: designPanel.hasImage(), warnings });
+  return steps({
+    mode: header.mode(),
+    tracing: designPanel.tracing(),
+    hasImage: designPanel.hasImage(),
+    hasPage: designPanel.hasPage(),
+    warnings,
+  });
 }
 
 /** A tab or Back/Next picked a step. */
@@ -171,6 +180,20 @@ function goTo(next: StepId): void {
   step = next;
   enterStep();
   persist();
+  followHold();
+}
+
+/**
+ * The slow template build is held while the hand-trace canvas is showing (the Page view, not Done), so tracing
+ * doesn't drain a phone's battery. It runs once the carver leaves that view or presses Done.
+ */
+function buildHeld(): boolean {
+  return viewport.current() === "page" && designPanel.tracing();
+}
+
+/** The view changed: build the template now if leaving the hand-trace canvas released it. */
+function followHold(): void {
+  if (buildHeld() !== lastHeld) update();
 }
 
 /** Show the current step's tab and panel, and switch the viewport to its default view. */
@@ -181,16 +204,18 @@ function enterStep(): void {
 }
 
 /**
- * Follow the image design: loading an image, accepting its trace or going back to adjust it changes what
- * the viewport offers. On Design that re-enters the step (Trace while tracing, else 3D); on another step it
+ * Follow the photo or blank page: loading one, pressing Done or going back to Edit changes what the viewport
+ * offers. On Design that re-enters the step (the Photo or Page view while tracing, else 3D); on another step it
  * only updates the switcher, keeping the view the carver picked if it's still available.
  */
 function followTrace(): void {
   const tracing = designPanel.tracing();
   const hasImage = designPanel.hasImage();
-  if (tracing === lastTracing && hasImage === lastHasImage) return;
+  const hasPage = designPanel.hasPage();
+  if (tracing === lastTracing && hasImage === lastHasImage && hasPage === lastHasPage) return;
   lastTracing = tracing;
   lastHasImage = hasImage;
+  lastHasPage = hasPage;
   const current = stepList().find((s) => s.id === step)!;
   if (step === "design") viewport.enter(current);
   else viewport.offer(current);
@@ -274,6 +299,8 @@ function update(): void {
   const cut = slitPanel.cut();
   const input = { measurements, design, placement, slits, margin: cut.margin };
   const quick = builder.preview(input);
+  // The hand-trace's open shapes (null without one): not in the design, so the 3D view says they aren't carved.
+  const open = ball ? null : designPanel.openShapes();
   showWarnings(quick.warnings);
   surface = quick.surface;
   renderSurfaceInfo(infoEl, surface, header.units());
@@ -281,11 +308,23 @@ function update(): void {
   if (!quick.surface) {
     viewport.setPlaceholder("Fix the measurements in the Measure step to see the pumpkin.");
     paper.empty("Fix the measurements in the Measure step to see the template.");
+  } else if (!quick.design && open !== null) {
+    viewport.setPlaceholder(
+      ["Close a shape in the Page view to see it on the pumpkin.", openNote(open)].filter(Boolean).join(" "),
+      "note",
+    );
+    paper.empty("Close a shape in the Page view to see the template.");
   } else if (!quick.design) {
     viewport.setPlaceholder("Load a design in the Design step to see it on the pumpkin.", "note");
     paper.empty("Load a design in the Design step to see the template.");
-  } else viewport.setPlaceholder(null);
-  if (quick.surface && quick.design) {
+  } else viewport.setPlaceholder(openNote(open) || null, "note");
+  lastHeld = buildHeld();
+  if (quick.surface && quick.design && lastHeld) {
+    // Held while the hand-trace canvas shows: the template catches up when the carver leaves it or presses Done.
+    background.cancel();
+    viewport.setStatus(null);
+    exportPanel.setUpdating();
+  } else if (quick.surface && quick.design) {
     pending = {
       surface: quick.surface,
       measurements,
@@ -306,6 +345,12 @@ function update(): void {
     exportPanel.setSource(null);
   }
   persist();
+}
+
+/** The 3D view's note about open shapes, or "" with none. */
+function openNote(open: number | null): string {
+  if (!open) return "";
+  return open === 1 ? "1 open shape isn't carved." : `${open} open shapes aren't carved.`;
 }
 
 function showWarnings(next: TemplateWarning[]): void {

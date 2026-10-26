@@ -1,9 +1,10 @@
 {
-  // The core is pure geometry: type-check it without the DOM, so a stray `document` or `window` fails.
+  // The core and the hand-trace editor are pure: type-check them without the DOM, so a stray `document` or `window`
+  // fails.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2022"],
     "types": []
   },
-  "include": ["src/core"]
+  "include": ["src/core", "src/handTrace"]
 }

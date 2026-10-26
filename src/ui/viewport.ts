@@ -11,6 +11,8 @@ export interface Viewport {
   readonly canvas: HTMLCanvasElement;
   /** The Photo view's element, where the trace panel puts the crop image and the auto-trace result. */
   readonly photoView: HTMLElement;
+  /** The Page view's element, where the hand-trace canvas draws a blank page's points. */
+  readonly pageView: HTMLElement;
   /** The Blueprint view's element, where the pumpkin's profile is drawn flat against a ruler. */
   readonly blueprintView: HTMLElement;
   /** The Paper view's element, where the flat template is drawn on its pages. */
@@ -26,6 +28,8 @@ export interface Viewport {
    * keep the view the carver picked, unless it's no longer available, when the step's default view shows.
    */
   offer(step: Step): void;
+  /** The view showing now. */
+  current(): View;
 }
 
 /** The switcher's label for each view, in the order the switcher lists them. */
@@ -33,6 +37,7 @@ const VIEW_LABELS: Record<View, string> = {
   "3d": "3D",
   blueprint: "Blueprint",
   photo: "Photo",
+  page: "Page",
   paper: "Paper",
 };
 
@@ -42,9 +47,10 @@ const VIEW_LABELS: Record<View, string> = {
  * group) picks any other view the step offers. To add a view: add it to `View`, `VIEW_LABELS` and the markup.
  *
  * The 3D view carries a compact color legend (with the detail behind a "more" disclosure) and a placeholder
- * for when there's nothing to draw. The status badge sits over the whole pane, whichever view shows.
+ * for when there's nothing to draw. The status badge sits over the whole pane, whichever view shows. `onPick` is
+ * called when the carver picks a view in the switcher (not when a step switches it).
  */
-export function mountViewport(root: HTMLElement): Viewport {
+export function mountViewport(root: HTMLElement, onPick: () => void): Viewport {
   root.classList.add("viewport");
   root.setAttribute("aria-label", "Preview");
   root.innerHTML = `
@@ -72,6 +78,7 @@ export function mountViewport(root: HTMLElement): Viewport {
     </div>
     <div class="view view-blueprint" data-view="blueprint"></div>
     <div class="view view-photo" data-view="photo"></div>
+    <div class="view view-page" data-view="page"></div>
     <div class="view view-paper" data-view="paper"></div>
     <div class="view-switcher" role="radiogroup" aria-label="View" hidden></div>
     <div class="status-badge" role="status" hidden></div>
@@ -100,7 +107,11 @@ export function mountViewport(root: HTMLElement): Viewport {
         radio.type = "radio";
         radio.name = "viewport-view";
         radio.value = view;
-        radio.addEventListener("change", () => radio.checked && show(view));
+        radio.addEventListener("change", () => {
+          if (!radio.checked) return;
+          show(view);
+          onPick();
+        });
         label.append(radio, VIEW_LABELS[view]);
         return label;
       }),
@@ -113,6 +124,7 @@ export function mountViewport(root: HTMLElement): Viewport {
   return {
     canvas: root.querySelector<HTMLCanvasElement>(".preview-canvas")!,
     photoView: views.photo,
+    pageView: views.page,
     blueprintView: views.blueprint,
     paperView: views.paper,
     setStatus(text) {
@@ -132,5 +144,6 @@ export function mountViewport(root: HTMLElement): Viewport {
       renderSwitcher(step);
       show(step.views.includes(current) ? current : step.defaultView);
     },
+    current: () => current,
   };
 }

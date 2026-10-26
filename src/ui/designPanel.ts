@@ -1,5 +1,6 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
 import { readSvgDesign } from "../input/svgDesign";
+import { mountHandTraceCanvas } from "./handTraceCanvas";
 import { lengthFields } from "./lengthFields";
 import { mountTracePanel } from "./tracePanel";
 import { renderWarnings } from "./warnings";
@@ -7,14 +8,20 @@ import { renderWarnings } from "./warnings";
 /** In mm; centered. */
 const DEFAULTS_MM = { width: 150, verticalOffset: 0 };
 const MAX_ROTATION = 30;
+/** The file input's hint, shown until a file's status replaces it. */
+const FILE_HINT = "Photos never leave your browser.";
 
 export interface DesignPanel {
   design(): Design | null;
   placement(): Placement;
-  /** An image design is loaded and still being traced (the carver hasn't accepted the trace). */
+  /** A photo or a blank page is loaded and still being traced (the carver hasn't pressed Done). */
   tracing(): boolean;
   /** An image design is loaded, being traced or with its trace accepted. */
   hasImage(): boolean;
+  /** A hand-trace on a blank page is loaded, being traced or Done. */
+  hasPage(): boolean;
+  /** How many of the hand-trace's shapes are open (not carved); null with no hand-trace loaded. */
+  openShapes(): number | null;
   /** Show the length fields in `units` display units. */
   setUnits(units: Units): void;
   /** Show design-related warnings (outside the silhouette, past the front limit). */
@@ -26,9 +33,15 @@ export interface DesignPanel {
 /**
  * SVG upload plus placement controls: front-view width, vertical offset and rotation.
  * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. An image's crop
- * and auto-trace result go in `photoView` (the viewport's Photo view).
+ * and auto-trace result go in `photoView` (the viewport's Photo view); a hand-trace on a blank page in `pageView`
+ * (the Page view).
  */
-export function mountDesignPanel(root: HTMLElement, onChange: () => void, photoView: HTMLElement): DesignPanel {
+export function mountDesignPanel(
+  root: HTMLElement,
+  onChange: () => void,
+  photoView: HTMLElement,
+  pageView: HTMLElement,
+): DesignPanel {
   root.innerHTML = `
     <form class="design" novalidate>
       <section class="card design-source">
@@ -36,9 +49,14 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, photoV
       <div class="field">
         <label for="d-file">SVG file or photo</label>
         <input id="d-file" type="file" accept=".svg,image/svg+xml,image/*" />
-        <div class="hint" id="d-file-status">Photos never leave your browser.</div>
+        <div class="hint" id="d-file-status">${FILE_HINT}</div>
       </div>
+      <button type="button" id="d-blank">Hand-trace on a blank page</button>
       <div id="d-trace"></div>
+      <div id="d-hand-trace" class="trace-accept-row" hidden>
+        <button type="button" class="trace-accept">Done</button>
+        <div class="hint trace-accepted-note" hidden>Hand-trace done. Pick Page above the preview to see it again.</div>
+      </div>
       </section>
       <section class="card">
       <h2>Placement</h2>
@@ -101,9 +119,50 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, photoV
     onChange,
   );
 
+  const handTrace = mountHandTraceCanvas(pageView, () => {
+    design = handTrace.editor()?.design() ?? null;
+    onChange();
+  });
+  const handTraceEl = $<HTMLElement>("d-hand-trace");
+  const handTraceAccept = handTraceEl.querySelector<HTMLButtonElement>(".trace-accept")!;
+  const handTraceNote = handTraceEl.querySelector<HTMLElement>(".trace-accepted-note")!;
+  const handTraceDone = () => handTrace.editor()?.isDone() ?? false;
+  const showHandTrace = () => {
+    handTraceEl.hidden = handTrace.editor() === null;
+    handTraceAccept.textContent = handTraceDone() ? "Edit" : "Done";
+    handTraceNote.hidden = !handTraceDone();
+  };
+  handTraceAccept.addEventListener("click", () => {
+    handTrace.setDone(!handTraceDone());
+    showHandTrace();
+    onChange();
+  });
+  /** Loading another design replaces the hand-trace: ask first, only when it has points. */
+  const mayReplaceHandTrace = () =>
+    (handTrace.editor()?.counts().points ?? 0) === 0 || window.confirm("Discard your hand-trace?");
+  const dropHandTrace = () => {
+    handTrace.clear();
+    showHandTrace();
+  };
+  $<HTMLButtonElement>("d-blank").addEventListener("click", () => {
+    if (!mayReplaceHandTrace()) return;
+    trace.clear();
+    file.value = "";
+    handTrace.startBlankPage();
+    showHandTrace();
+    design = null;
+    showStatus(FILE_HINT, false);
+    onChange();
+  });
+
   async function load() {
     const f = file.files?.[0];
     if (!f) return;
+    if (!mayReplaceHandTrace()) {
+      file.value = "";
+      return;
+    }
+    dropHandTrace();
     if (f.type.startsWith("image/") && f.type !== "image/svg+xml") {
       design = null;
       showStatus("Auto-tracing…", false);
@@ -132,8 +191,10 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, photoV
 
   return {
     design: () => design,
-    tracing: () => trace.loaded() && !trace.accepted(),
+    tracing: () => (trace.loaded() && !trace.accepted()) || (handTrace.editor() !== null && !handTraceDone()),
     hasImage: () => trace.loaded(),
+    hasPage: () => handTrace.editor() !== null,
+    openShapes: () => handTrace.editor()?.counts().open ?? null,
     placement: () => ({
       width: lengths.value(width),
       verticalOffset: lengths.value(offset) || 0,

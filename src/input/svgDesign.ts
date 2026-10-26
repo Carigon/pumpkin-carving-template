@@ -1,5 +1,6 @@
 import type { BBox, Design, Point2 } from "../core";
 import { flattenPathData, roughExtent } from "./flattenPath";
+import { bboxOf, RELATIVE_TOLERANCE } from "./pathDesign";
 
 export interface SvgReadResult {
   /** Closed segmented paths in design units (y up), or null when nothing drawable was found. */
@@ -7,9 +8,6 @@ export interface SvgReadResult {
   /** Problems worth telling the user about (not fatal unless design is null). */
   notes: string[];
 }
-
-/** Tolerance as a fraction of the design's larger dimension (≈0.13 mm on a 10 in design). */
-const RELATIVE_TOLERANCE = 5e-4;
 
 const SKIP = new Set(["defs", "clipPath", "mask", "symbol", "marker", "pattern", "metadata", "title", "desc", "style", "script"]);
 
@@ -121,17 +119,4 @@ function union(a: BBox, b: BBox): BBox {
     maxX: Math.max(a.maxX, b.maxX),
     maxY: Math.max(a.maxY, b.maxY),
   };
-}
-
-function bboxOf(paths: Point2[][]): BBox {
-  const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-  for (const path of paths) {
-    for (const { x, y } of path) {
-      box.minX = Math.min(box.minX, x);
-      box.minY = Math.min(box.minY, y);
-      box.maxX = Math.max(box.maxX, x);
-      box.maxY = Math.max(box.maxY, y);
-    }
-  }
-  return box;
 }

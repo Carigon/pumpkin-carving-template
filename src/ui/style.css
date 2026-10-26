@@ -1404,3 +1404,153 @@ body {
 .ball-mode .ball-only {
   display: block;
 }
+
+.trace-accept-row[hidden] {
+  display: none;
+}
+
+/*
+ * Page view: the hand-trace canvas on a blank page. The page keeps fixed paper colors in both themes, like the
+ * Paper view's sheets; the overlay buttons sit below the view switcher.
+ */
+.view-page {
+  overflow: hidden;
+  background: var(--desk);
+}
+
+/* Below the breakpoint the pane has no set height: give the canvas the viewport's 4:3 box. */
+@media not (min-width: 60rem) {
+  .view-page {
+    position: relative;
+    aspect-ratio: 4 / 3;
+  }
+}
+
+.ht-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.ht-svg.ht-done {
+  cursor: default;
+}
+
+.ht-page {
+  fill: #fff;
+  stroke: #c9b9a6;
+}
+
+.ht-grid {
+  stroke: rgb(43 33 24 / 0.07);
+}
+
+.ht-axis {
+  stroke: rgb(226 106 18 / 0.55);
+  stroke-dasharray: 6 4;
+}
+
+.ht-fill {
+  fill: rgb(43 33 24 / 0.22);
+  fill-rule: evenodd;
+}
+
+.ht-line {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 2;
+}
+
+.ht-line.open {
+  stroke-dasharray: 7 5;
+}
+
+.ht-line.drawing {
+  stroke: #e26a12;
+}
+
+.ht-point {
+  fill: #fff;
+  stroke: #2b2118;
+  stroke-width: 1.5;
+}
+
+.ht-end {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 1.5;
+}
+
+.ht-close-ring {
+  fill: rgb(226 106 18 / 0.15);
+  stroke: #e26a12;
+  stroke-width: 2;
+}
+
+.ht-tools {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ht-tools[hidden],
+.ht-note[hidden] {
+  display: none;
+}
+
+.ht-tools button,
+.ht-pill,
+.ht-note {
+  pointer-events: auto;
+}
+
+.ht-top-left,
+.ht-top-right {
+  position: absolute;
+  top: 3rem;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.ht-top-left {
+  left: 0.5rem;
+}
+
+.ht-top-right {
+  right: 0.5rem;
+}
+
+.ht-bottom {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  right: 0.5rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+}
+
+.ht-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.85rem;
+}
+
+.ht-note {
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.4rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.8rem;
+}
