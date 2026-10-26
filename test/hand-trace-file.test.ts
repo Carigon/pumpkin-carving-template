@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import svgpath from "svgpath";
 import { describe, expect, it } from "vitest";
+import type { PhotoFile, PhotoRecord } from "../src/designRecord";
 import { createHandTrace, type HandTrace, type HandTraceRecord } from "../src/handTrace";
 import { handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../src/input/handTraceFile";
 import { designFromPathData } from "../src/input/pathDesign";
@@ -51,6 +52,7 @@ function editorOf(record: HandTraceRecord): HandTrace {
 function fileOf(editor: HandTrace, width = 150): string {
   return writeHandTraceFile({
     record: { source: "page", page: editor.page(), handTrace: editor.record() },
+    page: editor.page(),
     pathData: editor.pathData(),
     design: editor.design(),
     width,
@@ -66,6 +68,81 @@ describe("hand-trace file: write then read", () => {
     const again = editorOf(read.record.handTrace);
     const { shapes, points, fill, note, pill } = editor.drawn();
     expect(again.drawn()).toMatchObject({ shapes, points, fill, note, pill });
+  });
+});
+
+/** A cleaned-up photo 4:3 wide, as design space has it: one unit across, three quarters of one up. */
+const PHOTO_PAGE = { width: 1, height: 0.75 };
+
+/** Opaque fake JPEG bytes, every byte value among them: the file never looks inside. */
+const fakeJpeg = (): PhotoFile => ({
+  name: "face.jpg",
+  type: "image/jpeg",
+  bytes: Uint8Array.from({ length: 600 }, (_, i) => (i * 7) % 256).buffer,
+});
+
+/** WORK's closed square and open shape, on the 4:3 photo. */
+const PHOTO_WORK: HandTraceRecord = { ...WORK, shapes: [WORK.shapes[0], WORK.shapes[2]] };
+
+/**
+ * A photo framed with A4 picked and toned, past Cleanup, auto-traced with its own settings, hand-trace chosen and
+ * Done: everything a photo's hand-trace file carries.
+ */
+const photoRecord = (): PhotoRecord => ({
+  source: "photo",
+  photo: fakeJpeg(),
+  cleanup: {
+    corners: [
+      { x: 0.2, y: 0.15 },
+      { x: 0.85, y: 0.1 },
+      { x: 0.8, y: 0.9 },
+      { x: 0.15, y: 0.85 },
+    ],
+    aspect: "a4",
+  },
+  tone: { brightness: 120, contrast: 150 },
+  inCleanup: false,
+  autoTrace: { threshold: 140, invert: true, speckle: 5 },
+  handTrace: { ...PHOTO_WORK, done: true },
+  method: "hand",
+  done: true,
+});
+
+/** The photo hand-trace `record` reopens as, on a 400 × 400 px canvas. */
+function overPhoto(record: HandTraceRecord): HandTrace {
+  const editor = createHandTrace({ toDesign: designFromPathData, page: PHOTO_PAGE, photo: true, record });
+  editor.resize(400, 400);
+  return editor;
+}
+
+/** The hand-trace file of `record`'s photo hand-trace. */
+function photoFileOf(record: PhotoRecord): string {
+  const editor = overPhoto(record.handTrace);
+  return writeHandTraceFile({ record, page: editor.page(), pathData: editor.pathData(), design: editor.design(), width: 150 });
+}
+
+describe("hand-trace file: a photo's", () => {
+  it("reopens with its photo, frame, tone, auto-trace settings, method, shapes, open shapes and Done", () => {
+    const read = readHandTraceFile(photoFileOf(photoRecord()));
+    expect(read).toEqual({ kind: "hand-trace", record: photoRecord() });
+    if (read.kind !== "hand-trace" || read.record.source !== "photo") return;
+    // toEqual doesn't look inside an ArrayBuffer: compare the photo's bytes themselves.
+    expect(new Uint8Array(read.record.photo.bytes)).toEqual(new Uint8Array(photoRecord().photo.bytes));
+  });
+
+  it("with only open shapes, draws nothing and no image, spans the photo, and still reopens", () => {
+    const open = { ...photoRecord(), handTrace: { shapes: [WORK.shapes[2]], drawing: 4, done: false } };
+    const text = photoFileOf(open);
+    const svg = new DOMParser().parseFromString(text, "image/svg+xml").documentElement;
+    expect([svg.querySelector("path"), svg.querySelector("image")]).toEqual([null, null]);
+    expect(svg.getAttribute("viewBox")).toBe("0 -0.75 1 0.75");
+    expect(svg.getAttribute("height")).toBe("112.5mm");
+    expect(readHandTraceFile(text)).toMatchObject({ kind: "hand-trace", record: { source: "photo", handTrace: open.handTrace } });
+  });
+
+  it("a photo that isn't readable in the record loads as a plain SVG design, with a note", () => {
+    const text = withRecord(photoFileOf(photoRecord()), (r) => ({ ...r, photo: { name: "face.jpg", type: "image/jpeg", base64: "%%" } }));
+    expect(readHandTraceFile(text)).toMatchObject({ kind: "svg", notes: [expect.stringContaining("can't be read")] });
   });
 });
 
@@ -192,5 +269,14 @@ describe("hand-trace file: what other programs see", () => {
 
   it("a blank page's file is named for the day it's downloaded", () => {
     expect(handTraceFileName(new Date(2026, 9, 5, 23, 30))).toBe("hand-trace-2026-10-05.svg");
+  });
+
+  it.each([
+    ["face.jpg", "face-hand-trace.svg"],
+    ["my.face.photo.JPEG", "my.face.photo-hand-trace.svg"],
+    ["face-hand-trace.jpg", "face-hand-trace.svg"],
+    ["noextension", "noextension-hand-trace.svg"],
+  ])("a photo's file is named for the photo: %s gives %s", (photo, file) => {
+    expect(handTraceFileName(new Date(2026, 9, 5), photo)).toBe(file);
   });
 });
