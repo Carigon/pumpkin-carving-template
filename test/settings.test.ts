@@ -33,6 +33,7 @@ const full: Settings = {
   paper: "a4",
   filled: true,
   step: "template",
+  view: "3d",
   askBeforeDeletingRing: false,
 };
 
@@ -166,6 +167,20 @@ describe("settings", () => {
 
     it("a saved Grid step opens as Design when the mode can't be read (the app starts in pumpkin mode)", () => {
       expect(loadSettings(saved({ ...full, mode: "teapot", step: "grid" })).step).toBe("design");
+    });
+  });
+
+  describe("last view", () => {
+    it.each(["3d", "blueprint", "photo", "page", "paper"] as const)("reopens on the %s view", (view) => {
+      const storage = memoryStorage();
+      saveSettings(storage, { ...full, view });
+      expect(loadSettings(storage).view).toBe(view);
+    });
+
+    it.each([["trace"], [3], [null], [undefined]])("an unknown or corrupt view %j restores none, keeping the rest", (view) => {
+      const restored = loadSettings(saved({ ...full, view }));
+      expect(restored).not.toHaveProperty("view");
+      expect(restored.step).toBe("template");
     });
   });
 

@@ -4,14 +4,16 @@ import {
   type Drawn,
   type Gesture,
   type HandTrace,
+  type HandTraceRecord,
+  type Page,
   type PointerInput,
 } from "../handTrace";
 import { designFromPathData } from "../input/pathDesign";
 import { el } from "./svg";
 
 export interface HandTraceCanvas {
-  /** Start a new hand-trace on a blank page, replacing any other. */
-  startBlankPage(): void;
+  /** Start a new hand-trace on a blank page, replacing any other; or reopen a `kept` one, as after a reload. */
+  startBlankPage(kept?: { page: Page; handTrace: HandTraceRecord }): void;
   /** Forget the hand-trace (another design was loaded). */
   clear(): void;
   /** The hand-trace being shown, or null when there's none. */
@@ -32,9 +34,10 @@ const DECIMALS = 1;
 /**
  * The hand-trace canvas in the Page view: draws what the editor says is drawn, in SVG, and forwards pointer and
  * wheel events to it through the gesture recognizer. Calls `onChange` after each finished change to the shapes
- * (the editor's `Design` is a new object then), never mid-drag. Every decision is the editor's.
+ * (the editor's `Design` is a new object then), never mid-drag, and `onKeep` after each change to its stored record
+ * (those plus ending a shape open, Done and Edit). Every decision is the editor's.
  */
-export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void): HandTraceCanvas {
+export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, onKeep: () => void): HandTraceCanvas {
   view.classList.add("hand-trace");
   view.innerHTML = `
     <svg class="ht-svg" role="img" aria-label="Blank page. Tap or click to place points; drag to pan, scroll to zoom."></svg>
@@ -59,8 +62,10 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void): H
   let recognizer = createGestureRecognizer();
   /** The Design last reported through `onChange`, to tell when a change finished. */
   let reported: unknown = null;
+  /** The stored record last reported through `onKeep`. */
+  let kept: unknown = null;
 
-  /** Draw the editor's state, and report the Design if a change to the shapes finished. */
+  /** Draw the editor's state, and report the Design (and the record) if a change to the shapes finished. */
   const render = () => {
     if (!editor) return svg.replaceChildren();
     const drawn = editor.drawn();
@@ -77,6 +82,11 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void): H
     if (design !== reported) {
       reported = design;
       onChange();
+    }
+    const record = editor.record();
+    if (record !== kept) {
+      kept = record;
+      onKeep();
     }
   };
 
@@ -136,10 +146,11 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void): H
   }).observe(svg);
 
   return {
-    startBlankPage() {
-      editor = createHandTrace({ toDesign: designFromPathData });
+    startBlankPage(restored) {
+      editor = createHandTrace({ toDesign: designFromPathData, page: restored?.page, record: restored?.handTrace });
       recognizer = createGestureRecognizer();
       reported = editor.design();
+      kept = editor.record();
       const r = svg.getBoundingClientRect();
       editor.resize(r.width, r.height);
       render();

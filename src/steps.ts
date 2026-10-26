@@ -39,6 +39,9 @@ export interface StepState {
 
 export const STEP_IDS: readonly StepId[] = ["measure", "design", "grid", "template"];
 
+/** Every view, as the switcher lists them. */
+export const VIEWS: readonly View[] =["3d", "blueprint", "photo", "page", "paper"];
+
 /** The same step in `mode`: Design and Grid stand in for each other, the rest are in both modes. */
 export function stepInMode(step: StepId, mode: Mode): StepId {
   if (step === "design" && mode === "test-grid") return "grid";

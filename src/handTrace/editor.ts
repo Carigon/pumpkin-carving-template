@@ -1,6 +1,6 @@
 import type { Design } from "../core";
 import type { Gesture, ScreenPoint } from "./gestures";
-import type { Page, Point, Shape } from "./model";
+import type { HandTraceRecord, Page, Point, Shape } from "./model";
 import { pathData } from "./pathData";
 import { fitScale, fitView, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
 
@@ -13,6 +13,8 @@ export interface HandTraceOptions {
   toDesign: (pathData: string) => Design | null;
   /** The page the points are placed on; a blank page (1 × 1) when left out. */
   page?: Page;
+  /** The stored record to reopen (validated by the record module), as after a reload; nothing drawn when left out. */
+  record?: HandTraceRecord;
 }
 
 /** A screen rectangle, in CSS pixels. */
@@ -87,6 +89,10 @@ export interface HandTrace {
   design(): Design | null;
   /** The shapes, in the order drawn, as the stored record holds them. */
   shapes(): readonly Shape[];
+  /** What the stored record keeps of the hand-trace. A new object only on a finished change or Done/Edit. */
+  record(): HandTraceRecord;
+  /** The photo or page the points are placed on, which the stored record keeps beside them. */
+  page(): Page;
   /** How many points there are in all, and how many shapes are open. */
   counts(): { points: number; open: number };
 }
@@ -115,11 +121,14 @@ const BLANK_PAGE: Page = { width: 1, height: 1 };
 
 export function createHandTrace(options: HandTraceOptions): HandTrace {
   const page = options.page ?? BLANK_PAGE;
-  let state: State = { shapes: [], drawing: null };
+  const reopened = options.record;
+  let state: State = { shapes: reopened?.shapes ?? [], drawing: reopened?.drawing ?? null };
   const undoStack: State[] = [];
   let redoStack: State[] = [];
-  let nextId = 1;
-  let finished = false;
+  let nextId = Math.max(0, ...state.shapes.map((s) => s.id)) + 1;
+  let finished = reopened?.done ?? false;
+  /** The record last handed out, and what it was made from. */
+  let recordOf: { state: State; finished: boolean; record: HandTraceRecord } | null = null;
   let size = { width: 0, height: 0 };
   let view: ViewTransform = fitView(page, 1, 1);
   /** The carver has panned or zoomed, so a resize keeps the view. */
@@ -288,6 +297,13 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       return designOf.design;
     },
     shapes: () => state.shapes,
+    record() {
+      if (recordOf?.state !== state || recordOf.finished !== finished) {
+        recordOf = { state, finished, record: { shapes: [...state.shapes], drawing: state.drawing, done: finished } };
+      }
+      return recordOf.record;
+    },
+    page: () => page,
     counts: () => ({
       points: state.shapes.reduce((n, s) => n + s.points.length, 0),
       open: state.shapes.filter((s) => !s.closed).length,

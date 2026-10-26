@@ -21,8 +21,11 @@ export interface Viewport {
   setStatus(text: string | null): void;
   /** Show a placeholder message over the 3D view; null hides it. */
   setPlaceholder(text: string | null, kind?: PlaceholderKind): void;
-  /** Entering `step`: switch to its default view and offer its views in the switcher. */
-  enter(step: Step): void;
+  /**
+   * Entering `step`: switch to its default view (or to `view`, if the step offers it, as on a reload) and offer its
+   * views in the switcher.
+   */
+  enter(step: Step, view?: View): void;
   /**
    * The current step's views changed (e.g. an image was loaded elsewhere): offer its views in the switcher and
    * keep the view the carver picked, unless it's no longer available, when the step's default view shows.
@@ -136,9 +139,9 @@ export function mountViewport(root: HTMLElement, onPick: () => void): Viewport {
       placeholder.dataset.kind = kind;
       placeholder.hidden = text === null;
     },
-    enter(step) {
+    enter(step, view) {
       renderSwitcher(step);
-      show(step.defaultView);
+      show(view && step.views.includes(view) ? view : step.defaultView);
     },
     offer(step) {
       renderSwitcher(step);

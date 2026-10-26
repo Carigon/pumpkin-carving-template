@@ -1,19 +1,24 @@
 import type { Design } from "../core";
+import { AUTO_TRACE_DEFAULTS as DEFAULTS, MAX_SPECKLE, THRESHOLD_RANGE, type AutoTraceSettings } from "../designRecord";
 import type { PixelRect } from "../input/rasterPrep";
 import type { TraceSettings } from "../input/traceImage";
 
 const RETRACE_DELAY_MS = 150;
-const DEFAULTS = { threshold: 128, invert: false, speckle: 2 };
 
 export interface TracePanel {
-  /** Load a scanned stencil or photo and trace it with the current settings. */
-  load(file: File): Promise<void>;
+  /**
+   * Load a scanned stencil or photo and trace it with the current settings, or with `kept` ones and Done as they
+   * were (a restore after a reload).
+   */
+  load(file: File, kept?: { settings: AutoTraceSettings; accepted: boolean }): Promise<void>;
   /** Hide the panel and forget the image (another kind of design was chosen). */
   clear(): void;
   /** An image is loaded (the panel is showing). */
   loaded(): boolean;
   /** The carver accepted the trace: done tuning it. Loading a new image resets this. */
   accepted(): boolean;
+  /** The threshold, invert and speckle settings as they are now. */
+  autoTrace(): AutoTraceSettings;
 }
 
 /**
@@ -47,7 +52,7 @@ export function mountTracePanel(
     <div class="field">
       <label for="t-threshold">Threshold</label>
       <div class="input-row">
-        <input id="t-threshold" type="range" min="1" max="254" step="1" value="${DEFAULTS.threshold}" />
+        <input id="t-threshold" type="range" min="${THRESHOLD_RANGE.min}" max="${THRESHOLD_RANGE.max}" step="1" value="${DEFAULTS.threshold}" />
         <output for="t-threshold">${DEFAULTS.threshold}</output>
       </div>
       <div class="hint">Higher carves more of the lighter grays.</div>
@@ -58,7 +63,7 @@ export function mountTracePanel(
     <div class="field">
       <label for="t-speckle">Speckle removal (px)</label>
       <div class="input-row">
-        <input id="t-speckle" type="number" min="0" max="1000" step="1" value="${DEFAULTS.speckle}" />
+        <input id="t-speckle" type="number" min="0" max="${MAX_SPECKLE}" step="1" value="${DEFAULTS.speckle}" />
       </div>
       <div class="hint">Specks up to this many pixels are ignored.</div>
     </div>
@@ -96,12 +101,12 @@ export function mountTracePanel(
   let traceId = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const settings = (): TraceSettings => ({
+  const autoTrace = (): AutoTraceSettings => ({
     threshold: Number(threshold.value),
     invert: invert.checked,
     speckle: Number(speckle.value) || 0,
-    crop,
   });
+  const settings = (): TraceSettings => ({ ...autoTrace(), crop });
 
   async function retrace(): Promise<void> {
     if (!image) return;
@@ -204,8 +209,13 @@ export function mountTracePanel(
   }
 
   return {
-    async load(file) {
+    async load(file, kept) {
       clearTimeout(timer);
+      if (kept) {
+        threshold.value = thresholdOut.value = String(kept.settings.threshold);
+        invert.checked = kept.settings.invert;
+        speckle.value = String(kept.settings.speckle);
+      }
       image?.close();
       image = null;
       crop = undefined;
@@ -225,6 +235,7 @@ export function mountTracePanel(
       drawCrop();
       resultEl.replaceChildren();
       await retrace();
+      if (kept) setAccepted(kept.accepted);
     },
     clear() {
       clearTimeout(timer);
@@ -238,5 +249,6 @@ export function mountTracePanel(
     },
     loaded: () => !root.hidden,
     accepted: () => accepted,
+    autoTrace,
   };
 }

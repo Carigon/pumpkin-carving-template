@@ -401,3 +401,67 @@ describe("hand-trace editor: Done and Edit", () => {
     expect(editor.counts().points).toBe(2);
   });
 });
+
+describe("hand-trace editor: the stored record", () => {
+  /** The hand-trace reopened from `editor`'s stored record, as after a reload, on the same 400 × 400 px canvas. */
+  function reopened(editor: HandTrace): HandTrace {
+    const again = createHandTrace({ toDesign: designFromPathData, record: editor.record() });
+    again.resize(400, 400);
+    return again;
+  }
+
+  it("a reopened hand-trace draws the same shapes and points, and carves the same Design", () => {
+    const editor = blankPage();
+    drawClosed(editor, SQUARE);
+    for (const p of [{ x: 0.7, y: 0.1 }, { x: 0.9, y: 0.3 }]) tapPage(editor, p);
+    endOn(editor, { x: 0.9, y: 0.3 });
+    const again = reopened(editor);
+    const { shapes, points, fill, note, pill } = editor.drawn();
+    expect(again.drawn()).toMatchObject({ shapes, points, fill, note, pill });
+    expectSameOutlines(again.design()!.paths, [SQUARE], TOL);
+  });
+
+  it("a hand-trace reopened mid-shape carries on drawing that shape", () => {
+    const editor = blankPage();
+    for (const p of SQUARE.slice(0, 3)) tapPage(editor, p);
+    const again = reopened(editor);
+    expect(again.drawn().pill).toEqual({ kind: "drawing", points: 3, canClose: true });
+    tapPage(again, SQUARE[3]);
+    tapPage(again, SQUARE[0]);
+    expectSameOutlines(again.design()!.paths, [SQUARE], TOL);
+  });
+
+  it("a hand-trace reopened after Done is still Done, and Edit carries on", () => {
+    const editor = blankPage();
+    drawClosed(editor, SQUARE);
+    editor.done();
+    const again = reopened(editor);
+    expect(again.isDone()).toBe(true);
+    expect(again.drawn().tools).toBe(false);
+    again.edit();
+    tapPage(again, { x: 0.8, y: 0.8 });
+    expect(again.counts()).toEqual({ points: 5, open: 1 });
+  });
+
+  it("a reopened hand-trace starts with no undo history, and new shapes don't reuse an id", () => {
+    const editor = blankPage();
+    drawClosed(editor, SQUARE);
+    const again = reopened(editor);
+    expect(again.drawn().can).toEqual({ undo: false, redo: false, clear: true });
+    tapPage(again, { x: 0.8, y: 0.8 });
+    const ids = again.shapes().map((s) => s.id);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("the stored record keeps its object until a finished change or Done, so a pan or zoom never rewrites it", () => {
+    const editor = blankPage();
+    drawClosed(editor, SQUARE);
+    const record = editor.record();
+    drag(editor, { x: 380, y: 380 }, { x: 300, y: 300 });
+    editor.gesture({ type: "wheel", at: { x: 200, y: 200 }, deltaY: -200 });
+    expect(editor.record()).toBe(record);
+    editor.done();
+    expect(editor.record()).not.toBe(record);
+    expect(editor.record().done).toBe(true);
+  });
+});

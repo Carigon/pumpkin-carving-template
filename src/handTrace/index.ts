@@ -4,3 +4,4 @@
  */
 export { createHandTrace, type Drawn, type HandTrace } from "./editor";
 export { createGestureRecognizer, type Gesture, type PointerInput } from "./gestures";
+export type { HandTraceRecord, Offset, Page, Point, Shape } from "./model";
