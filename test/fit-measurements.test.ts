@@ -77,7 +77,7 @@ describe("impossible measurements", () => {
     expect(surface).toBeNull();
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatchObject({ kind: "impossible-measurement", ...where });
-    expect(warnings[0].message).not.toBe("");
+    expect(warnings[0]).toHaveProperty("message", expect.stringMatching(/\S/));
   });
 
   it("rings no smooth shape passes through give one warning on the rings as a whole, naming none of them", () => {
@@ -87,7 +87,7 @@ describe("impossible measurements", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatchObject({ kind: "impossible-measurement", field: "ring" });
     expect(warnings[0]).not.toHaveProperty("ring");
-    expect(warnings[0].message).toMatch(/No smooth pumpkin shape/);
+    expect(warnings[0]).toHaveProperty("message", expect.stringMatching(/No smooth pumpkin shape/));
   });
 
   it.each([

@@ -2,6 +2,7 @@ import type { Point2 } from "../core";
 import type { PaperView } from "../paperView";
 import type { ClipRect } from "../pdf/layout";
 import { STRETCH_MAX_ALPHA } from "../stretchTint";
+import { counted } from "./counted";
 import { el, roundTo } from "./svg";
 
 /** For unique clip-path ids. */
@@ -35,7 +36,7 @@ export function mountPaperView(root: HTMLElement): PaperViewPane {
       const n = view.pages.length;
       const extra = view.pageCount - n;
       caption.textContent =
-        `${n} ${n === 1 ? "page" : "pages"} with the template` + (extra > 0 ? `, plus ${extra} info page` : "") + ` (${view.pageCount} in the PDF)`;
+        `${counted(n, "page")} with the template` + (extra > 0 ? `, plus ${extra} info page` : "") + ` (${view.pageCount} in the PDF)`;
       caption.hidden = false;
     },
     empty(text) {

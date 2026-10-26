@@ -13,7 +13,7 @@ Hand-tracing without a photo (issue #18).
 ## Decision
 
 - **What's kept**: the loaded design and the work on it, whatever its source. For a photo: the photo, its cleanup,
-  both tracing methods' work (the hand-trace and the auto-trace threshold, invert, speckle and crop), the chosen
+  both tracing methods' work (the hand-trace and the auto-trace threshold, invert and speckle), the chosen
   tracing method and the Done/Edit state. For a blank page: the page's aspect (1:1, or shaped to an SVG design edited
   as a hand-trace), the hand-trace and the Done/Edit state, with no photo, cleanup or auto-trace side. For an SVG
   file: the file, until it's edited as a hand-trace; from then on only the hand-trace is kept, on a page or, for a

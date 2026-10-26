@@ -1,9 +1,10 @@
 import type { Units } from "./core";
 import type { Paper } from "./paper";
 import { MAX_RINGS } from "./ringEdits";
-import { STEP_IDS, stepInMode, type Mode, type StepId } from "./steps";
+import { STEP_IDS, stepInMode, VIEWS, type Mode, type StepId, type View } from "./steps";
+import { finite, inRange, integerIn, isRecord, oneOf, positive } from "./validate";
 
-/** The inputs a returning carver gets back on reload. Never images or designs. Every length is in mm. */
+/** The inputs a returning carver gets back on reload; designs are kept elsewhere. Every length is in mm. */
 export interface Settings {
   mode: Mode;
   /** Test-grid squares across. */
@@ -28,6 +29,8 @@ export interface Settings {
   filled: boolean;
   /** The step the carver was last on. */
   step: StepId;
+  /** The view the viewport last showed. */
+  view: View;
   /** Whether deleting a ring with its × asks first (the header's settings menu, or "Don't ask again"). */
   askBeforeDeletingRing: boolean;
 }
@@ -46,6 +49,8 @@ export interface RestoredSettings {
   filled?: boolean;
   /** Always there when settings were saved: an unknown step restores to Measure. */
   step?: StepId;
+  /** Missing when unknown: the step's default view shows. */
+  view?: View;
   /** Always there when settings were saved: a missing or corrupt value restores to on. */
   askBeforeDeletingRing?: boolean;
 }
@@ -90,6 +95,7 @@ export function saveSettings(storage: SettingsStorage | undefined, s: Settings):
     paper: s.paper,
     filled: s.filled,
     step: s.step,
+    view: s.view,
     askBeforeDeletingRing: s.askBeforeDeletingRing,
   };
   try {
@@ -139,6 +145,7 @@ function validate(s: Record<string, unknown>): RestoredSettings {
     filled: typeof s.filled === "boolean" ? s.filled : undefined,
     // The app starts in pumpkin mode when the saved mode is unusable.
     step: stepInMode(oneOf(s.step, STEP_IDS) ?? "measure", mode ?? "pumpkin"),
+    view: oneOf(s.view, VIEWS),
     askBeforeDeletingRing: s.askBeforeDeletingRing !== false,
   });
 }
@@ -168,25 +175,8 @@ function rings(x: unknown): Settings["measurements"]["rings"] | undefined {
   return valid.length > 0 ? valid : undefined;
 }
 
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null && !Array.isArray(x);
-}
-
 function record(x: unknown): Record<string, unknown> {
   return isRecord(x) ? x : {};
-}
-
-function oneOf<T extends string>(x: unknown, options: readonly T[]): T | undefined {
-  return options.includes(x as T) ? (x as T) : undefined;
-}
-
-function finite(x: unknown): number | undefined {
-  return typeof x === "number" && Number.isFinite(x) ? x : undefined;
-}
-
-function positive(x: unknown): number | undefined {
-  const n = finite(x);
-  return n !== undefined && n > 0 ? n : undefined;
 }
 
 /** Strictly between 0 and 1. */
@@ -198,16 +188,6 @@ function fraction(x: unknown): number | undefined {
 function nonNegative(x: unknown): number | undefined {
   const n = finite(x);
   return n !== undefined && n >= 0 ? n : undefined;
-}
-
-function inRange(x: unknown, min: number, max: number): number | undefined {
-  const n = finite(x);
-  return n !== undefined && n >= min && n <= max ? n : undefined;
-}
-
-function integerIn(x: unknown, min: number, max: number): number | undefined {
-  const n = inRange(x, min, max);
-  return n !== undefined && Number.isInteger(n) ? n : undefined;
 }
 
 /** null (an empty field) is kept as-is; anything else must pass `check`. */

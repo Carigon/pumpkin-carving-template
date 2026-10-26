@@ -3,6 +3,7 @@ import { createTemplateBuilder, type SurfaceParameters, type TemplateWarning } f
 import { gridDesign } from "./input/calibrationGrid";
 import { mountPumpkinPreview } from "./preview/pumpkinPreview";
 import { mountBlueprintView } from "./ui/blueprintViewSvg";
+import { counted } from "./ui/counted";
 import { mountDeleteConfirm } from "./ui/deleteConfirm";
 import { mountDesignPanel } from "./ui/designPanel";
 import { mountExportPanel, type ExportSource } from "./ui/exportPanel";
@@ -14,6 +15,7 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
+import { isShapeWarning } from "./ui/warnings";
 import {
   createMeasureStore,
   editPatch,
@@ -24,9 +26,12 @@ import {
   type MeasureState,
 } from "./measureState";
 import type { RingMeasurements } from "./ringEdits";
+import { createRecordKeeper } from "./designRecord";
+import { indexedDbStorage } from "./indexedDbStorage";
+import { shrinkPhoto } from "./input/shrinkPhoto";
 import { paperView } from "./paperView";
 import { browserStorage, loadSettings, saveSettings } from "./settings";
-import { stepInMode, steps, type Step, type StepId } from "./steps";
+import { stepInMode, steps, type Step, type StepId, type View } from "./steps";
 import { startBackgroundBuild, type BuildOutcome } from "./worker/backgroundBuild";
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -54,7 +59,13 @@ app.innerHTML = `
 const $ = (id: string) => app.querySelector<HTMLElement>(`#${id}`)!;
 const infoEl = $("surface-info");
 const header = mountHeader($("header"), changeMode, changeUnits, persist);
-const viewport = mountViewport($("viewport"));
+/** The view showing at the last reload, until the kept design is back to show it on (or the carver moves on). */
+let viewToRestore: View | undefined;
+const viewport = mountViewport($("viewport"), () => {
+  viewToRestore = undefined;
+  followHold();
+  persist();
+});
 const preview = mountPumpkinPreview(viewport.canvas);
 const paper = mountPaperView(viewport.paperView);
 // The measurements the form and the Blueprint view both render from and edit.
@@ -87,7 +98,13 @@ const blueprint = mountBlueprintView(viewport.blueprintView, {
   confirmDelete,
 });
 const gridPanel = mountGridPanel($("grid"), update);
-const designPanel = mountDesignPanel($("design"), update, viewport.traceView);
+const designPanel = mountDesignPanel(
+  $("design"),
+  update,
+  viewport.photoView,
+  viewport.pageView,
+  createRecordKeeper(indexedDbStorage(), shrinkPhoto),
+);
 const slitPanel = mountSlitPanel($("slits"), update);
 const exportPanel = mountExportPanel($("export"), () => header.units(), changePaper);
 // Design and Grid share one panel: in test-grid mode the grid size shows and the pumpkin-only design inputs
@@ -103,6 +120,9 @@ let step: StepId = "measure";
 /** Whether an image is being traced and whether one is loaded, as last seen by `followTrace` (none at start). */
 let lastTracing = false;
 let lastHasImage = false;
+let lastHasPage = false;
+/** Whether `update` last held the slow template build back (the hand-trace canvas was showing). */
+let lastHeld = false;
 /** The warnings showing now, for the step tabs' badges. */
 let warnings: TemplateWarning[] = [];
 /** The fitted surface showing now (null: the measurements are impossible), for its size in the display units. */
@@ -117,9 +137,17 @@ let built: ExportSource | null = null;
 restore();
 showUnits();
 syncMode();
-enterStep();
+enterStep(viewToRestore);
 update();
 measures.subscribe(followMeasures);
+// The kept design comes back silently, then the view it was on (the Photo or Page view needs it loaded).
+void designPanel.restoreDesign().then(() => {
+  if (!viewToRestore) return;
+  enterStep(viewToRestore);
+  viewToRestore = undefined;
+  followHold();
+  persist();
+});
 
 /** Put back the last-used settings (lengths in mm; the display units go to the header). */
 function restore(): void {
@@ -135,9 +163,10 @@ function restore(): void {
   slitPanel.restore(saved.slits ?? {}, saved.cut);
   exportPanel.restore(saved);
   if (saved.step) step = saved.step;
+  viewToRestore = saved.view;
 }
 
-/** Remember the current settings (never the design). */
+/** Remember the current settings (the design is kept by the design panel). */
 function persist(): void {
   const m = measures.get().measurements;
   const p = designPanel.placement();
@@ -157,40 +186,67 @@ function persist(): void {
     cut: slitPanel.cut(),
     ...exportPanel.options(),
     step,
+    // Until the kept design is back, the view it was on still counts as the one showing.
+    view: viewToRestore ?? viewport.current(),
     askBeforeDeletingRing: header.askBeforeDeletingRing(),
   });
 }
 
 /** The steps for the current mode, design and warnings, from the step model. */
 function stepList(): Step[] {
-  return steps({ mode: header.mode(), tracing: designPanel.tracing(), hasImage: designPanel.hasImage(), warnings });
+  return steps({
+    mode: header.mode(),
+    tracing: designPanel.tracing(),
+    hasImage: designPanel.hasImage(),
+    hasPage: designPanel.hasPage(),
+    warnings,
+  });
 }
 
 /** A tab or Back/Next picked a step. */
 function goTo(next: StepId): void {
   step = next;
+  viewToRestore = undefined;
   enterStep();
   persist();
-}
-
-/** Show the current step's tab and panel, and switch the viewport to its default view. */
-function enterStep(): void {
-  const list = stepList();
-  renderTabs(list);
-  viewport.enter(list.find((s) => s.id === step)!);
+  followHold();
 }
 
 /**
- * Follow the image design: loading an image, accepting its trace or going back to adjust it changes what
- * the viewport offers. On Design that re-enters the step (Trace while tracing, else 3D); on another step it
+ * The slow template build is held while the hand-trace canvas is showing (the Photo or Page view, hand-trace
+ * chosen, not Done), so tracing doesn't drain a phone's battery. It runs once the carver leaves that view or
+ * presses Done.
+ */
+function buildHeld(): boolean {
+  const view = designPanel.handTraceView();
+  return view !== null && viewport.current() === view && designPanel.tracing();
+}
+
+/** The view changed: build the template now if leaving the hand-trace canvas released it. */
+function followHold(): void {
+  if (buildHeld() !== lastHeld) update();
+}
+
+/** Show the current step's tab and panel, and switch the viewport to `view` if the step offers it, else its default. */
+function enterStep(view?: View): void {
+  const list = stepList();
+  renderTabs(list);
+  viewport.enter(list.find((s) => s.id === step)!, view);
+}
+
+/**
+ * Follow the photo or blank page: loading one, pressing Done or going back to Edit changes what the viewport
+ * offers. On Design that re-enters the step (the Photo or Page view while tracing, else 3D); on another step it
  * only updates the switcher, keeping the view the carver picked if it's still available.
  */
 function followTrace(): void {
   const tracing = designPanel.tracing();
   const hasImage = designPanel.hasImage();
-  if (tracing === lastTracing && hasImage === lastHasImage) return;
+  const hasPage = designPanel.hasPage();
+  if (tracing === lastTracing && hasImage === lastHasImage && hasPage === lastHasPage) return;
   lastTracing = tracing;
   lastHasImage = hasImage;
+  lastHasPage = hasPage;
   const current = stepList().find((s) => s.id === step)!;
   if (step === "design") viewport.enter(current);
   else viewport.offer(current);
@@ -274,6 +330,8 @@ function update(): void {
   const cut = slitPanel.cut();
   const input = { measurements, design, placement, slits, margin: cut.margin };
   const quick = builder.preview(input);
+  // The hand-trace's open shapes (null without one): not in the design, so the 3D view says they aren't carved.
+  const open = ball ? null : designPanel.openShapes();
   showWarnings(quick.warnings);
   surface = quick.surface;
   renderSurfaceInfo(infoEl, surface, header.units());
@@ -281,11 +339,24 @@ function update(): void {
   if (!quick.surface) {
     viewport.setPlaceholder("Fix the measurements in the Measure step to see the pumpkin.");
     paper.empty("Fix the measurements in the Measure step to see the template.");
+  } else if (!quick.design && open !== null) {
+    const where = designPanel.handTraceView() === "photo" ? "Photo" : "Page";
+    viewport.setPlaceholder(
+      [`Close a shape in the ${where} view to see it on the pumpkin.`, openNote(open)].filter(Boolean).join(" "),
+      "note",
+    );
+    paper.empty(`Close a shape in the ${where} view to see the template.`);
   } else if (!quick.design) {
     viewport.setPlaceholder("Load a design in the Design step to see it on the pumpkin.", "note");
     paper.empty("Load a design in the Design step to see the template.");
-  } else viewport.setPlaceholder(null);
-  if (quick.surface && quick.design) {
+  } else viewport.setPlaceholder(openNote(open) || null, "note");
+  lastHeld = buildHeld();
+  if (quick.surface && quick.design && lastHeld) {
+    // Held while the hand-trace canvas shows: the template catches up when the carver leaves it or presses Done.
+    background.cancel();
+    viewport.setStatus(null);
+    exportPanel.setUpdating();
+  } else if (quick.surface && quick.design) {
     pending = {
       surface: quick.surface,
       measurements,
@@ -308,8 +379,15 @@ function update(): void {
   persist();
 }
 
+/** The 3D view's note about open shapes, or "" with none. */
+function openNote(open: number | null): string {
+  if (!open) return "";
+  return `${counted(open, "open shape isn't", "open shapes aren't")} carved.`;
+}
+
 function showWarnings(next: TemplateWarning[]): void {
-  warnings = next;
+  // A test grid is printed, not carved: its cells are meant to be kept paper, not floating pieces.
+  warnings = ballMode() ? next.filter((w) => !isShapeWarning(w)) : next;
   // A failed fit marks the row of the ring edited last; none since the page loaded marks no row.
   form.showWarnings(warnings, measures.get().lastEdited);
   designPanel.showWarnings(warnings);

@@ -7,3 +7,7 @@ export { ringAt } from "./rings";
 export type * from "./types";
 // The coordinate frame every 3D point uses, for layers that render the surface (e.g. the 3D preview).
 export type { Vec3 } from "./surface/surface";
+// Plane geometry the hand-trace editor and the input layer share with the core.
+export { distanceToSegment, insidePolygon } from "./geometry/polygon";
+export { signedArea } from "./geometry/distanceField";
+export { polylineLength } from "./geometry/vector";

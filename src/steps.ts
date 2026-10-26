@@ -11,7 +11,7 @@ export type Mode = "pumpkin" | "test-grid";
 export type StepId = "measure" | "design" | "grid" | "template";
 
 /** What the viewport can show. */
-export type View = "3d" | "blueprint" | "trace" | "paper";
+export type View = "3d" | "blueprint" | "photo" | "page" | "paper";
 
 export interface Step {
   id: StepId;
@@ -27,15 +27,20 @@ export interface Step {
 /** What the step list depends on. */
 export interface StepState {
   mode: Mode;
-  /** An image design is loaded and still being traced. */
+  /** A photo or a blank page is loaded and still being traced (not Done). */
   tracing: boolean;
-  /** An image design is loaded, being traced or with its trace accepted (implied by `tracing`). */
+  /** An image design is loaded, being traced or with its trace accepted. */
   hasImage: boolean;
+  /** A hand-trace on a blank page is loaded, being traced or Done. */
+  hasPage: boolean;
   /** The warnings showing now, for the badges. */
   warnings: readonly Pick<TemplateWarning, "kind">[];
 }
 
 export const STEP_IDS: readonly StepId[] = ["measure", "design", "grid", "template"];
+
+/** Every view, as the switcher lists them. */
+export const VIEWS: readonly View[] =["3d", "blueprint", "photo", "page", "paper"];
 
 /** The same step in `mode`: Design and Grid stand in for each other, the rest are in both modes. */
 export function stepInMode(step: StepId, mode: Mode): StepId {
@@ -61,14 +66,18 @@ export function steps(state: StepState): Step[] {
 /** A step before its badge is known. */
 type StepViews = Omit<Step, "warned">;
 
-/** Design shows the image being traced until the trace is accepted, then the design on the pumpkin. */
+/**
+ * Design shows the Photo view (the Page view on a blank page) until the design is done, then the design on the
+ * pumpkin.
+ */
 function designStep(state: StepState): StepViews {
+  // Only while there's a photo or a page to show, so the switcher never lands on an empty view.
+  const traced: View | null = state.hasImage ? "photo" : state.hasPage ? "page" : null;
   return {
     id: "design",
     title: "Design",
-    defaultView: state.tracing ? "trace" : "3d",
-    // Trace only while there's an image to show, so the switcher never lands on an empty view.
-    views: state.tracing || state.hasImage ? ["3d", "trace"] : ["3d"],
+    defaultView: state.tracing && traced ? traced : "3d",
+    views: traced ? ["3d", traced] : ["3d"],
   };
 }
 
@@ -77,6 +86,9 @@ const WARNING_STEP: Record<TemplateWarning["kind"], StepId> = {
   "impossible-measurement": "measure",
   "past-front-limit": "design",
   "outside-silhouette": "design",
+  crossing: "design",
+  "floating-piece": "design",
+  "tiny-carve-area": "design",
   "slits-dont-fit": "template",
   "slit-limit": "template",
 };

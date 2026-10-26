@@ -1,19 +1,25 @@
 import type { BBox, Design, Point2 } from "../core";
 import { flattenPathData, roughExtent } from "./flattenPath";
+import { bboxOf, RELATIVE_TOLERANCE } from "./pathDesign";
 
 export interface SvgReadResult {
   /** Closed segmented paths in design units (y up), or null when nothing drawable was found. */
   design: Design | null;
   /** Problems worth telling the user about (not fatal unless design is null). */
   notes: string[];
+  /** The text of the hand-trace record in the file's `<metadata>` (ADR 0005), or null when it carries none. */
+  record: string | null;
 }
 
-/** Tolerance as a fraction of the design's larger dimension (≈0.13 mm on a 10 in design). */
-const RELATIVE_TOLERANCE = 5e-4;
+/** The namespace of the element in `<metadata>` that holds a hand-trace file's record. */
+export const RECORD_NAMESPACE = "https://github.com/Carigon/pumpkin-carving-template/hand-trace";
+/** That element's name. */
+export const RECORD_ELEMENT = "hand-trace";
 
 const SKIP = new Set(["defs", "clipPath", "mask", "symbol", "marker", "pattern", "metadata", "title", "desc", "style", "script"]);
 
-interface RawPath {
+/** One drawable element's shape as path data (SVG space, y down), with the transforms above it, and whether it was left open. */
+export interface SvgPath {
   d: string;
   transform: string;
   open: boolean;
@@ -21,32 +27,19 @@ interface RawPath {
 
 /**
  * Read an SVG file's shapes into the builder's design format: closed polylines, y flipped to point up,
- * plus their bounding box. Open shapes (lines, polylines, unclosed paths) are closed, with a note.
+ * plus their bounding box. Open shapes (lines, polylines, unclosed paths) are closed, with a note. A file carrying
+ * a hand-trace record, even a stale one, takes its box as the union of its `viewBox` and its shapes' box, so a
+ * mirrored design stays centred on its symmetry axis.
  */
 export function readSvgDesign(text: string): SvgReadResult {
-  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
-  const root = doc.documentElement;
-  if (doc.getElementsByTagName("parsererror").length > 0 || root.localName !== "svg") {
-    return { design: null, notes: ["This file isn't a valid SVG."] };
-  }
-
-  const raw: RawPath[] = [];
-  let skippedUse = false;
-  const walk = (el: Element, transforms: string[]) => {
-    if (SKIP.has(el.localName)) return;
-    if (el.getAttribute("display") === "none" || el.getAttribute("visibility") === "hidden") return;
-    const t = el.getAttribute("transform");
-    const chain = t ? [...transforms, t] : transforms;
-    if (el.localName === "use") skippedUse = true;
-    const shape = shapeToPath(el);
-    if (shape) raw.push({ ...shape, transform: chain.join(" ") });
-    for (const child of Array.from(el.children)) walk(child, chain);
-  };
-  walk(root, []);
+  const root = svgRoot(text);
+  if (!root) return { design: null, notes: ["This file isn't a valid SVG."], record: null };
+  const record = root.getElementsByTagNameNS(RECORD_NAMESPACE, RECORD_ELEMENT)[0]?.textContent ?? null;
+  const { paths: raw, skippedUse } = svgPaths(root);
 
   const notes: string[] = [];
   if (skippedUse) notes.push("Reused symbols (<use>) were ignored.");
-  if (raw.length === 0) return { design: null, notes: [...notes, "No shapes found in this SVG."] };
+  if (raw.length === 0) return { design: null, notes: [...notes, "No shapes found in this SVG."], record };
 
   const extent = raw.map((r) => roughExtent(r.d, r.transform)).reduce(union);
   const tolerance = RELATIVE_TOLERANCE * Math.max(extent.maxX - extent.minX, extent.maxY - extent.minY, 1e-9);
@@ -59,9 +52,48 @@ export function readSvgDesign(text: string): SvgReadResult {
     for (const path of flat) paths.push(path.map(({ x, y }) => ({ x, y: -y })));
   }
   if (closedOpen) notes.push("Open lines were closed into shapes.");
-  if (paths.length === 0) return { design: null, notes: [...notes, "No shapes with an area found in this SVG."] };
+  if (paths.length === 0) return { design: null, notes: [...notes, "No shapes with an area found in this SVG."], record };
 
-  return { design: { paths, bbox: bboxOf(paths) }, notes };
+  const box = bboxOf(paths);
+  const viewBox = record === null ? null : viewBoxOf(root);
+  return { design: { paths, bbox: viewBox ? union(box, viewBox) : box }, notes, record };
+}
+
+/** The `<svg>` root element of SVG text, or null when it isn't a valid SVG. */
+export function svgRoot(text: string): Element | null {
+  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const root = doc.documentElement;
+  return doc.getElementsByTagName("parsererror").length > 0 || root.localName !== "svg" ? null : root;
+}
+
+/**
+ * The shapes an SVG draws, in document order (so groups come out as ordered shapes): path, rect, circle, ellipse,
+ * polygon, polyline and line as path data, each with its transforms. Hidden elements (by attribute) and definitions
+ * are left out; `skippedUse` says a `<use>` was ignored.
+ */
+export function svgPaths(root: Element): { paths: SvgPath[]; skippedUse: boolean } {
+  const paths: SvgPath[] = [];
+  let skippedUse = false;
+  const walk = (el: Element, transforms: string[]) => {
+    if (SKIP.has(el.localName)) return;
+    if (el.getAttribute("display") === "none" || el.getAttribute("visibility") === "hidden") return;
+    const t = el.getAttribute("transform");
+    const chain = t ? [...transforms, t] : transforms;
+    if (el.localName === "use") skippedUse = true;
+    const shape = shapeToPath(el);
+    if (shape) paths.push({ ...shape, transform: chain.join(" ") });
+    for (const child of Array.from(el.children)) walk(child, chain);
+  };
+  walk(root, []);
+  return { paths, skippedUse };
+}
+
+/** The root's `viewBox` as a box in design units (y up), or null when it has none that's usable. */
+function viewBoxOf(root: Element): BBox | null {
+  const v = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  if (v.length !== 4 || !v.every(Number.isFinite) || !(v[2] > 0 && v[3] > 0)) return null;
+  const [x, y, w, h] = v;
+  return { minX: x, minY: -(y + h), maxX: x + w, maxY: -y };
 }
 
 function shapeToPath(el: Element): { d: string; open: boolean } | null {
@@ -121,17 +153,4 @@ function union(a: BBox, b: BBox): BBox {
     maxX: Math.max(a.maxX, b.maxX),
     maxY: Math.max(a.maxY, b.maxY),
   };
-}
-
-function bboxOf(paths: Point2[][]): BBox {
-  const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-  for (const path of paths) {
-    for (const { x, y } of path) {
-      box.minX = Math.min(box.minX, x);
-      box.minY = Math.min(box.minY, y);
-      box.maxX = Math.max(box.maxX, x);
-      box.maxY = Math.max(box.maxY, y);
-    }
-  }
-  return box;
 }

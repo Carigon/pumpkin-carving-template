@@ -124,7 +124,49 @@ export interface SlitLimitWarning {
   message: string;
 }
 
-export type TemplateWarning = MeasurementWarning | FrontLimitWarning | OutsideSilhouetteWarning | SlitsDontFitWarning | SlitLimitWarning;
+/**
+ * A region of the design, in design units (y up): a floating piece or a carve area. Its edges are closed loops,
+ * the outer one first and then one round each part of the design inside it: fill them even-odd.
+ */
+export interface DesignRegion {
+  outline: Point2[][];
+  /** The outer loop's bounding box. */
+  bbox: BBox;
+}
+
+/**
+ * Crossings: a shape's edge crosses itself or another shape's, so the pumpkin caught between the edges is held
+ * only at the crossings. The UI words it, with the count.
+ */
+export interface CrossingWarning {
+  kind: "crossing";
+  /** Each crossing, in design units. */
+  at: Point2[];
+}
+
+/** Floating pieces: uncarved regions with carving all the way round, which fall out once cut. Worded by the UI. */
+export interface FloatingPieceWarning {
+  kind: "floating-piece";
+  pieces: DesignRegion[];
+}
+
+/** Carve areas whose box is smaller than `minSizeMm` on its longest side, measured on the skin. Worded by the UI. */
+export interface TinyCarveAreaWarning {
+  kind: "tiny-carve-area";
+  areas: DesignRegion[];
+  /** The least size a carve area should have across, in mm on the skin. */
+  minSizeMm: number;
+}
+
+export type TemplateWarning =
+  | MeasurementWarning
+  | FrontLimitWarning
+  | OutsideSilhouetteWarning
+  | SlitsDontFitWarning
+  | SlitLimitWarning
+  | CrossingWarning
+  | FloatingPieceWarning
+  | TinyCarveAreaWarning;
 
 /**
  * Slits let the paper bend around the pumpkin. They're placed one at a time where they relieve the most stretch,

@@ -12,7 +12,7 @@ export function centroid(points: Point2[]): Point2 {
 }
 
 /** Length of an open polyline. */
-export function polylineLength(line: Point2[]): number {
+export function polylineLength(line: readonly Point2[]): number {
   let total = 0;
   for (let i = 1; i < line.length; i++) total += distance(line[i - 1], line[i]);
   return total;

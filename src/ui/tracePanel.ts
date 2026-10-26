@@ -1,53 +1,153 @@
 import type { Design } from "../core";
-import type { PixelRect } from "../input/rasterPrep";
-import type { TraceSettings } from "../input/traceImage";
+import {
+  AUTO_TRACE_DEFAULTS as DEFAULTS,
+  MAX_SPECKLE,
+  THRESHOLD_RANGE,
+  TONE_DEFAULTS,
+  type AutoTraceSettings,
+  type Tone,
+  type TracingMethod,
+} from "../designRecord";
+import type { HandTraceCleanup } from "../handTrace";
+import { carryPoints, exifFocal35Mm, photoPage, START_FRAME, type Cleanup } from "../input/cleanupFrame";
+import { fitWithin } from "../input/rasterPrep";
+import { startCleanupWarp } from "../worker/cleanupWarp";
+import { mountCleanupPanel, toneFilter, type CleanupHooks } from "./cleanupPanel";
+import { counted } from "./counted";
 
 const RETRACE_DELAY_MS = 150;
-const DEFAULTS = { threshold: 128, invert: false, speckle: 2 };
+/**
+ * The photo's long side once decoded, in px (shrunk with the browser's high-quality filter): a sheet filling two
+ * thirds of the photo still gets the cleaned-up photo's 2000 px, and the warp never shrinks much, which it does
+ * poorly.
+ */
+const MAX_DECODED_SIDE = 3000;
+/** A new photo starts on hand-trace: auto-trace turns most pencil drawings into blobs. */
+const NEW_PHOTO_METHOD: TracingMethod = "hand";
+
+/** What a reload restores a photo with: its cleanup and tone, whether it was in Cleanup, both methods' state, Done. */
+export interface KeptTrace {
+  cleanup: Cleanup;
+  tone: Tone;
+  inCleanup: boolean;
+  settings: AutoTraceSettings;
+  method: TracingMethod;
+  accepted: boolean;
+}
+
+/** What the trace panel reports. */
+export interface TraceHooks {
+  /** An auto-trace started: Potrace is running on the cleaned-up photo. */
+  onTracing(): void;
+  /** An auto-trace finished (or failed, or the photo couldn't be read or cleaned up). */
+  onTraced(design: Design | null, status: string, failed: boolean): void;
+  /** Done or Edit was pressed. */
+  onAccepted(): void;
+  /** A released change to the cleanup or its tone, or Cleanup was entered or left. */
+  onCleanup(): void;
+  /**
+   * What Cleanup draws over the photo, who hears of the frame's live changes (`cleanup()` is live then), and the undo
+   * history its Undo and Redo step through.
+   */
+  cleanupHooks: CleanupHooks;
+  /** A new cleaned-up photo is ready, at `href`, for a hand-trace to be placed over. */
+  onCleaned(href: string): void;
+  /** The tracing method switch was flipped (which clears Done), or `chooseMethod` called. */
+  onMethod(): void;
+  /** Edit as hand-trace was pressed under the switch: copy `autoTraced()` into the hand-trace. */
+  onEditAuto(): void;
+}
+
+/** Auto-trace's result: Potrace's SVG, and the size in px of the cleaned-up photo it traced. */
+export interface AutoTraced {
+  svg: string;
+  width: number;
+  height: number;
+}
 
 export interface TracePanel {
-  /** Load a scanned stencil or photo and trace it with the current settings. */
-  load(file: File): Promise<void>;
+  /**
+   * Load a photo and open it in Cleanup on hand-trace; or, with `kept` (a restore after a reload), as it was:
+   * in Cleanup or past it, on the method chosen, with its settings and Done.
+   */
+  load(file: File, kept?: KeptTrace): Promise<void>;
   /** Hide the panel and forget the image (another kind of design was chosen). */
   clear(): void;
   /** An image is loaded (the panel is showing). */
   loaded(): boolean;
-  /** The carver accepted the trace: done tuning it. Loading a new image resets this. */
+  /** The carver pressed Done on the chosen method. Loading a new image or flipping the method switch resets this. */
   accepted(): boolean;
+  /** The threshold, invert and speckle settings as they are now. */
+  autoTrace(): AutoTraceSettings;
+  /** The photo's cleanup as it is now. */
+  cleanup(): Cleanup;
+  /** Put `cleanup` back, as an undo or redo of a cleanup change does: the photo is cleaned up again by it. */
+  setCleanup(cleanup: Cleanup): void;
+  /** Cleanup's tone as it is now. */
+  tone(): Tone;
+  /** The photo is in Cleanup. */
+  inCleanup(): boolean;
+  /** The chosen tracing method. */
+  method(): TracingMethod;
+  /** Flip the switch to `method`, as the carver would (which clears Done). */
+  chooseMethod(method: TracingMethod): void;
+  /** Auto-trace's last result, while it has at least one shape; null otherwise. */
+  autoTraced(): AutoTraced | null;
+  /**
+   * The cleanup as a hand-trace over the cleaned-up photo holds it: starting from the cleanup as it is now, each
+   * cleanup's design space, and how points are carried from one to another.
+   */
+  cleanups(): HandTraceCleanup<Cleanup>;
+  /** Where the hand-trace canvas goes in the Photo view: shown past Cleanup while hand-trace is chosen. */
+  handSlot: HTMLElement;
 }
 
 /**
- * Crop, threshold, invert and speckle controls for a raster image. The crop image and the traced result go
- * in `view` (the viewport's Trace view), at viewport size. Every finished trace is reported through
- * `onTraced`; accepting the trace, or going back to adjust it, through `onAccepted`. The image never leaves
- * the browser.
+ * The Tracing method switch, shown for as long as the photo is loaded; under it the photo's Cleanup, then past it
+ * auto-trace's threshold, invert and speckle controls and Done. The photo, the cleaned-up photo and the auto-trace result go in `view` (the viewport's Photo view), at
+ * viewport size; so does the hand-trace canvas, through `handSlot`. Auto-trace runs only once it's been chosen past
+ * Cleanup, and again on a cleanup change only while it's chosen. The image never leaves the browser.
  */
-export function mountTracePanel(
-  root: HTMLElement,
-  onTraced: (design: Design | null, status: string, failed: boolean) => void,
-  view: HTMLElement,
-  onAccepted: () => void,
-): TracePanel {
+export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: TraceHooks): TracePanel {
   root.hidden = true;
   root.classList.add("trace");
   view.classList.add("trace-views");
   view.innerHTML = `
-    <figure>
-      <div class="trace-fit"><canvas class="trace-crop" aria-label="Scanned image. Drag to crop."></canvas></div>
-      <figcaption>Drag on the image to crop. <button type="button" class="trace-reset">Use whole image</button></figcaption>
+    <figure class="trace-photo"></figure>
+    <figure class="trace-cleaned">
+      <div class="trace-fit"><div class="cleanup-stack">
+        <canvas aria-label="The cleaned-up photo"></canvas>
+        <svg class="cleaned-overlay" viewBox="0 0 2 1" preserveAspectRatio="none">
+          <line class="symmetry-axis" x1="1" y1="0" x2="1" y2="1" />
+        </svg>
+      </div></div>
+      <figcaption>The cleaned-up photo: what's traced.</figcaption>
     </figure>
-    <figure>
-      <div class="trace-fit trace-result" role="img" aria-label="Traced result"></div>
-      <figcaption>Traced result: black areas are carved.</figcaption>
+    <figure class="trace-result-figure">
+      <div class="trace-fit trace-result" role="img" aria-label="Auto-trace result"></div>
+      <figcaption>Auto-trace result: black areas are carved.</figcaption>
     </figure>
+    <div class="trace-hand-slot" hidden></div>
   `;
   root.innerHTML = `
-    <h3>Tracing</h3>
+    <fieldset class="field trace-method">
+      <legend>Tracing method</legend>
+      <div class="chips">
+        <label><input type="radio" name="t-method" value="auto" />Auto-trace</label>
+        <label><input type="radio" name="t-method" value="hand" />Hand-trace</label>
+      </div>
+    </fieldset>
+    <div class="trace-cleanup"></div>
+    <div class="trace-tracing">
+    <div class="trace-accept-row trace-edit-auto" hidden>
+      <button type="button">Edit as hand-trace</button>
+    </div>
+    <button type="button" class="trace-straighten">Straighten photo</button>
     <div class="trace-settings">
     <div class="field">
       <label for="t-threshold">Threshold</label>
       <div class="input-row">
-        <input id="t-threshold" type="range" min="1" max="254" step="1" value="${DEFAULTS.threshold}" />
+        <input id="t-threshold" type="range" min="${THRESHOLD_RANGE.min}" max="${THRESHOLD_RANGE.max}" step="1" value="${DEFAULTS.threshold}" />
         <output for="t-threshold">${DEFAULTS.threshold}</output>
       </div>
       <div class="hint">Higher carves more of the lighter grays.</div>
@@ -58,68 +158,192 @@ export function mountTracePanel(
     <div class="field">
       <label for="t-speckle">Speckle removal (px)</label>
       <div class="input-row">
-        <input id="t-speckle" type="number" min="0" max="1000" step="1" value="${DEFAULTS.speckle}" />
+        <input id="t-speckle" type="number" min="0" max="${MAX_SPECKLE}" step="1" value="${DEFAULTS.speckle}" />
       </div>
       <div class="hint">Specks up to this many pixels are ignored.</div>
     </div>
     </div>
     <div class="trace-accept-row">
-      <button type="button" class="trace-accept">Done tracing</button>
-      <div class="hint trace-accepted-note" hidden>Trace accepted. Pick Trace above the preview to see it again.</div>
+      <button type="button" class="trace-accept">Done</button>
+      <div class="hint trace-accepted-note" hidden></div>
+    </div>
     </div>
   `;
 
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
-  const cropCanvas = view.querySelector<HTMLCanvasElement>(".trace-crop")!;
+  const cleanedFigure = view.querySelector<HTMLElement>(".trace-cleaned")!;
+  const cleanedStack = cleanedFigure.querySelector<HTMLElement>(".cleanup-stack")!;
+  const cleanedCanvas = cleanedFigure.querySelector("canvas")!;
+  const cleanedAxis = cleanedFigure.querySelector<SVGSVGElement>("svg")!;
+  const photoFigure = view.querySelector<HTMLElement>(".trace-photo")!;
+  const resultFigure = view.querySelector<HTMLElement>(".trace-result-figure")!;
   const resultEl = view.querySelector<HTMLElement>(".trace-result")!;
+  const handSlot = view.querySelector<HTMLElement>(".trace-hand-slot")!;
+  const cleanupEl = $<HTMLElement>(".trace-cleanup");
+  const tracingEl = $<HTMLElement>(".trace-tracing");
+  const straighten = $<HTMLButtonElement>(".trace-straighten");
+  const methods = [...root.querySelectorAll<HTMLInputElement>('input[name="t-method"]')];
+  const editAuto = $<HTMLElement>(".trace-edit-auto");
   const settingsEl = $<HTMLElement>(".trace-settings");
   const acceptButton = $<HTMLButtonElement>(".trace-accept");
   const acceptedNote = $<HTMLElement>(".trace-accepted-note");
-  let accepted = false;
-  const setAccepted = (next: boolean) => {
-    accepted = next;
-    settingsEl.hidden = next;
-    acceptedNote.hidden = !next;
-    acceptButton.textContent = next ? "Adjust trace" : "Done tracing";
-  };
-  acceptButton.addEventListener("click", () => {
-    setAccepted(!accepted);
-    onAccepted();
-  });
   const threshold = $<HTMLInputElement>("#t-threshold");
-  const thresholdOut = $<HTMLOutputElement>("output");
+  const thresholdOut = $<HTMLOutputElement>(".trace-settings output");
   const invert = $<HTMLInputElement>("#t-invert");
   const speckle = $<HTMLInputElement>("#t-speckle");
 
-  let image: ImageBitmap | null = null;
-  let crop: PixelRect | undefined;
+  let accepted = false;
+  let cleaning = true;
+  let method: TracingMethod = NEW_PHOTO_METHOD;
+
+  const warper = startCleanupWarp();
+  /** The decoded photo's pixels, which the warp samples. */
+  let photoPixels: ImageData | null = null;
+  /** The cleaned-up photo, once warped: what auto-trace traces. */
+  let cleaned: ImageData | null = null;
+  /** The cleaned-up photo auto-trace last ran on: when it's still `cleaned`, its result is up to date. */
+  let tracedFrom: ImageData | null = null;
+  /** Auto-trace's last result while it has a shape: what Edit as hand-trace copies. */
+  let traced: AutoTraced | null = null;
+  /** The cleaned-up photo as an image URL, for the hand-trace canvas; revoked once replaced. */
+  let cleanedHref: string | null = null;
   let traceId = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const settings = (): TraceSettings => ({
+  /** Show what fits the stage and the method: Cleanup; or past it, auto-trace's result or the hand-trace canvas. */
+  const show = () => {
+    const auto = method === "auto";
+    cleanupEl.hidden = photoFigure.hidden = !cleaning;
+    tracingEl.hidden = cleaning;
+    cleanedFigure.hidden = !cleaning && !auto;
+    resultFigure.hidden = cleaning || !auto;
+    handSlot.hidden = cleaning || auto;
+    cleanedAxis.toggleAttribute("hidden", !cleaning); // the symmetry axis is always drawn during Cleanup
+    // Tone is shown on the cleaned-up photo while it's being set; past Cleanup only the hand-trace's photo has it.
+    cleanedCanvas.style.filter = cleaning ? toneFilter(cleanupPanel.tone()) : "";
+    for (const m of methods) m.checked = m.value === method;
+    editAuto.hidden = !auto || traced === null;
+    settingsEl.hidden = !auto || accepted;
+    straighten.hidden = accepted;
+    acceptButton.textContent = accepted ? "Edit" : "Done";
+    acceptedNote.hidden = !accepted;
+    acceptedNote.textContent = auto
+      ? "Auto-trace accepted. Pick Photo above the preview to see it again."
+      : "Hand-trace done. Pick Photo above the preview to see it again.";
+  };
+
+  /** Auto-trace is chosen past Cleanup: trace now unless its result is already for this cleaned-up photo. */
+  const traceIfShown = () => {
+    if (!cleaning && method === "auto" && tracedFrom !== cleaned) void retrace();
+  };
+
+  const cleanupPanel = mountCleanupPanel(
+    cleanupEl,
+    photoFigure,
+    () => {
+      void rewarp();
+      hooks.onCleanup();
+    },
+    () => {
+      cleaning = false;
+      show();
+      traceIfShown();
+      hooks.onCleanup();
+    },
+    (live) => {
+      show();
+      if (!live) hooks.onCleanup();
+    },
+    hooks.cleanupHooks,
+  );
+
+  acceptButton.addEventListener("click", () => {
+    accepted = !accepted;
+    show();
+    hooks.onAccepted();
+  });
+  const chooseMethod = (next: TracingMethod) => {
+    method = next;
+    accepted = false;
+    show();
+    traceIfShown();
+    hooks.onMethod();
+    if (cleaning) cleanupPanel.redraw(); // the hand-trace's shapes are drawn over the photo only while it's chosen
+  };
+  for (const m of methods)
+    m.addEventListener("change", () => {
+      if (m.checked) chooseMethod(m.value as TracingMethod);
+    });
+  editAuto.querySelector("button")!.addEventListener("click", () => hooks.onEditAuto());
+  straighten.addEventListener("click", () => {
+    cleaning = true;
+    show();
+    cleanupPanel.redraw(); // the shapes over the photo as they are now
+    hooks.onCleanup();
+  });
+
+  /** Warp the photo for the cleanup as it now is; trace it again if auto-trace's side is shown. */
+  async function rewarp(): Promise<void> {
+    if (!photoPixels) return;
+    const next = cleanupPanel.cleanedUp();
+    try {
+      const pixels = await warper.warp(photoPixels, next);
+      if (!pixels || !photoPixels) return; // a newer warp is coming, or the photo is gone
+      cleaned = pixels;
+      cleanedCanvas.width = pixels.width;
+      cleanedCanvas.height = pixels.height;
+      cleanedCanvas.getContext("2d")!.putImageData(pixels, 0, 0);
+      cleanedStack.style.setProperty("--aspect", String(pixels.width / pixels.height));
+      cleanedAxis.setAttribute("viewBox", `0 0 ${pixels.width} ${pixels.height}`);
+      cleanedAxis.querySelector("line")!.setAttribute("x1", String(pixels.width / 2));
+      cleanedAxis.querySelector("line")!.setAttribute("x2", String(pixels.width / 2));
+      cleanedAxis.querySelector("line")!.setAttribute("y2", String(pixels.height));
+      handOver(pixels);
+      traceIfShown();
+    } catch (err) {
+      hooks.onTraced(null, `The photo couldn't be cleaned up: ${err instanceof Error ? err.message : String(err)}`, true);
+    }
+  }
+
+  /** Hand the cleaned-up photo to the hand-trace canvas as an image URL. */
+  function handOver(pixels: ImageData): void {
+    cleanedCanvas.toBlob((blob) => {
+      if (!blob || pixels !== cleaned) return; // a newer cleaned-up photo, or none, since
+      const old = cleanedHref;
+      cleanedHref = URL.createObjectURL(blob);
+      hooks.onCleaned(cleanedHref);
+      if (old) URL.revokeObjectURL(old);
+    });
+  }
+
+  const autoTrace = (): AutoTraceSettings => ({
     threshold: Number(threshold.value),
     invert: invert.checked,
     speckle: Number(speckle.value) || 0,
-    crop,
   });
 
   async function retrace(): Promise<void> {
-    if (!image) return;
+    if (!cleaned) return; // traced once the warp lands
     const id = ++traceId;
+    const from = cleaned;
+    hooks.onTracing();
     try {
       const { traceImage } = await import("../input/traceImage"); // Potrace loads only when needed
-      const result = await traceImage(image, settings());
+      const result = await traceImage(from, autoTrace());
       if (id !== traceId) return;
+      tracedFrom = from;
+      traced = result.design ? { svg: result.svg, width: from.width, height: from.height } : null;
+      show();
       resultEl.innerHTML = result.svg;
       fitAspect(resultEl.querySelector("svg"));
-      const count = result.design
-        ? `${result.design.paths.length} shape${result.design.paths.length === 1 ? "" : "s"} traced.`
-        : "";
-      onTraced(result.design, [count, ...result.notes].filter(Boolean).join(" "), result.design === null);
+      const count = result.design ? `${counted(result.design.paths.length, "shape")} auto-traced.` : "";
+      hooks.onTraced(result.design, [count, ...result.notes].filter(Boolean).join(" "), result.design === null);
     } catch (err) {
       if (id !== traceId) return;
+      traced = null;
+      show();
       resultEl.replaceChildren();
-      onTraced(null, `Tracing failed: ${err instanceof Error ? err.message : String(err)}`, true);
+      hooks.onTraced(null, `Auto-trace failed: ${err instanceof Error ? err.message : String(err)}`, true);
     }
   }
   const scheduleRetrace = () => {
@@ -133,110 +357,91 @@ export function mountTracePanel(
   });
   invert.addEventListener("change", scheduleRetrace);
   speckle.addEventListener("input", scheduleRetrace);
-  view.querySelector<HTMLButtonElement>(".trace-reset")!.addEventListener("click", () => {
-    crop = undefined;
-    drawCrop();
-    scheduleRetrace();
-  });
-
-  // Crop by dragging a rectangle on the image; kept in source-image pixels.
-  let dragFrom: { x: number; y: number } | null = null;
-  const toImage = (e: PointerEvent) => {
-    const r = cropCanvas.getBoundingClientRect();
-    const sx = image!.width / r.width;
-    const sy = image!.height / r.height;
-    return {
-      x: Math.min(image!.width, Math.max(0, (e.clientX - r.left) * sx)),
-      y: Math.min(image!.height, Math.max(0, (e.clientY - r.top) * sy)),
-    };
-  };
-  cropCanvas.addEventListener("pointerdown", (e) => {
-    if (!image) return;
-    cropCanvas.setPointerCapture(e.pointerId);
-    dragFrom = toImage(e);
-  });
-  cropCanvas.addEventListener("pointermove", (e) => {
-    if (!dragFrom) return;
-    const p = toImage(e);
-    crop = {
-      x: Math.min(dragFrom.x, p.x),
-      y: Math.min(dragFrom.y, p.y),
-      width: Math.abs(p.x - dragFrom.x),
-      height: Math.abs(p.y - dragFrom.y),
-    };
-    drawCrop();
-  });
-  const endDrag = () => {
-    if (!dragFrom) return;
-    dragFrom = null;
-    if (crop && (crop.width < 4 || crop.height < 4)) crop = undefined; // a click, not a drag
-    drawCrop();
-    scheduleRetrace();
-  };
-  cropCanvas.addEventListener("pointerup", endDrag);
-  cropCanvas.addEventListener("pointercancel", endDrag);
 
   /** Give the CSS the element's width/height ratio, so it can scale the element to fit its figure. */
   function fitAspect(el: Element | null): void {
-    if (!(el instanceof HTMLCanvasElement || el instanceof SVGSVGElement)) return;
-    const [w, h] =
-      el instanceof HTMLCanvasElement
-        ? [el.width, el.height]
-        : [Number.parseFloat(el.getAttribute("width") ?? ""), Number.parseFloat(el.getAttribute("height") ?? "")];
+    if (!(el instanceof SVGSVGElement)) return;
+    const [w, h] = [Number.parseFloat(el.getAttribute("width") ?? ""), Number.parseFloat(el.getAttribute("height") ?? "")];
     if (w > 0 && h > 0) el.style.setProperty("--aspect", String(w / h));
   }
 
-  function drawCrop(): void {
-    if (!image) return;
-    const g = cropCanvas.getContext("2d")!;
-    g.drawImage(image, 0, 0, cropCanvas.width, cropCanvas.height);
-    if (!crop) return;
-    const k = cropCanvas.width / image.width;
-    const [x, y, w, h] = [crop.x * k, crop.y * k, crop.width * k, crop.height * k];
-    g.fillStyle = "rgba(0, 0, 0, 0.45)";
-    g.fillRect(0, 0, cropCanvas.width, y);
-    g.fillRect(0, y + h, cropCanvas.width, cropCanvas.height - y - h);
-    g.fillRect(0, y, x, h);
-    g.fillRect(x + w, y, cropCanvas.width - x - w, h);
-    g.strokeStyle = "#e07b00";
-    g.lineWidth = 2;
-    g.strokeRect(x, y, w, h);
-  }
+  /** Forget the loaded photo and anything traced from it. */
+  const forget = () => {
+    clearTimeout(timer);
+    traceId++;
+    [photoPixels, cleaned, tracedFrom, traced] = [null, null, null, null];
+    if (cleanedHref) URL.revokeObjectURL(cleanedHref);
+    cleanedHref = null;
+    resultEl.replaceChildren();
+    [accepted, cleaning, method] = [false, true, NEW_PHOTO_METHOD];
+  };
 
   return {
-    async load(file) {
-      clearTimeout(timer);
-      image?.close();
-      image = null;
-      crop = undefined;
-      setAccepted(false);
+    async load(file, kept) {
+      forget();
+      const settings = kept?.settings ?? DEFAULTS;
+      threshold.value = thresholdOut.value = String(settings.threshold);
+      invert.checked = settings.invert;
+      speckle.value = String(settings.speckle);
+      let photo: ImageBitmap;
       try {
-        image = await createImageBitmap(file);
+        photo = await decode(file);
       } catch {
         root.hidden = true;
-        onTraced(null, "This image couldn't be read.", true);
+        hooks.onTraced(null, "This image couldn't be read.", true);
         return;
       }
+      const focal = exifFocal35Mm(await file.arrayBuffer());
+      photoPixels = pixelsOf(photo);
       root.hidden = false;
-      const scale = Math.min(1, 1200 / Math.max(image.width, image.height));
-      cropCanvas.width = Math.max(1, Math.round(image.width * scale));
-      cropCanvas.height = Math.max(1, Math.round(image.height * scale));
-      fitAspect(cropCanvas);
-      drawCrop();
-      resultEl.replaceChildren();
-      await retrace();
+      cleanupPanel.show(photo, kept?.cleanup ?? { corners: START_FRAME, aspect: null }, kept?.tone ?? TONE_DEFAULTS, focal);
+      photo.close();
+      if (kept) [cleaning, method, accepted] = [kept.inCleanup, kept.method, kept.accepted];
+      show();
+      await rewarp();
     },
     clear() {
-      clearTimeout(timer);
-      traceId++;
-      image?.close();
-      image = null;
-      crop = undefined;
-      resultEl.replaceChildren();
+      forget();
       root.hidden = true;
-      setAccepted(false);
     },
     loaded: () => !root.hidden,
     accepted: () => accepted,
+    autoTrace,
+    cleanup: () => cleanupPanel.cleanup(),
+    setCleanup(cleanup) {
+      cleanupPanel.setCleanup(cleanup);
+      void rewarp();
+    },
+    tone: () => cleanupPanel.tone(),
+    inCleanup: () => cleaning,
+    method: () => method,
+    chooseMethod,
+    autoTraced: () => traced,
+    cleanups: () => ({
+      start: cleanupPanel.cleanup(),
+      page: (c) => photoPage(cleanupPanel.cleanedUp(c)),
+      carry: (from, to) => carryPoints(cleanupPanel.cleanedUp(from), cleanupPanel.cleanedUp(to)),
+    }),
+    handSlot,
   };
+}
+
+/** The photo decoded the right way up (EXIF orientation), shrunk to `MAX_DECODED_SIDE` with the browser's best filter. */
+async function decode(file: File): Promise<ImageBitmap> {
+  const full = await createImageBitmap(file);
+  const size = fitWithin(full.width, full.height, MAX_DECODED_SIDE);
+  if (size.width === full.width && size.height === full.height) return full;
+  try {
+    return await createImageBitmap(full, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: "high" });
+  } finally {
+    full.close();
+  }
+}
+
+/** A decoded photo's RGBA pixels. */
+function pixelsOf(photo: ImageBitmap): ImageData {
+  const canvas = new OffscreenCanvas(photo.width, photo.height);
+  const g = canvas.getContext("2d")!;
+  g.drawImage(photo, 0, 0);
+  return g.getImageData(0, 0, photo.width, photo.height);
 }

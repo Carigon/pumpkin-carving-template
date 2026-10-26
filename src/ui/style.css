@@ -570,6 +570,23 @@ body {
   line-height: 1.35;
 }
 
+/* A button that reads as a link inside a line of text, e.g. "Download SVG" in the "won't keep your work" hint
+   (specific enough to undo card buttons' padding). */
+.controls .card .link-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.controls .card .link-button[hidden] {
+  display: none;
+}
+
 /* "more": the full detail behind a short hint. The link follows the short text; open, it reads "less" and the
    detail follows on the lines below. */
 .more {
@@ -977,7 +994,8 @@ body {
   display: none;
 }
 
-/* The Trace view: the crop image and the traced result side by side, each scaled to fit its half of the pane.
+/* The Photo view: two figures side by side, each scaled to fit its half of the pane: in Cleanup, the photo with
+   its frame and the cleaned-up photo; past it, the cleaned-up photo and the auto-trace result.
    Below the breakpoint the view is 4:3 like the 3D canvas; above it, it fills the pane. */
 .trace-views {
   display: grid;
@@ -1016,9 +1034,188 @@ body {
   height: auto;
 }
 
-.trace-crop {
-  cursor: crosshair;
+.trace-views figure[hidden] {
+  display: none;
+}
+
+/* A photo with an SVG drawn over it in the photo's px, scaled together to fit like a lone canvas. */
+.trace-fit > .cleanup-stack {
+  position: relative;
+  width: min(100cqw, 100cqh * var(--aspect, 1));
+  aspect-ratio: var(--aspect, 1);
+}
+
+.cleanup-stack > canvas,
+.cleanup-stack > svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cleanup-stack > svg[hidden] {
+  display: none;
+}
+
+/* Cleanup: the photo outside the frame is dimmed; the frame's top edge is heavier, to show which way is up. */
+.cleanup-overlay {
   touch-action: none;
+  cursor: crosshair;
+}
+
+.cleanup-outside {
+  fill: rgb(0 0 0 / 0.45);
+}
+
+.cleanup-frame {
+  fill: none;
+  stroke: #e07b00;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.cleanup-top {
+  stroke: #e07b00;
+  stroke-width: 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.cleanup-corner {
+  fill: rgb(224 123 0 / 0.35);
+  stroke: #fff;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+  /* Faded in the loupe (see `.ht-loupe use`), so the sheet's corner under the crosshair shows. */
+  opacity: var(--ht-mark-opacity, 1);
+}
+
+/* The corner the arrow keys nudge. */
+.cleanup-corner.selected {
+  fill: rgb(31 127 196 / 0.55);
+  stroke-width: 3;
+}
+
+/* The hand-trace's shapes over the photo during Cleanup: drawn as on the canvas, but never hit. */
+.cleanup-shape {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.cleanup-shape.closed {
+  fill: rgb(43 33 24 / 0.22);
+  fill-rule: evenodd;
+}
+
+.cleanup-shape.open {
+  stroke-dasharray: 7 5;
+}
+
+/* The photo again, inside the frame's drawing, only so the loupe magnifies it: the canvas under it shows the same. */
+.cleanup-photo-copy {
+  pointer-events: none;
+}
+
+.cleanup-overlay:focus-visible {
+  outline: 2px solid #1f7fc4;
+  outline-offset: -2px;
+}
+
+.trace-views .symmetry-axis {
+  stroke: #2a9df4;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.cleanup-controls {
+  display: grid;
+  gap: 1rem;
+}
+
+.cleanup-controls[hidden],
+.trace-tracing[hidden] {
+  display: none;
+}
+
+.cleanup-controls h3 {
+  margin: 0;
+}
+
+/* Cleanup's heading, with Undo and Redo beside it. */
+.cleanup-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cleanup-heading h3 {
+  margin-right: auto;
+}
+
+.trace-tracing {
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+
+.trace-tracing > * {
+  justify-self: stretch;
+}
+
+.trace-tracing > button {
+  justify-self: start;
+}
+
+/* The aspect chips: a segmented radio group, like the view switcher. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.chips label {
+  position: relative;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.chips label + label {
+  border-left: 1px solid var(--border);
+}
+
+.chips input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.chips label:has(input:checked) {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.chips label:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+.cleanup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .trace-result svg {
@@ -1403,4 +1600,341 @@ body {
 
 .ball-mode .ball-only {
   display: block;
+}
+
+.trace-accept-row[hidden] {
+  display: none;
+}
+
+/*
+ * The hand-trace canvas: in the Page view on a blank page, or over the cleaned-up photo in the Photo view, where it
+ * covers the view's figures. The page keeps fixed paper colors in both themes, like the Paper view's sheets; the
+ * overlay buttons sit below the view switcher.
+ */
+.view-page {
+  overflow: hidden;
+  background: var(--desk);
+}
+
+.hand-trace,
+.trace-hand-slot {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--desk);
+}
+
+.trace-hand-slot[hidden] {
+  display: none;
+}
+
+/*
+ * Below the breakpoint the pane has no set height: give the canvas the viewport's 4:3 box. While hand-tracing
+ * (not Done) the canvas takes the whole screen instead, the view switcher still over it as the way out.
+ */
+@media not (min-width: 60rem) {
+  .view-page,
+  .view-photo {
+    position: relative;
+  }
+
+  .view-page {
+    aspect-ratio: 4 / 3;
+  }
+
+  .viewport:has(> .view-page:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done), > .view-photo:not([hidden]) > .trace-hand-slot:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done)) {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+  }
+
+  .viewport:has(> .view-page:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done), > .view-photo:not([hidden]) > .trace-hand-slot:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done)) > .view:not([hidden]) {
+    position: absolute;
+    inset: 0;
+    aspect-ratio: auto;
+  }
+}
+
+.ht-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.ht-svg.ht-done {
+  cursor: default;
+}
+
+.ht-page {
+  fill: #fff;
+  stroke: #c9b9a6;
+}
+
+.ht-grid {
+  stroke: rgb(43 33 24 / 0.07);
+}
+
+.ht-axis {
+  stroke: rgb(226 106 18 / 0.55);
+  stroke-dasharray: 6 4;
+}
+
+/* A point being placed or dragged has snapped onto the axis. */
+.ht-axis.snapped {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
+.ht-fill {
+  fill: rgb(43 33 24 / 0.22);
+  fill-rule: evenodd;
+}
+
+.ht-line {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 2;
+}
+
+.ht-line.open {
+  stroke-dasharray: 7 5;
+}
+
+.ht-line.drawing {
+  stroke: #e26a12;
+}
+
+.ht-line.selected {
+  stroke: #1f7fc4;
+  stroke-width: 3;
+}
+
+.ht-point {
+  fill: #fff;
+  stroke: #2b2118;
+  stroke-width: 1.5;
+}
+
+.ht-point.selected {
+  fill: #1f7fc4;
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.ht-marker {
+  fill: rgb(255 255 255 / 0.85);
+  stroke: #1f7fc4;
+  stroke-width: 1.5;
+}
+
+.ht-end {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 1.5;
+}
+
+/* Handles: the selected point's solid on a stronger line; its neighbours' faint and hollow; stubs dashed. */
+.ht-handle-line {
+  stroke: #1f7fc4;
+  stroke-width: 1.5;
+}
+
+.ht-handle {
+  fill: #1f7fc4;
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.ht-handle.selected {
+  stroke: #1f7fc4;
+  stroke-width: 3;
+}
+
+.ht-handle-line.neighbour {
+  stroke-width: 1;
+  stroke-opacity: 0.45;
+}
+
+.ht-handle.neighbour {
+  fill: #fff;
+  stroke: #1f7fc4;
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.ht-handle-line.stub {
+  stroke-dasharray: 4 3;
+  stroke-opacity: 0.8;
+}
+
+.ht-handle.stub {
+  fill: #fff;
+  stroke: #1f7fc4;
+  stroke-width: 1.5;
+}
+
+.ht-close-ring {
+  fill: rgb(226 106 18 / 0.15);
+  stroke: #e26a12;
+  stroke-width: 2;
+}
+
+/* What a click would act on, under a mouse or pen. */
+.ht-line.hover {
+  stroke: #1f7fc4;
+  stroke-width: 3;
+  stroke-opacity: 0.7;
+}
+
+.ht-hover {
+  fill: rgb(31 127 196 / 0.15);
+  stroke: #1f7fc4;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+/* The edge a click would add, from the last point placed. */
+.ht-rubber-band {
+  stroke: #e26a12;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
+.ht-svg:focus-visible {
+  outline: 2px solid #1f7fc4;
+  outline-offset: -2px;
+}
+
+/* Warning marks: display only, so never in the way of a tap. Fixed colors, as the page is white in both themes. */
+.ht-warn-tint,
+.ht-warn-ring {
+  pointer-events: none;
+}
+
+.ht-warn-tint {
+  fill: rgb(198 40 40 / 0.18);
+  fill-rule: evenodd;
+}
+
+.ht-warn-ring {
+  fill: none;
+  stroke: #c62828;
+  stroke-width: 2;
+}
+
+/*
+ * The loupe shows the drawing by reference (`<use>`), where page selectors can't reach: the custom property below
+ * inherits into it and fades the points and markers, which would otherwise hide the line under the crosshair.
+ */
+.ht-loupe {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ht-loupe use {
+  --ht-mark-opacity: 0.35;
+}
+
+.ht-point,
+.ht-marker,
+.ht-end,
+.ht-close-ring,
+.ht-handle {
+  opacity: var(--ht-mark-opacity, 1);
+}
+
+.ht-loupe-back {
+  fill: var(--desk);
+}
+
+.ht-loupe-cross {
+  stroke: #e26a12;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ht-loupe-rim {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ht-tools {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ht-tools[hidden],
+.ht-note[hidden] {
+  display: none;
+}
+
+.ht-tools button,
+.ht-pill,
+.ht-note {
+  pointer-events: auto;
+}
+
+.ht-top-left,
+.ht-top-right {
+  position: absolute;
+  top: 3rem;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.ht-top-left {
+  left: 0.5rem;
+}
+
+.ht-top-right {
+  right: 0.5rem;
+}
+
+/* Symmetry, while it's on. */
+.ht-tools button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.ht-bottom {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  right: 0.5rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+}
+
+.ht-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.85rem;
+}
+
+.ht-note {
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.4rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.8rem;
 }
