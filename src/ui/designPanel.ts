@@ -1,12 +1,11 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
 import type { PageRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
 import type { HandTraceRecord } from "../handTrace";
-import { editOnStalePhoto, handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
-import { filePhoto } from "../input/shrinkPhoto";
+import { editOnStalePhoto, readHandTraceFile } from "../input/handTraceFile";
 import { autoTraceShapes, readSvgHandTrace, type SvgHandTrace } from "../input/svgHandTrace";
 import { counted } from "./counted";
 import { designRecordOf, keepDesign } from "./designKeeping";
-import { downloadBlob } from "./download";
+import { mountDownloadSvg } from "./downloadSvg";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
 import { mountPlacementCard } from "./placementCard";
@@ -241,13 +240,17 @@ export function mountDesignPanel(
   const handTraceEl = $<HTMLElement>("d-hand-trace");
   const handTraceAccept = handTraceEl.querySelector<HTMLButtonElement>(".trace-accept")!;
   const handTraceNote = handTraceEl.querySelector<HTMLElement>(".trace-accepted-note")!;
-  /** Download SVG, below Done/Edit and in the "won't keep your work" line. */
-  const downloads = Array.from(form.querySelectorAll<HTMLButtonElement>("[data-download-svg]"));
   /** The blank page's hand-trace; null over a photo, whose Done is the trace panel's. */
   const pageEditor = () => (photo ? null : handTrace.editor());
   const handTraceDone = () => pageEditor()?.isDone() ?? false;
   /** The hand-trace a Download SVG writes: the blank page's, or the photo's while hand-trace is chosen. */
   const chosenHandTrace = () => (handTraceView() ? handTrace.editor() : null);
+  /** At the placed Width: the default while the field is empty. */
+  const downloadSvg = mountDownloadSvg(form, {
+    handTrace: chosenHandTrace,
+    record,
+    width: () => placementCard.fileWidth(),
+  });
   const showHandTrace = () => {
     const editor = chosenHandTrace();
     // Over a photo the row holds Download SVG only, below the trace panel's Done/Edit.
@@ -255,35 +258,8 @@ export function mountDesignPanel(
     handTraceAccept.hidden = pageEditor() === null;
     handTraceAccept.textContent = handTraceDone() ? "Edit" : "Done";
     handTraceNote.hidden = !handTraceDone();
-    for (const b of downloads) {
-      b.hidden = editor === null;
-      b.disabled = (editor?.counts().points ?? 0) === 0;
-    }
+    downloadSvg.show(editor);
   };
-  /** The loaded photo as its hand-trace file carries it, made once per photo. */
-  let forFile: { of: PhotoFile; photo: Promise<PhotoFile> } | null = null;
-  /** Download the hand-trace as a hand-trace file, at the placed Width (the default while the field is empty). */
-  const downloadSvg = async () => {
-    const editor = chosenHandTrace();
-    const kept = record();
-    if (!editor || !kept || kept.source === "svg") return;
-    if (kept.source === "photo" && forFile?.of !== kept.photo) {
-      const chosen = kept.photo;
-      // A photo that loaded but won't decode again here goes in as chosen.
-      forFile = { of: chosen, photo: filePhoto(chosen).catch(() => chosen) };
-    }
-    const fileRecord = kept.source === "photo" && forFile ? { ...kept, photo: await forFile.photo } : kept;
-    const text = writeHandTraceFile({
-      record: fileRecord,
-      page: editor.page(),
-      pathData: editor.pathData(),
-      design: editor.design(),
-      width: placementCard.fileWidth(),
-    });
-    const name = kept.source === "photo" ? kept.photo.name : kept.name;
-    downloadBlob(new Blob([text], { type: "image/svg+xml" }), handTraceFileName(new Date(), name));
-  };
-  for (const b of downloads) b.addEventListener("click", () => void downloadSvg());
   handTraceAccept.addEventListener("click", () => {
     handTrace.setDone(!handTraceDone());
     showHandTrace();
