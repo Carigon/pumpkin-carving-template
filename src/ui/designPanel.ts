@@ -8,14 +8,10 @@ import { counted } from "./counted";
 import { downloadBlob } from "./download";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
-import { lengthFields } from "./lengthFields";
+import { mountPlacementCard } from "./placementCard";
 import { mountTracePanel } from "./tracePanel";
 import { TRACING_METHODS } from "./tracingMethods";
-import { designWarningText, renderWarnings } from "./warnings";
 
-/** In mm; centered. */
-const DEFAULTS_MM = { width: 150, verticalOffset: 0 };
-const MAX_ROTATION = 30;
 /** The file input's hint, shown until a file's status replaces it. */
 const FILE_HINT = "Photos never leave your browser.";
 /** The status line while a photo is in Cleanup. */
@@ -92,34 +88,7 @@ export function mountDesignPanel(
       <div class="hint" id="d-not-kept" hidden>This browser won't keep your work after a reload.
         <button type="button" class="link-button" data-download-svg>Download SVG</button></div>
       </section>
-      <section class="card">
-      <h2>Placement</h2>
-      <div class="field">
-        <label for="d-width">Width seen from the front</label>
-        <div class="input-row">
-          <input id="d-width" type="number" inputmode="decimal" min="0" step="any" />
-          <span class="unit-label">in</span>
-        </div>
-      </div>
-      <div class="field">
-        <label for="d-offset">Move up (negative = down)</label>
-        <div class="input-row">
-          <input id="d-offset" type="number" inputmode="decimal" step="any" />
-          <span class="unit-label">in</span>
-        </div>
-      </div>
-      <div class="field">
-        <label for="d-rotation">Rotation</label>
-        <div class="input-row">
-          <input id="d-rotation-range" type="range" min="${-MAX_ROTATION}" max="${MAX_ROTATION}" step="0.5" value="0"
-            aria-label="Rotation slider" />
-          <input id="d-rotation" type="number" step="0.5" value="0" />
-          <span>°</span>
-        </div>
-        <div class="hint">Counterclockwise as seen from the front.</div>
-      </div>
-      <div id="d-warnings" class="warnings" role="alert"></div>
-      </section>
+      <section class="card" id="d-placement"></section>
     </form>
   `;
 
@@ -127,25 +96,13 @@ export function mountDesignPanel(
   const $ = <T extends HTMLElement>(id: string) => form.querySelector<T>(`#${id}`)!;
   const file = $<HTMLInputElement>("d-file");
   const status = $<HTMLElement>("d-file-status");
-  const width = $<HTMLInputElement>("d-width");
-  const offset = $<HTMLInputElement>("d-offset");
-  const rotation = $<HTMLInputElement>("d-rotation");
-  const rotationRange = $<HTMLInputElement>("d-rotation-range");
-  const warningsEl = $<HTMLElement>("d-warnings");
 
-  const lengths = lengthFields(form, [width, offset]);
-  lengths.set(width, DEFAULTS_MM.width);
-  lengths.set(offset, DEFAULTS_MM.verticalOffset);
   let design: Design | null = null;
-  let warnings: TemplateWarning[] = [];
-  const showWarnings = () =>
-    renderWarnings(warningsEl, warnings, "design", (w) =>
-      designWarningText(w, { units: lengths.units(), source: warningSource() }),
-    );
   const warningSource = () => {
     if (trace.loaded()) return chosenMethod().source;
     return svg ? "svg" : "hand-trace";
   };
+  const placementCard = mountPlacementCard($("d-placement"), warningSource);
   const showStatus = (text: string, failed: boolean) => {
     status.textContent = text;
     status.classList.toggle("warning-text", failed);
@@ -264,7 +221,7 @@ export function mountDesignPanel(
       showHandTrace(); // Download SVG shows while hand-trace is chosen
       pickDesign();
       showPhotoStatus();
-      showWarnings(); // auto-trace's lines carry its own hint
+      placementCard.rewordWarnings(); // auto-trace's lines carry its own hint
       onChange();
       keep();
     },
@@ -343,13 +300,12 @@ export function mountDesignPanel(
       forFile = { of: chosen, photo: filePhoto(chosen).catch(() => chosen) };
     }
     const fileRecord = kept.source === "photo" && forFile ? { ...kept, photo: await forFile.photo } : kept;
-    const placed = lengths.value(width);
     const text = writeHandTraceFile({
       record: fileRecord,
       page: editor.page(),
       pathData: editor.pathData(),
       design: editor.design(),
-      width: placed > 0 ? placed : DEFAULTS_MM.width,
+      width: placementCard.fileWidth(),
     });
     const name = kept.source === "photo" ? kept.photo.name : kept.name;
     downloadBlob(new Blob([text], { type: "image/svg+xml" }), handTraceFileName(new Date(), name));
@@ -513,12 +469,6 @@ export function mountDesignPanel(
     if (document.visibilityState === "hidden") keep();
   });
   file.addEventListener("change", () => void load());
-  rotationRange.addEventListener("input", () => {
-    rotation.value = rotationRange.value;
-  });
-  rotation.addEventListener("input", () => {
-    rotationRange.value = rotation.value;
-  });
   form.addEventListener("input", (e) => {
     if (e.target !== file && !traceEl.contains(e.target as Node)) onChange();
   });
@@ -531,30 +481,14 @@ export function mountDesignPanel(
     hasPage: () => pageEditor() !== null,
     handTraceView,
     openShapes: () => (handTraceView() ? (handTrace.editor()?.counts().open ?? null) : null),
-    placement: () => ({
-      width: lengths.value(width),
-      verticalOffset: lengths.value(offset) || 0,
-      rotation: num(rotation.value) || 0,
-    }),
-    restorePlacement(saved) {
-      if (saved.width !== undefined) lengths.set(width, saved.width);
-      if (saved.verticalOffset !== undefined) lengths.set(offset, saved.verticalOffset);
-      if (saved.rotation !== undefined) rotation.value = rotationRange.value = String(saved.rotation);
-    },
+    placement: () => placementCard.placement(),
+    restorePlacement: (saved) => placementCard.restore(saved),
     restoreDesign,
-    setUnits(next: Units) {
-      lengths.setUnits(next);
-      showWarnings();
-    },
-    showWarnings(next: TemplateWarning[]) {
-      warnings = next;
-      showWarnings();
+    setUnits: (next) => placementCard.setUnits(next),
+    showWarnings(next) {
+      placementCard.showWarnings(next);
       // Only a hand-trace is marked: never an auto-trace result or an SVG design.
       handTrace.showWarnings(next);
     },
   };
-}
-
-function num(raw: string): number {
-  return raw.trim() === "" ? Number.NaN : Number(raw);
 }
