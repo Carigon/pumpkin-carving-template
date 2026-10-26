@@ -46,7 +46,9 @@ export interface DesignPanel {
 }
 
 /**
- * SVG upload plus placement controls: front-view width, vertical offset and rotation.
+ * The Design card, loading an SVG file or photo or starting a blank page, then the Placement card. This wires them:
+ * which design is loaded, how each source opens, and the parts that show it (the trace panel, the hand-trace canvas,
+ * the Edit as hand-trace and Download SVG rows, the tracing methods, keeping and placement), each in its own module.
  * Calls `onChange` whenever the design or its placement changes, or the trace is accepted. A photo's cleanup, its
  * auto-trace result and its hand-trace go in `photoView` (the viewport's Photo view); a hand-trace on a blank page in
  * `pageView` (the Page view). The loaded design and the work on it are kept across reloads by `keeper` (ADR 0002).
