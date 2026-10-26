@@ -141,6 +141,12 @@ export interface WarningMarks {
   tiny: { at: ScreenPoint; r: number }[];
 }
 
+/** Shapes and their reflections as path data, the closed ones apart from the open ones. */
+export interface ShapePaths {
+  closed: string;
+  open: string;
+}
+
 /** Everything the canvas shows, in screen coordinates. */
 export interface Drawn {
   /** The blank page or the cleaned-up photo. */
@@ -269,7 +275,7 @@ export interface HandTrace<C = unknown> {
    * closed ones apart from the open ones: what Cleanup draws over the photo, where they can't be edited. Live
    * through a cleanup change, as `drawn` is.
    */
-  shapePaths(map: (p: XY) => XY): { closed: string; open: string };
+  shapePaths(map: (p: XY) => XY): ShapePaths;
   /** The shapes, in the order drawn, as the stored record holds them. */
   shapes(): readonly Shape[];
   /** What the stored record keeps of the hand-trace. A new object only on a finished change or Done/Edit. */

@@ -1,5 +1,14 @@
 // A frame corner is grabbed and nudged as a point on the hand-trace canvas is.
-import { ARROWS, HIT_RADIUS_PX, NUDGE_PX, placeLoupe, SHIFT_NUDGE_PX, type Loupe } from "../handTrace";
+import {
+  ARROWS,
+  HIT_RADIUS_PX,
+  NUDGE_PX,
+  placeLoupe,
+  SHIFT_NUDGE_PX,
+  type Loupe,
+  type ShapePaths,
+  type XY,
+} from "../handTrace";
 import {
   applyHomography,
   cleanUp,
@@ -64,7 +73,7 @@ export interface CleanupHooks {
    * The hand-trace's shapes and reflections to draw over the photo, each position taken through `toPhoto` (design
    * space to photo px): closed ones and open ones as path data; null for none.
    */
-  shapes(toPhoto: (p: { x: number; y: number }) => { x: number; y: number }): { closed: string; open: string } | null;
+  shapes(toPhoto: (p: XY) => XY): ShapePaths | null;
   /** The frame moved and hasn't been released yet: a corner dragged or nudged, or Turn moving. */
   onLive(): void;
   /**
