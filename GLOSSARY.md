@@ -57,13 +57,17 @@ One place a shape's edge passes through, placed by the carver.
 _Avoid_: Anchor, node, vertex
 
 **Corner point**:
-A point where the edge may change direction sharply. It may have a handle on either side, each set on its own, like the tips of a crescent-moon eye; a side with no handle leaves the point in a straight edge. Placing a point makes a corner point.
+A point where the edge may change direction sharply. It may have a handle on either side, each set on its own, like the tips of a crescent-moon eye; a side with no handle leaves the point in a straight edge. Placing a point makes a corner point, and so does inserting one.
 
 **Smooth point**:
 A point the edge passes through without a kink, its two handles on one line. Its handles follow its neighbours, rounding the edge out, until the carver drags one.
 
 **Handle**:
-A control pulled out of a point that sets which way, and how far, the edge curves as it leaves the point. Dragged back onto its point, it's gone and that side is straight.
+A control pulled out of a point that sets which way, and how far, the edge curves as it leaves the point. Dragged back onto its point, it's gone and that side is straight. The selected point's handles show, and so, fainter, do its neighbours' handles on its two edges.
+
+**Stub**:
+The short dashed handle a selected corner point shows on a side that has no handle; dragging it pulls a handle out.
+_Avoid_: Ghost handle
 
 **Open shape**:
 A shape that isn't closed. It's kept, but it isn't carved until the carver closes it.
@@ -74,11 +78,11 @@ The one shape a tap on empty space adds points to, from its first point until th
 _Avoid_: Current shape, active shape, draw mode (hand-tracing has no modes)
 
 **Insert marker**:
-The small target in the middle of each edge of the selected shape that adds a point there when tapped or dragged.
+The small target in the middle of each edge of the selected shape that adds a corner point there when tapped or dragged.
 _Avoid_: Midpoint handle (a handle shapes a curve)
 
 **Loupe**:
-The magnified circle shown beside a finger that holds or drags, centred on where the point under the finger will land.
+The magnified circle shown beside a finger that holds or drags, centred on where the point or handle under the finger will land.
 _Avoid_: Magnifier, offset cursor (the point lands under the finger, not beside it)
 
 **Cleanup**:
