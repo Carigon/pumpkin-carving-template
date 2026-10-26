@@ -248,6 +248,29 @@ describe("hand-trace file: Edit as hand-trace on a changed one", () => {
     expectSameOutlines(overPhoto(handTrace).design()!.paths, editor.design()!.paths, TOL);
   });
 
+  it("brings a former symmetric shape back whole and a twin back as two shapes, all mirror none, Symmetry off", () => {
+    const corner = (x: number, y: number) => ({ x, y, kind: "corner" as const });
+    const mirrored: HandTraceRecord = {
+      shapes: [
+        { id: 1, closed: true, mirror: "twin", points: [corner(0.2, 0.5), corner(0.35, 0.5), corner(0.3, 0.65)] },
+        { id: 2, closed: true, mirror: "symmetric", points: [corner(0.5, 0.35), corner(0.3, 0.25), corner(0.5, 0.15)] },
+      ],
+      drawing: null,
+      done: false,
+      symmetry: true,
+    };
+    const record = { ...photoRecord(), handTrace: mirrored };
+    const drawn = overPhoto(mirrored);
+    // Changed in another program: a speck added to the visible path.
+    const speck = "M0.8 -0.1L0.85 -0.1L0.85 -0.15Z";
+    const text = withPath(photoFileOf(record), (d) => `${d}${speck}`);
+    const { handTrace } = editOnStalePhoto(text)!;
+    expect(handTrace.symmetry).toBeFalsy();
+    expect(handTrace.shapes.map((s) => s.mirror)).toEqual(["none", "none", "none", "none"]);
+    const want = [...drawn.design()!.paths, [{ x: 0.8, y: 0.1 }, { x: 0.85, y: 0.1 }, { x: 0.85, y: 0.15 }]];
+    expectSameOutlines(overPhoto(handTrace).design()!.paths, want, TOL);
+  });
+
   it("lands on the canvas, not in Cleanup, and not Done", () => {
     const { text } = changed();
     expect(editOnStalePhoto(withRecord(text, (r) => ({ ...r, inCleanup: true })))).toMatchObject({ inCleanup: false, done: false });
