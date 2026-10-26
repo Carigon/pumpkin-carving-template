@@ -1559,12 +1559,25 @@ body {
 }
 
 /*
- * Page view: the hand-trace canvas on a blank page. The page keeps fixed paper colors in both themes, like the
- * Paper view's sheets; the overlay buttons sit below the view switcher.
+ * The hand-trace canvas: in the Page view on a blank page, or over the cleaned-up photo in the Photo view, where it
+ * covers the view's figures. The page keeps fixed paper colors in both themes, like the Paper view's sheets; the
+ * overlay buttons sit below the view switcher.
  */
 .view-page {
   overflow: hidden;
   background: var(--desk);
+}
+
+.hand-trace,
+.trace-hand-slot {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--desk);
+}
+
+.trace-hand-slot[hidden] {
+  display: none;
 }
 
 /*
@@ -1572,18 +1585,22 @@ body {
  * (not Done) the canvas takes the whole screen instead, the view switcher still over it as the way out.
  */
 @media not (min-width: 60rem) {
-  .view-page {
+  .view-page,
+  .view-photo {
     position: relative;
+  }
+
+  .view-page {
     aspect-ratio: 4 / 3;
   }
 
-  .viewport:has(> .view-page:not([hidden]) .ht-svg:not(.ht-done)) {
+  .viewport:has(> .view-page:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done), > .view-photo:not([hidden]) > .trace-hand-slot:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done)) {
     position: fixed;
     inset: 0;
     z-index: 10;
   }
 
-  .viewport:has(> .view-page:not([hidden]) .ht-svg:not(.ht-done)) > .view-page {
+  .viewport:has(> .view-page:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done), > .view-photo:not([hidden]) > .trace-hand-slot:not([hidden]) > .hand-trace > .ht-svg:not(.ht-done)) > .view:not([hidden]) {
     position: absolute;
     inset: 0;
     aspect-ratio: auto;

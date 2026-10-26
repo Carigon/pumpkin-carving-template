@@ -25,10 +25,44 @@ export const THRESHOLD_RANGE = { min: 1, max: 254 };
 /** The most speckle removal offers, in px. */
 export const MAX_SPECKLE = 1000;
 
+/** How a photo becomes the design: auto-trace (Potrace) or hand-trace. */
+export type TracingMethod = "auto" | "hand";
+
+/**
+ * Cleanup's tone, in percent (100 leaves the photo as it is): a display filter on the photo a hand-trace is placed
+ * over, never on what auto-trace traces.
+ */
+export interface Tone {
+  brightness: number;
+  contrast: number;
+}
+
+/** The tone of a new photo, and what an invalid kept setting falls back to: the photo as it is. */
+export const TONE_DEFAULTS: Tone = { brightness: 100, contrast: 100 };
+/** The Brightness and Contrast sliders' range, in percent: from half to triple, enough to lift faint pencil. */
+export const TONE_RANGE = { min: 50, max: 300 };
+
+/** A photo and the work on it. */
+export interface PhotoRecord {
+  source: "photo";
+  photo: PhotoFile;
+  cleanup: Cleanup;
+  tone: Tone;
+  /** The photo is in Cleanup (new, or Straighten photo pressed): a reload comes back to it there. */
+  inCleanup: boolean;
+  autoTrace: AutoTraceSettings;
+  /** The photo's hand-trace, in the cleaned-up photo's design space; kept whichever method is chosen. */
+  handTrace: HandTraceRecord;
+  /** The chosen tracing method: the design is its result. */
+  method: TracingMethod;
+  /** Done was pressed on the chosen method (and not Edit since). */
+  done: boolean;
+}
+
 /** The loaded design and the work on it, by where it came from. */
 export type DesignRecord =
   | { source: "svg"; svg: { name: string; text: string } }
-  | { source: "photo"; photo: PhotoFile; cleanup: Cleanup; autoTrace: AutoTraceSettings; done: boolean }
+  | PhotoRecord
   | { source: "page"; page: Page; handTrace: HandTraceRecord };
 
 /** The part of IndexedDB the record needs: one slot of a few named entries, structured-cloned in and out. */
@@ -183,8 +217,20 @@ export function readRecord(raw: unknown): DesignRecord | null {
   }
   if (raw.source === "photo") {
     const photo = readPhoto(raw.photo);
-    const [cleanup, autoTrace, done] = [readCleanup(raw.cleanup), readAutoTrace(raw.autoTrace), raw.done === true];
-    return photo && { source: "photo", photo, cleanup, autoTrace, done };
+    return (
+      photo && {
+        source: "photo",
+        photo,
+        cleanup: readCleanup(raw.cleanup),
+        tone: readTone(raw.tone),
+        inCleanup: raw.inCleanup === true,
+        autoTrace: readAutoTrace(raw.autoTrace),
+        handTrace: readHandTrace(raw.handTrace),
+        // A new photo starts on hand-trace.
+        method: oneOf(raw.method, ["auto", "hand"] as const) ?? "hand",
+        done: raw.done === true,
+      }
+    );
   }
   if (raw.source === "page") {
     const page = readPage(raw.page);
@@ -207,6 +253,19 @@ function readAutoTrace(x: unknown): AutoTraceSettings {
     threshold: integerIn(s.threshold, THRESHOLD_RANGE.min, THRESHOLD_RANGE.max) ?? d.threshold,
     invert: typeof s.invert === "boolean" ? s.invert : d.invert,
     speckle: integerIn(s.speckle, 0, MAX_SPECKLE) ?? d.speckle,
+  };
+}
+
+/** Each tone setting on its own: an invalid or missing one leaves the photo as it is. */
+function readTone(x: unknown): Tone {
+  const s = isRecord(x) ? x : {};
+  const percent = (v: unknown, fallback: number) => {
+    const n = finite(v);
+    return n !== undefined && n >= TONE_RANGE.min && n <= TONE_RANGE.max ? n : fallback;
+  };
+  return {
+    brightness: percent(s.brightness, TONE_DEFAULTS.brightness),
+    contrast: percent(s.contrast, TONE_DEFAULTS.contrast),
   };
 }
 
