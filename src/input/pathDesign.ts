@@ -1,4 +1,4 @@
-import type { BBox, Design, Point2 } from "../core";
+import { signedArea, type BBox, type Design, type Point2 } from "../core";
 import { flattenPathData, roughExtent } from "./flattenPath";
 
 /** The loader's tolerance, as a fraction of the design's larger dimension (≈0.13 mm on a 10 in design). */
@@ -24,7 +24,7 @@ export function designFromPathData(d: string): Design | null {
  * one whose loops cancel out (a figure-eight with equal loops) is measured by its even-odd area.
  */
 function enclosesArea(path: Point2[], least: number): boolean {
-  return Math.abs(area(path)) > least || evenOddArea(path) > least;
+  return Math.abs(signedArea(path)) > least || evenOddArea(path) > least;
 }
 
 /**
@@ -81,14 +81,4 @@ export function bboxOf(paths: Point2[][]): BBox {
     }
   }
   return box;
-}
-
-/** Signed area of a closed polyline (shoelace). */
-function area(path: Point2[]): number {
-  let sum = 0;
-  path.forEach((p, i) => {
-    const q = path[(i + 1) % path.length];
-    sum += p.x * q.y - q.x * p.y;
-  });
-  return sum / 2;
 }

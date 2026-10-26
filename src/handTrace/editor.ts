@@ -1,4 +1,4 @@
-import { distanceToSegment, insidePolygon, signedArea, type BBox, type Design, type TemplateWarning } from "../core";
+import { distanceToSegment, insidePolygon, polylineLength, signedArea, type BBox, type Design, type TemplateWarning } from "../core";
 import type { DragGesture, Gesture, HoldGesture, PanGesture, PointerKind, ScreenPoint } from "./gestures";
 import {
   edgeAt,
@@ -1484,11 +1484,6 @@ export function placeLoupe(finger: ScreenPoint, focus: ScreenPoint, width: numbe
 function aboutAxis(design: Design, axis: number): Design {
   const half = Math.max(axis - design.bbox.minX, design.bbox.maxX - axis);
   return { ...design, bbox: { ...design.bbox, minX: axis - half, maxX: axis + half } };
-}
-
-/** How long a polyline is, end to end. */
-function polylineLength(pts: readonly XY[]): number {
-  return pts.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y)), 0);
 }
 
 /**
