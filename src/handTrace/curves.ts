@@ -134,7 +134,7 @@ export function withHandle(shape: Shape, i: number, side: Side, offset: Offset |
 
 /**
  * The shape with a corner point added at the middle (t = 0.5) of the edge after point `after`, and its index. On a
- * curve it's the exact de Casteljau split, so the outline doesn't move: the new corner takes the halves' handles,
+ * curve it's the exact de Casteljau split, so the edge doesn't move: the new corner takes the halves' handles,
  * and its neighbours keep their handle directions with the split's lengths (automatic ones stored first).
  */
 export function split(shape: Shape, after: number): { shape: Shape; index: number } {
