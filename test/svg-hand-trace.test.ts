@@ -123,6 +123,34 @@ describe("Edit as hand-trace on an SVG design", () => {
     expect(editor.drawn().can.undo).toBe(false);
   });
 
+  it("starts with Symmetry off, a mirrored hand-trace's shapes coming in as drawn, each mirror none", () => {
+    // A twin and a symmetric shape, drawn with Symmetry on: their path data has the reflections written out.
+    const record = {
+      shapes: [
+        { id: 1, closed: true, mirror: "twin" as const, points: [
+          { x: 0.2, y: 0.6, kind: "corner" as const },
+          { x: 0.35, y: 0.6, kind: "corner" as const },
+          { x: 0.3, y: 0.75, kind: "corner" as const },
+        ] },
+        { id: 2, closed: true, mirror: "symmetric" as const, points: [
+          { x: 0.5, y: 0.45, kind: "corner" as const },
+          { x: 0.3, y: 0.35, kind: "corner" as const },
+          { x: 0.5, y: 0.25, kind: "corner" as const },
+        ] },
+      ],
+      drawing: null,
+      done: false,
+      symmetry: true,
+    };
+    const mirrored = createHandTrace({ toDesign: designFromPathData, record });
+    const editor = editAsHandTrace(svgOf(`<path d="${mirrored.pathData()}"/>`));
+    expect(editor.drawn().symmetry).toBe(false);
+    expect(editor.record().symmetry).toBeFalsy();
+    // The twin comes in as two shapes, the symmetric shape whole.
+    expect(editor.shapes().map((s) => s.mirror)).toEqual(["none", "none", "none"]);
+    expectSameOutlines(inBox(editor.design()!), inBox(mirrored.design()!), 3 * TOL);
+  });
+
   it("finds nothing to edit in an SVG with no shape that has an area", () => {
     expect(readSvgHandTrace(svgOf('<line x1="0" y1="0" x2="10" y2="10"/>'))).toBeNull();
     expect(readSvgHandTrace("not svg")).toBeNull();

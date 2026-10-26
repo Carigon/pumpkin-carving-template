@@ -62,7 +62,7 @@ const HOVER_RING_PX = 10;
 const DECIMALS = 1;
 /** How the canvas is used, for its accessible label after what it shows. */
 const GESTURES_LABEL =
-  "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point or handle to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); double-tap a point to make it smooth or a corner; Alt + drag a smooth point's handle to make it a corner; pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, S switches Smooth / Corner, the arrows nudge, + − and 0 zoom.";
+  "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point or handle to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); double-tap a point to make it smooth or a corner; Alt + drag a smooth point's handle to make it a corner; pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, S switches Smooth / Corner, M switches Symmetry, the arrows nudge, + − and 0 zoom.";
 /** How the keys' modifier is written in tooltips: Cmd on Apple devices, Ctrl elsewhere. */
 const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
 /** Canvases mounted so far, to give each drawing its own id. */
@@ -83,7 +83,10 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
         <button type="button" data-act="undo" title="Undo (${MOD}Z)">Undo</button>
         <button type="button" data-act="redo" title="Redo (${MOD}Shift+Z)">Redo</button>
       </div>
-      <div class="ht-top-right"><button type="button" data-act="clear">Clear</button></div>
+      <div class="ht-top-right">
+        <button type="button" data-act="toggleSymmetry" title="Symmetry (M)" aria-pressed="false">Symmetry</button>
+        <button type="button" data-act="clear">Clear</button>
+      </div>
       <div class="ht-bottom">
         <div class="ht-note" hidden></div>
         <div class="ht-pill" aria-live="polite"></div>
@@ -117,6 +120,7 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     button("undo").disabled = !drawn.can.undo;
     button("redo").disabled = !drawn.can.redo;
     button("clear").disabled = !drawn.can.clear;
+    button("toggleSymmetry").setAttribute("aria-pressed", String(drawn.symmetry));
     note.hidden = drawn.note === null;
     note.textContent = drawn.note ?? "";
     renderPill(drawn);
@@ -153,7 +157,18 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   };
 
   /** The editor commands the overlay's buttons press, by their `data-act`. */
-  const ACTS = ["undo", "redo", "clear", "close", "end", "delete", "carryOn", "clearSelection", "toggleKind"] as const;
+  const ACTS = [
+    "undo",
+    "redo",
+    "clear",
+    "close",
+    "end",
+    "delete",
+    "carryOn",
+    "clearSelection",
+    "toggleKind",
+    "toggleSymmetry",
+  ] as const;
   tools.addEventListener("click", (e) => {
     const act = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-act]")?.dataset.act;
     const command = ACTS.find((a) => a === act);
@@ -300,7 +315,8 @@ function draw(svg: SVGSVGElement, drawn: Drawn, id: string, photo: SVGElement): 
     parts.push(el("line", { class: "ht-grid", x1: page.x, y1: y, x2: page.x + page.width, y2: y }, DECIMALS));
   }
   if (axis) {
-    parts.push(el("line", { class: "ht-axis", x1: axis.from.x, y1: axis.from.y, x2: axis.to.x, y2: axis.to.y }, DECIMALS));
+    const cls = axis.snapped ? "ht-axis snapped" : "ht-axis";
+    parts.push(el("line", { class: cls, x1: axis.from.x, y1: axis.from.y, x2: axis.to.x, y2: axis.to.y }, DECIMALS));
   }
   if (drawn.fill) parts.push(el("path", { class: "ht-fill", d: drawn.fill }));
   const { warnings } = drawn;

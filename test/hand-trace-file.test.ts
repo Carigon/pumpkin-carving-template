@@ -69,6 +69,30 @@ describe("hand-trace file: write then read", () => {
     const { shapes, points, fill, note, pill } = editor.drawn();
     expect(again.drawn()).toMatchObject({ shapes, points, fill, note, pill });
   });
+
+  it("keeps Symmetry and mirrored shapes: reflections drawn as real geometry, the box about the axis, reopening mirrored", () => {
+    const twin = { id: 1, closed: true, mirror: "twin" as const, points: WORK.shapes[1].points };
+    const half = {
+      id: 2,
+      closed: true,
+      mirror: "symmetric" as const,
+      points: [
+        { x: 0.5, y: 0.3, kind: "corner" as const },
+        { x: 0.3, y: 0.2, kind: "smooth" as const },
+        { x: 0.5, y: 0.1, kind: "smooth" as const },
+      ],
+    };
+    const work: HandTraceRecord = { shapes: [twin, half], drawing: null, done: false, symmetry: true };
+    const editor = editorOf(work);
+    const file = fileOf(editor);
+    const read = readHandTraceFile(file);
+    expect(read).toEqual({ kind: "hand-trace", record: { source: "page", page: { width: 1, height: 1 }, handTrace: work } });
+    // Read as a plain SVG: the twin's reflection and the whole symmetric shape are there, centred on the axis.
+    const { design } = readSvgDesign(file);
+    expectSameOutlines(design!.paths, editor.design()!.paths, TOL);
+    expect(design!.paths).toHaveLength(3);
+    expect((design!.bbox.minX + design!.bbox.maxX) / 2).toBeCloseTo(0.5, 6);
+  });
 });
 
 /** A cleaned-up photo 4:3 wide, as design space has it: one unit across, three quarters of one up. */
@@ -222,6 +246,29 @@ describe("hand-trace file: Edit as hand-trace on a changed one", () => {
     expect(handTrace).toMatchObject({ drawing: null, done: false });
     expect(handTrace.shapes.map((s) => [s.closed, s.mirror])).toEqual([[true, "none"]]);
     expectSameOutlines(overPhoto(handTrace).design()!.paths, editor.design()!.paths, TOL);
+  });
+
+  it("brings a former symmetric shape back whole and a twin back as two shapes, all mirror none, Symmetry off", () => {
+    const corner = (x: number, y: number) => ({ x, y, kind: "corner" as const });
+    const mirrored: HandTraceRecord = {
+      shapes: [
+        { id: 1, closed: true, mirror: "twin", points: [corner(0.2, 0.5), corner(0.35, 0.5), corner(0.3, 0.65)] },
+        { id: 2, closed: true, mirror: "symmetric", points: [corner(0.5, 0.35), corner(0.3, 0.25), corner(0.5, 0.15)] },
+      ],
+      drawing: null,
+      done: false,
+      symmetry: true,
+    };
+    const record = { ...photoRecord(), handTrace: mirrored };
+    const drawn = overPhoto(mirrored);
+    // Changed in another program: a speck added to the visible path.
+    const speck = "M0.8 -0.1L0.85 -0.1L0.85 -0.15Z";
+    const text = withPath(photoFileOf(record), (d) => `${d}${speck}`);
+    const { handTrace } = editOnStalePhoto(text)!;
+    expect(handTrace.symmetry).toBeFalsy();
+    expect(handTrace.shapes.map((s) => s.mirror)).toEqual(["none", "none", "none", "none"]);
+    const want = [...drawn.design()!.paths, [{ x: 0.8, y: 0.1 }, { x: 0.85, y: 0.1 }, { x: 0.85, y: 0.15 }]];
+    expectSameOutlines(overPhoto(handTrace).design()!.paths, want, TOL);
   });
 
   it("lands on the canvas, not in Cleanup, and not Done", () => {

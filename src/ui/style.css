@@ -1649,6 +1649,13 @@ body {
   stroke-dasharray: 6 4;
 }
 
+/* A point being placed or dragged has snapped onto the axis. */
+.ht-axis.snapped {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
 .ht-fill {
   fill: rgb(43 33 24 / 0.22);
   fill-rule: evenodd;
@@ -1856,6 +1863,13 @@ body {
 
 .ht-top-right {
   right: 0.5rem;
+}
+
+/* Symmetry, while it's on. */
+.ht-tools button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .ht-bottom {

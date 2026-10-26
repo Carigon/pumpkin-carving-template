@@ -99,6 +99,19 @@ describe("hand-trace editor: warning marks", () => {
     expectSameOutlines(outlinesOf(floating[0]), [square(0.4, 0.4, 0.5, 0.5).map((p) => screenOf(editor, p))], 0.5);
   });
 
+  it("reflections are marked too: a twin pupil inside a twin eye is tinted on both sides", () => {
+    const editor = blankPage();
+    editor.toggleSymmetry();
+    drawClosed(editor, square(0.22, 0.38, 0.32, 0.48));
+    drawClosed(editor, square(0.12, 0.28, 0.42, 0.58));
+    showCoreWarnings(editor);
+
+    const { floating } = editor.drawn().warnings;
+    expect(floating).toHaveLength(2);
+    const pupils = [square(0.22, 0.38, 0.32, 0.48), square(0.68, 0.38, 0.78, 0.48)].map((s) => s.map((p) => screenOf(editor, p)));
+    expectSameOutlines(floating.flatMap((d) => outlinesOf(d)), pupils, 0.5);
+  });
+
   it("a tiny carve area is ringed: a ring round its middle that reaches its box's corners", () => {
     const editor = blankPage();
     drawClosed(editor, square(0.1, 0.1, 0.6, 0.6));

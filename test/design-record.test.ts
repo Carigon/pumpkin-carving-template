@@ -163,6 +163,37 @@ describe("the record module", () => {
     });
   });
 
+  it("the Symmetry setting comes back with the hand-trace, on a page or over a photo", async () => {
+    for (const record of [pageRecord, photoRecord] as const) {
+      const storage = memoryStorage();
+      const on = { ...record, handTrace: { ...record.handTrace, symmetry: true } };
+      await createRecordKeeper(storage, noShrink).keep(on);
+      expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(on);
+    }
+  });
+
+  it("a Symmetry setting that isn't true restores off, the shapes kept", async () => {
+    const storage = memoryStorage();
+    await storage.set("work", { version: 1, ...pageRecord, handTrace: { ...pageRecord.handTrace, symmetry: "yes" } });
+    expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(pageRecord);
+  });
+
+  it("a symmetric shape's half of 2 points is a whole shape, so it's kept", async () => {
+    const storage = memoryStorage();
+    const half = {
+      id: 1,
+      closed: true,
+      mirror: "symmetric" as const,
+      points: [
+        { x: 0.3, y: 0.3, kind: "corner" as const },
+        { x: 0.5, y: 0.6, kind: "corner" as const },
+      ],
+    };
+    const record = { ...pageRecord, handTrace: { shapes: [half], drawing: null, done: false } };
+    await createRecordKeeper(storage, noShrink).keep(record);
+    expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(record);
+  });
+
   it("a photo comes back as the file as chosen, with its tone, both methods' work, the chosen one and Done", async () => {
     const storage = memoryStorage();
     await createRecordKeeper(storage, noShrink).keep(photoRecord);

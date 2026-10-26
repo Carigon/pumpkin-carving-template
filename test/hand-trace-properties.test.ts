@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { Point2 } from "../src/core";
 import { readRecord, writeRecord } from "../src/designRecord";
-import { createHandTrace, type HandTrace } from "../src/handTrace";
+import { createHandTrace, type HandTrace, type Shape } from "../src/handTrace";
 import { designFromPathData } from "../src/input/pathDesign";
 import { expectSameOutlines, outlinesOf } from "./outlines";
 
@@ -12,17 +12,30 @@ const SIZE = 400;
 const TINY_AREA = 1e-4;
 
 /** The commands a step can press. */
-const COMMANDS = ["close", "end", "undo", "redo", "clear", "delete", "carryOn", "clearSelection", "toggleKind"] as const;
+const COMMANDS = [
+  "close",
+  "end",
+  "undo",
+  "redo",
+  "clear",
+  "delete",
+  "carryOn",
+  "clearSelection",
+  "toggleKind",
+  "toggleSymmetry",
+] as const;
 /** The keys a step can press (with or without Ctrl and Shift), the editor's and a few that aren't. */
-const KEYS = ["z", "y", "Enter", "Escape", "Delete", "Backspace", "+", "-", "0", "s", "c", "Tab"] as const;
+const KEYS = ["z", "y", "Enter", "Escape", "Delete", "Backspace", "+", "-", "0", "s", "m", "c", "Tab"] as const;
 const ARROW_KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"] as const;
 
 /**
- * One random step: a gesture somewhere on (or just off) the canvas; a tap or double-tap on, or a drag (with Alt or
- * not) from, an existing point, handle, insert marker or shape's edge; or a command.
+ * One random step: a gesture somewhere on (or just off) the canvas; a tap near the symmetry axis; a tap or
+ * double-tap on, or a drag (with Alt or not) from, an existing point, handle, insert marker or shape's edge; or a
+ * command.
  */
 type Step =
   | { kind: "tap"; at: Point2 }
+  | { kind: "tapNearAxis"; y: number; off: number }
   | { kind: "tapOn"; target: Target; index: number }
   | { kind: "doubleTapOn"; target: Target; index: number }
   | { kind: "drag"; from: Point2; to: Point2; cancel: boolean }
@@ -53,6 +66,15 @@ const screen = fc.record({ x: coordinate, y: coordinate });
 const target = fc.constantFrom<Target>("point", "handle", "marker", "outline");
 const step: fc.Arbitrary<Step> = fc.oneof(
   { weight: 6, arbitrary: fc.record({ kind: fc.constant("tap" as const), at: screen }) },
+  // Near the axis, where mirrored shapes snap and close as symmetric shapes.
+  {
+    weight: 3,
+    arbitrary: fc.record({
+      kind: fc.constant("tapNearAxis" as const),
+      y: coordinate,
+      off: fc.noBias(fc.integer({ min: -30, max: 30 })),
+    }),
+  },
   { weight: 4, arbitrary: fc.record({ kind: fc.constant("tapOn" as const), target, index: fc.nat() }) },
   { weight: 2, arbitrary: fc.record({ kind: fc.constant("doubleTapOn" as const), target, index: fc.nat() }) },
   {
@@ -158,6 +180,10 @@ function run(editor: HandTrace, s: Step): void {
   switch (s.kind) {
     case "tap":
       return editor.gesture({ type: "tap", at: s.at, pointerType: touch });
+    case "tapNearAxis": {
+      const { page } = editor.drawn();
+      return editor.gesture({ type: "tap", at: { x: page.x + page.width / 2 + s.off, y: s.y }, pointerType: touch });
+    }
     case "tapOn": {
       const at = spot(editor, s.target, s.index);
       if (at) editor.gesture({ type: "tap", at, pointerType: touch });
@@ -230,12 +256,19 @@ function check(editor: HandTrace): void {
   if (drawn.rubberBand) expect(drawn.pill.kind).toBe("drawing");
   if (drawn.pill.kind !== "point") expect(drawn.handles).toEqual([]);
   const shapes = editor.shapes();
-  expect(shapes.every((s) => s.points.length > 0 && (!s.closed || s.points.length >= 3))).toBe(true);
+  // A symmetric shape's half counts with its reflection: two points off the axis are four in all.
+  const least = (s: Shape) => (!s.closed ? 1 : s.mirror === "symmetric" ? 2 : 3);
+  expect(shapes.every((s) => s.points.length >= least(s))).toBe(true);
   for (const p of shapes.flatMap((s) => s.points)) {
     expect(p.x).toBeGreaterThanOrEqual(0);
     expect(p.x).toBeLessThanOrEqual(1);
     expect(p.y).toBeGreaterThanOrEqual(0);
     expect(p.y).toBeLessThanOrEqual(1);
+  }
+  // Mirrored points keep to their side of the axis (x = 0.5), the axis allowed.
+  for (const s of shapes.filter((s) => s.mirror !== "none")) {
+    const sides = new Set(s.points.filter((p) => p.x !== 0.5).map((p) => Math.sign(p.x - 0.5)));
+    expect(sides.size, `shape ${s.id}'s points are on both sides`).toBeLessThanOrEqual(1);
   }
   // As drawn, curves and all, back on the page.
   const { page } = drawn;

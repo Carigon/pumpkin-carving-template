@@ -313,11 +313,15 @@ function readHandTrace(x: unknown): HandTraceRecord {
   const shapes = x.shapes.map(readShape);
   if (!shapes.every((s) => s !== null) || new Set(shapes.map((s) => s.id)).size < shapes.length) return EMPTY_HAND_TRACE;
   const drawing = shapes.find((s) => s.id === x.drawing && !s.closed)?.id ?? null;
-  return { shapes, drawing, done: x.done === true };
+  return { shapes, drawing, done: x.done === true, ...(x.symmetry === true && { symmetry: true }) };
 }
 
-/** The fewest points a closed shape has, as the editor closes it. */
+/**
+ * The fewest points a closed shape has, as the editor closes it; a symmetric shape's half needs fewer, its
+ * reflection making up the rest (two points off the axis are four in all).
+ */
 const MIN_CLOSED_POINTS = 3;
+const MIN_SYMMETRIC_POINTS = 2;
 
 function readShape(x: unknown): Shape | null {
   if (!isRecord(x) || !Array.isArray(x.points)) return null;
@@ -325,7 +329,8 @@ function readShape(x: unknown): Shape | null {
   const mirror = oneOf(x.mirror, ["none", "twin", "symmetric"] as const);
   const points = x.points.map(readPoint);
   if (id === undefined || mirror === undefined || typeof x.closed !== "boolean") return null;
-  if (!points.every((p) => p !== null) || points.length < (x.closed ? MIN_CLOSED_POINTS : 1)) return null;
+  const least = !x.closed ? 1 : mirror === "symmetric" ? MIN_SYMMETRIC_POINTS : MIN_CLOSED_POINTS;
+  if (!points.every((p) => p !== null) || points.length < least) return null;
   return { id, closed: x.closed, mirror, points };
 }
 
