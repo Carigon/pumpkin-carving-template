@@ -100,8 +100,8 @@ export interface TracePanel {
 }
 
 /**
- * A photo's Cleanup, then the Tracing method switch with auto-trace's threshold, invert and speckle controls and
- * Done. The photo, the cleaned-up photo and the auto-trace result go in `view` (the viewport's Photo view), at
+ * The Tracing method switch, shown for as long as the photo is loaded; under it the photo's Cleanup, then past it
+ * auto-trace's threshold, invert and speckle controls and Done. The photo, the cleaned-up photo and the auto-trace result go in `view` (the viewport's Photo view), at
  * viewport size; so does the hand-trace canvas, through `handSlot`. Auto-trace runs only once it's been chosen past
  * Cleanup, and again on a cleanup change only while it's chosen. The image never leaves the browser.
  */
@@ -127,9 +127,6 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     <div class="trace-hand-slot" hidden></div>
   `;
   root.innerHTML = `
-    <div class="trace-cleanup"></div>
-    <div class="trace-tracing">
-    <button type="button" class="trace-straighten">Straighten photo</button>
     <fieldset class="field trace-method">
       <legend>Tracing method</legend>
       <div class="chips">
@@ -137,9 +134,12 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
         <label><input type="radio" name="t-method" value="hand" />Hand-trace</label>
       </div>
     </fieldset>
+    <div class="trace-cleanup"></div>
+    <div class="trace-tracing">
     <div class="trace-accept-row trace-edit-auto" hidden>
       <button type="button">Edit as hand-trace</button>
     </div>
+    <button type="button" class="trace-straighten">Straighten photo</button>
     <div class="trace-settings">
     <div class="field">
       <label for="t-threshold">Threshold</label>
@@ -265,6 +265,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     show();
     traceIfShown();
     hooks.onMethod();
+    if (cleaning) cleanupPanel.redraw(); // the hand-trace's shapes are drawn over the photo only while it's chosen
   };
   for (const m of methods)
     m.addEventListener("change", () => {
