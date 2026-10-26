@@ -41,8 +41,100 @@ Turning a photo or scanned stencil into a design automatically, by finding its d
 _Avoid_: Trace (on its own), vectorize
 
 **Hand-trace**:
-Building a design by placing points around each carve area over a photo, starting from nothing.
+Building a design by placing and adjusting points around each carve area: from nothing over a photo or a blank page, or starting from a loaded design's shapes.
 _Avoid_: Manual trace, drawing, outlining
+
+**Carve area**:
+A region of the design that gets cut out of the pumpkin. One carve area can come from several shapes: an eye shape with a pupil shape inside it is one ring-shaped carve area.
+_Avoid_: Hole, cut-out
+
+**Floating piece**:
+An uncarved piece of pumpkin with carving all the way around it, like a pupil drawn inside an eye. Cut through, nothing holds it, so it falls out.
+_Avoid_: Island, loose bit
+
+**Crossing**:
+A place where a shape's edge crosses itself or another shape's edge. The pumpkin caught between the crossing edges is held only at the crossings.
+_Avoid_: Intersection, overlap
+
+**Shape**:
+One run of points the carver draws in a hand-trace, open while it's being drawn and closed once finished. A shape drawn inside another keeps that part uncarved.
+_Avoid_: Path, outline, contour
+
+**Point**:
+One place a shape's edge passes through, placed by the carver.
+_Avoid_: Anchor, node, vertex
+
+**Corner point**:
+A point where the edge may change direction sharply. It may have a handle on either side, each set on its own, like the tips of a crescent-moon eye; a side with no handle leaves the point in a straight edge. Placing a point makes a corner point, and so does inserting one.
+
+**Smooth point**:
+A point the edge passes through without a kink, its two handles on one line. Its handles follow its neighbours, rounding the edge out, until the carver drags one.
+
+**Handle**:
+A control pulled out of a point that sets which way, and how far, the edge curves as it leaves the point. Dragged back onto its point, it's gone and that side is straight. The selected point's handles show, and so, fainter, do its neighbours' handles on its two edges.
+
+**Stub**:
+The short dashed handle a selected corner point shows on a side that has no handle; dragging it pulls a handle out.
+_Avoid_: Ghost handle
+
+**Open shape**:
+A shape that isn't closed. It's kept, but it isn't carved until the carver closes it.
+_Avoid_: Unfinished shape, path
+
+**Shape being drawn**:
+The one shape a tap on empty space adds points to, from its first point until the carver closes it or ends it open. At most one at a time.
+_Avoid_: Current shape, active shape, draw mode (hand-tracing has no modes)
+
+**Insert marker**:
+The small target in the middle of each edge of the selected shape that adds a corner point there when tapped or dragged.
+_Avoid_: Midpoint handle (a handle shapes a curve)
+
+**Loupe**:
+The magnified circle shown beside a finger that holds or drags, centred on where the point or handle under the finger will land.
+_Avoid_: Magnifier, offset cursor (the point lands under the finger, not beside it)
+
+**Cleanup**:
+Straightening, cropping and toning the loaded photo before it's traced. Its straightening and cropping are shared by both tracing methods; its toning only changes what a hand-trace is placed over.
+_Avoid_: Preprocessing, photo editing
+
+**Frame**:
+The four-sided outline the carver drags onto the photo during cleanup; what's inside it, squared up, becomes the cleaned-up photo. Its handles are the frame corners.
+_Avoid_: Quad, crop box, corners (a corner point belongs to a shape)
+
+**Blank page**:
+The faintly gridded page a hand-trace is placed on when there's no photo: square when the hand-trace starts from nothing, or shaped to a loaded SVG design's shapes, with room around them, when that design is edited as a hand-trace. It has no cleanup, and no auto-trace, since there's nothing to find dark areas in. A photo can't be added to it later.
+_Avoid_: Canvas, artboard, empty photo
+
+**Symmetry axis**:
+The fixed vertical line through the centre of the cleaned-up photo, or of the blank page, that mirrored shapes are reflected about.
+_Avoid_: Mirror line, centre line
+
+**Symmetry**:
+The hand-trace setting that makes each shape started while it's on a mirrored shape. Turning it on or off never changes shapes already drawn.
+_Avoid_: Mirror mode
+
+**Mirrored shape**:
+A shape whose reflection about the symmetry axis is part of the design. Either side can be edited, and the other follows.
+
+**Reflection**:
+The side of a mirrored shape the carver didn't place: always the exact mirror image of the side they did.
+_Avoid_: Mirror copy, ghost
+
+**Twin**:
+A mirrored shape drawn wholly on one side of the symmetry axis, so its reflection is a separate shape on the other side, like a pair of eyes.
+_Avoid_: Mirrored pair, copy
+
+**Symmetric shape**:
+A mirrored shape that spans the symmetry axis: the carver draws one half, meeting the axis along an edge or at both ends, and its reflection completes it into a single shape, like a mouth or a nose.
+_Avoid_: Fused shape, half shape
+
+**Hand-trace file**:
+An SVG download of a hand-trace that reopens as one, its photo (if it has one) and work included. Changed in another program, it opens as a plain SVG design instead.
+_Avoid_: Export, backup, project file
+
+**SVG design**:
+A design loaded from an SVG file and placed as it is, with no points to adjust. Editing it as a hand-trace turns it into one for good; the file on the carver's device is untouched.
+_Avoid_: Imported design, vector design
 
 **Tracing method**:
 Auto-trace or hand-trace: how the loaded photo becomes the design, chosen per photo. The design is the chosen method's result; the other method's work is kept, not used.
@@ -51,11 +143,15 @@ _Avoid_: Trace mode, trace type
 ## Viewport
 
 **View**:
-One of the ways the viewport shows the work: 3D, Photo, Blueprint or Paper.
+One of the ways the viewport shows the work: 3D, Photo or Page, Blueprint or Paper.
 
 **Photo view**:
-The view showing the loaded photo with the chosen tracing method's work on it: the crop and result for auto-trace, the points being placed for hand-trace.
+The view showing the loaded photo: its cleanup, then the chosen tracing method's work on the cleaned-up photo (the result for auto-trace, the points being placed for hand-trace).
 _Avoid_: Trace view
+
+**Page view**:
+The view showing a hand-trace on a blank page: the points being placed, with no cleanup before them. It takes the Photo view's place when there's no photo; the two never show at once.
+_Avoid_: Photo view (there's no photo), blank view
 
 **Blueprint view**:
 The view for editing the pumpkin's shape directly: the profile drawn flat on both sides against a ruler, with each ring as a line you can drag.
