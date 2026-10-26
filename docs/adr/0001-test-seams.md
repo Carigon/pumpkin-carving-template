@@ -30,8 +30,9 @@ stale record's photo for Edit as hand-trace (`writeHandTraceFile`, `readHandTrac
 into a hand-trace's shapes on a page shaped to it, and the auto-trace result into shapes on its photo
 (`readSvgHandTrace` and `autoTraceShapes` in `src/input/svgHandTrace.ts`, in jsdom, through the editor:
 `test/svg-hand-trace.test.ts`), and the cleanup frame, which squares up the part of a photo inside four dragged
-corners (`cleanUp`, `moveCorner`, `turnFrame`, `rotateFrame`, `cornerAt`, `warpPhoto` and `exifFocal35Mm` in
-`src/input/cleanupFrame.ts`: `test/cleanup-frame.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
+corners and carries positions from one cleanup to another (`cleanUp`, `moveCorner`, `turnFrame`, `rotateFrame`,
+`cornerAt`, `isFrame`, `applyHomography`, `warpPhoto`, `photoPage`, `designToPhoto`, `carryPoints` and
+`exifFocal35Mm` in `src/input/cleanupFrame.ts`: `test/cleanup-frame.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).
 
 Hand-tracing (the map Hand-tracing a photo into a design, issue #4 in `Carigon/pumpkin-carving-template`) adds a
