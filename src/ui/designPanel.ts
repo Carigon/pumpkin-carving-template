@@ -2,7 +2,7 @@ import type { Design, Placement, TemplateWarning, Units } from "../core";
 import { readSvgDesign } from "../input/svgDesign";
 import { lengthFields } from "./lengthFields";
 import { mountTracePanel } from "./tracePanel";
-import { renderWarnings } from "./warnings";
+import { designWarningText, renderWarnings } from "./warnings";
 
 /** In mm; centered. */
 const DEFAULTS_MM = { width: 150, verticalOffset: 0 };
@@ -17,7 +17,7 @@ export interface DesignPanel {
   hasImage(): boolean;
   /** Show the length fields in `units` display units. */
   setUnits(units: Units): void;
-  /** Show design-related warnings (outside the silhouette, past the front limit). */
+  /** Show design-related warnings: where the design lands, and shapes that won't carve well. */
   showWarnings(warnings: TemplateWarning[]): void;
   /** Put back saved placement values (width null = empty), in mm. Doesn't call `onChange`. */
   restorePlacement(saved: Partial<{ width: number | null; verticalOffset: number; rotation: number }>): void;
@@ -85,6 +85,9 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
   lengths.set(width, DEFAULTS_MM.width);
   lengths.set(offset, DEFAULTS_MM.verticalOffset);
   let design: Design | null = null;
+  let warnings: TemplateWarning[] = [];
+  const showWarnings = () =>
+    renderWarnings(warningsEl, warnings, "design", (w) => designWarningText(w, { units: lengths.units(), autoTrace: trace.loaded() }));
   const showStatus = (text: string, failed: boolean) => {
     status.textContent = text;
     status.classList.toggle("warning-text", failed);
@@ -144,8 +147,14 @@ export function mountDesignPanel(root: HTMLElement, onChange: () => void, traceV
       if (saved.verticalOffset !== undefined) lengths.set(offset, saved.verticalOffset);
       if (saved.rotation !== undefined) rotation.value = rotationRange.value = String(saved.rotation);
     },
-    setUnits: (next: Units) => lengths.setUnits(next),
-    showWarnings: (warnings: TemplateWarning[]) => renderWarnings(warningsEl, warnings, "design"),
+    setUnits(next: Units) {
+      lengths.setUnits(next);
+      showWarnings();
+    },
+    showWarnings(next: TemplateWarning[]) {
+      warnings = next;
+      showWarnings();
+    },
   };
 }
 

@@ -47,7 +47,10 @@ describe("calibration grid on a basketball", () => {
   it("goes through the normal pipeline to a flat template with every cell", () => {
     expect(result.surface?.semiAxes.sideToSide).toBeCloseTo(ball / (2 * Math.PI), 5);
     expect(result.surface?.semiAxes.vertical).toBeCloseTo(ball / (2 * Math.PI), 5);
-    expect(result.warnings).toEqual([]);
+    // The grid is printed, not carved, so its cells being floating pieces of paper is expected: test-grid mode
+    // doesn't show shape warnings.
+    expect(result.warnings.map((w) => w.kind)).toEqual(["floating-piece"]);
+    expect(result.warnings[0].kind === "floating-piece" && result.warnings[0].pieces).toHaveLength(36);
     expect(result.template?.designPaths).toHaveLength(1 + 36);
   });
 
