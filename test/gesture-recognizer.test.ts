@@ -43,6 +43,15 @@ describe("gesture recognizer", () => {
     ]);
   });
 
+  it("a drag pressed with Alt held says so in every phase", () => {
+    const g = createGestureRecognizer();
+    const alt = { pointerType: "mouse" as const, alt: true };
+    g.down(at(100, 100, 0, alt));
+    expect(g.move(at(130, 100, 10, alt))).toMatchObject([{ type: "drag", phase: "start", alt: true }]);
+    expect(g.move(at(140, 100, 20))).toMatchObject([{ type: "drag", phase: "move", alt: true }]);
+    expect(g.up(at(140, 100, 30))).toMatchObject([{ type: "drag", phase: "end", alt: true }]);
+  });
+
   it("a press that wanders out and back is still a drag, not a tap", () => {
     const g = createGestureRecognizer();
     g.down(at(100, 100));
@@ -227,6 +236,54 @@ describe("gesture recognizer", () => {
       expect(g.cancel(finger(2, 200, 100, 60))).toEqual([]);
       g.down(finger(1, 100, 100, 100));
       expect(g.up(finger(1, 100, 100, 150))).toMatchObject([{ type: "tap" }]);
+    });
+  });
+
+  describe("double-tap", () => {
+    /** A press and lift in place at `t` ms, lasting 50 ms. */
+    const tapAt = (g: ReturnType<typeof createGestureRecognizer>, x: number, y: number, t: number, kind = "touch") => {
+      const extra = { pointerType: kind as PointerInput["pointerType"] };
+      g.down(at(x, y, t, extra));
+      return g.up(at(x, y, t + 50, extra));
+    };
+
+    it("a second tap within 300 ms and 22 px of the first is a double-tap where it was pressed, not a tap", () => {
+      const g = createGestureRecognizer();
+      expect(tapAt(g, 100, 100, 0)).toMatchObject([{ type: "tap" }]);
+      expect(tapAt(g, 110, 112, 200)).toEqual([{ type: "doubleTap", at: { x: 110, y: 112 }, pointerType: "touch" }]);
+    });
+
+    it("a double-click is a double-tap too", () => {
+      const g = createGestureRecognizer();
+      tapAt(g, 100, 100, 0, "mouse");
+      expect(tapAt(g, 100, 100, 150, "mouse")).toEqual([
+        { type: "doubleTap", at: { x: 100, y: 100 }, pointerType: "mouse" },
+      ]);
+    });
+
+    it("a third tap straight after a double-tap is a plain tap", () => {
+      const g = createGestureRecognizer();
+      tapAt(g, 100, 100, 0);
+      tapAt(g, 100, 100, 150);
+      expect(tapAt(g, 100, 100, 300)).toMatchObject([{ type: "tap" }]);
+    });
+
+    it("a second tap 300 ms or more after the first, or 22 px or more away, is a plain tap", () => {
+      const late = createGestureRecognizer();
+      tapAt(late, 100, 100, 0);
+      expect(tapAt(late, 100, 100, 300)).toMatchObject([{ type: "tap" }]);
+      const far = createGestureRecognizer();
+      tapAt(far, 100, 100, 0);
+      expect(tapAt(far, 122, 100, 100)).toMatchObject([{ type: "tap" }]);
+    });
+
+    it("a drag between two taps leaves the second a plain tap", () => {
+      const g = createGestureRecognizer();
+      tapAt(g, 100, 100, 0);
+      g.down(at(100, 100, 100));
+      g.move(at(150, 100, 120));
+      g.up(at(150, 100, 140));
+      expect(tapAt(g, 100, 100, 160)).toMatchObject([{ type: "tap" }]);
     });
   });
 

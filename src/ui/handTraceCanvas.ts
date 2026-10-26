@@ -45,6 +45,9 @@ const END_RING_PX = 9;
 const CLOSE_RING_PX = 12;
 /** Half the insert marker's diagonal. */
 const MARKER_HALF_PX = 5;
+/** A handle's knob at its tip: the selected point's (and stubs'), and its neighbours' smaller. */
+const HANDLE_PX = 4.5;
+const NEIGHBOUR_HANDLE_PX = 3;
 /** The ring round a crossing: small, so it doesn't hide the edges it marks. */
 const CROSSING_RING_PX = 7;
 /** Room between a tiny carve area and its ring, and the least ring, so a speck's ring still shows. */
@@ -56,7 +59,7 @@ const HOVER_RING_PX = 10;
 const DECIMALS = 1;
 /** How the canvas is used, for its accessible label after what it shows. */
 const GESTURES_LABEL =
-  "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, the arrows nudge, + − and 0 zoom.";
+  "Tap or click to place points or select them, or touch and hold to aim one with the loupe; drag a point or handle to move it, or empty space to pan (Space + drag or a middle-button drag pans from anywhere); double-tap a point to make it smooth or a corner; Alt + drag a smooth point's handle to make it a corner; pinch or scroll to zoom; tap with two fingers to undo, three to redo. Keys: Enter closes or carries on, Escape backs out, Delete deletes, Backspace takes off the last point, S switches Smooth / Corner, the arrows nudge, + − and 0 zoom.";
 /** How the keys' modifier is written in tooltips: Cmd on Apple devices, Ctrl elsewhere. */
 const MOD = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl+";
 /** Canvases mounted so far, to give each drawing its own id. */
@@ -140,11 +143,14 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     deselect.setAttribute("aria-label", "Clear selection");
     if (state.kind === "shape") return pill.replaceChildren(pillButton("delete", "Delete shape", "Delete shape (Delete)"), deselect);
     const carry = state.canCarryOn ? [pillButton("carryOn", "Carry on", "Carry on (Enter)")] : [];
-    pill.replaceChildren(pillButton("delete", "Delete point", "Delete point (Delete)"), ...carry, deselect);
+    // Named for what it makes the point.
+    const kind = state.smooth ? "Corner" : "Smooth";
+    const toggle = pillButton("toggleKind", kind, `${kind} (S)`);
+    pill.replaceChildren(pillButton("delete", "Delete point", "Delete point (Delete)"), toggle, ...carry, deselect);
   };
 
   /** The editor commands the overlay's buttons press, by their `data-act`. */
-  const ACTS = ["undo", "redo", "clear", "close", "end", "delete", "carryOn", "clearSelection"] as const;
+  const ACTS = ["undo", "redo", "clear", "close", "end", "delete", "carryOn", "clearSelection", "toggleKind"] as const;
   tools.addEventListener("click", (e) => {
     const act = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-act]")?.dataset.act;
     const command = ACTS.find((a) => a === act);
@@ -156,7 +162,8 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   const input = (e: PointerEvent): PointerInput => {
     const r = svg.getBoundingClientRect();
     const pointerType = e.pointerType === "mouse" || e.pointerType === "pen" ? e.pointerType : "touch";
-    return { id: e.pointerId, x: e.clientX - r.left, y: e.clientY - r.top, t: e.timeStamp, pointerType, button: e.button };
+    const [x, y] = [e.clientX - r.left, e.clientY - r.top];
+    return { id: e.pointerId, x, y, t: e.timeStamp, pointerType, button: e.button, alt: e.altKey };
   };
   const forward = (gestures: Gesture[]) => {
     if (!editor || gestures.length === 0) return;
@@ -315,6 +322,15 @@ function draw(svg: SVGSVGElement, drawn: Drawn, id: string, photo: SVGElement): 
     const radius = Math.max(r + TINY_RING_GAP_PX, TINY_RING_MIN_PX);
     parts.push(el("circle", { class: "ht-warn-ring", cx: at.x, cy: at.y, r: radius }, DECIMALS));
   }
+  // Neighbours' handles and stubs under the points, the selected point's own over everything.
+  const handle = (h: Drawn["handles"][number]) => {
+    const cls = h.kind === "own" ? "" : ` ${h.kind}`;
+    const { from, to } = h;
+    const r = h.kind === "neighbour" ? NEIGHBOUR_HANDLE_PX : HANDLE_PX;
+    const knob = el("circle", { class: `ht-handle${cls}${h.selected ? " selected" : ""}`, cx: to.x, cy: to.y, r }, DECIMALS);
+    return [el("line", { class: `ht-handle-line${cls}`, x1: from.x, y1: from.y, x2: to.x, y2: to.y }, DECIMALS), knob];
+  };
+  for (const h of drawn.handles) if (h.kind !== "own") parts.push(...handle(h));
   for (const p of drawn.points) {
     const { x, y } = p.at;
     if (p.closable) parts.push(el("circle", { class: "ht-close-ring", cx: x, cy: y, r: CLOSE_RING_PX }, DECIMALS));
@@ -333,6 +349,7 @@ function draw(svg: SVGSVGElement, drawn: Drawn, id: string, photo: SVGElement): 
     const square = { x: x - h, y: y - h, width: 2 * h, height: 2 * h };
     parts.push(el("rect", { class: "ht-marker", ...square, transform }, DECIMALS));
   }
+  for (const h of drawn.handles) if (h.kind === "own") parts.push(...handle(h));
   const drawing = el("g", { id });
   drawing.replaceChildren(...parts);
   svg.replaceChildren(drawing, ...(drawn.loupe ? [loupeOf(drawn.loupe, id)] : []));

@@ -21,6 +21,8 @@ export interface PointerInput extends ScreenPoint {
   pointerType: PointerKind;
   /** `PointerEvent.button` on a press: 0 is the main button (or a touch), 1 the middle, 2 the right. */
   button: number;
+  /** `PointerEvent.altKey`: Alt held (a drag pressed with it says so). */
+  alt?: boolean;
 }
 
 /** One wheel event (mouse wheel, Ctrl + wheel pinch or two-finger scroll), its delta in pixels. */
@@ -36,8 +38,20 @@ export interface TapGesture {
 }
 
 /**
+ * A second tap within `DOUBLE_TAP_MS` of the first and within `DOUBLE_TAP_PX` of where it was, given in place of
+ * that tap: the editor takes the first tap back and toggles the point under both (a double-click too). A third tap
+ * is a plain tap again.
+ */
+export interface DoubleTapGesture {
+  type: "doubleTap";
+  at: ScreenPoint;
+  pointerType: PointerKind;
+}
+
+/**
  * A press that moved: `start` once it has moved past the slop, then `move`s, then `end` on lift or `cancel` when
- * the browser takes the pointer away. `from` is where the press was, `at` where the pointer is now.
+ * the browser takes the pointer away. `from` is where the press was, `at` where the pointer is now. `alt` when Alt
+ * was held at the press (left out otherwise).
  */
 export interface DragGesture {
   type: "drag";
@@ -45,6 +59,7 @@ export interface DragGesture {
   from: ScreenPoint;
   at: ScreenPoint;
   pointerType: PointerKind;
+  alt?: boolean;
 }
 
 /**
@@ -113,6 +128,7 @@ export interface WheelGesture {
 
 export type Gesture =
   | TapGesture
+  | DoubleTapGesture
   | DragGesture
   | HoldGesture
   | PanGesture
@@ -151,6 +167,12 @@ const SLOP_PX = 9;
 export const HOLD_MS = 300;
 /** How soon (ms) after the first finger lands every finger must lift for a two- or three-finger tap. */
 const MULTI_TAP_MS = 350;
+/**
+ * How soon (ms, lift to lift) and how near (screen px, the hit radius) a second tap must follow the first to be a
+ * double-tap.
+ */
+const DOUBLE_TAP_MS = 300;
+const DOUBLE_TAP_PX = 22;
 
 /**
  * Follows one press at a time: it's a tap if it lifts within the slop, else a drag; a touch press held still becomes
@@ -169,7 +191,10 @@ export function createGestureRecognizer(): GestureRecognizer {
     as: "press" | "drag" | "hold";
     /** It pans from anywhere: a middle-button press, or one made while Space was held. */
     pans: boolean;
+    alt: boolean;
   } | null = null;
+  /** The last gesture was a tap (not itself the second of a double-tap): when it lifted and where it was. */
+  let lastTap: { t: number; at: ScreenPoint } | null = null;
   /** Space is held down. */
   let spaceHeld = false;
   /** Where the mouse or pen hovers, while nothing is pressed. */
@@ -230,14 +255,23 @@ export function createGestureRecognizer(): GestureRecognizer {
   const pt = (e: ScreenPoint): ScreenPoint => ({ x: e.x, y: e.y });
   const mine = (e: PointerInput) => press !== null && press.id === e.id;
   const of = (as: "drag" | "hold", phase: DragGesture["phase"], at: ScreenPoint): Gesture => {
-    const { from, pointerType, pans } = press!;
-    return { type: pans ? "pan" : as, phase, from, at, pointerType };
+    const { from, pointerType, pans, alt } = press!;
+    if (pans) return { type: "pan", phase, from, at, pointerType };
+    return { type: as, phase, from, at, pointerType, ...(alt && as === "drag" && { alt }) };
+  };
+  /** A press lifted in place at `t`: a tap, or the second of a double-tap. */
+  const tapped = (from: ScreenPoint, pointerType: PointerKind, t: number): Gesture => {
+    const near = lastTap && Math.hypot(from.x - lastTap.at.x, from.y - lastTap.at.y) < DOUBLE_TAP_PX;
+    const second = near && t - lastTap!.t < DOUBLE_TAP_MS;
+    lastTap = second ? null : { t, at: from };
+    return { type: second ? "doubleTap" : "tap", at: from, pointerType };
   };
   const hovering = (): Gesture[] => (hover ? [{ type: "hover", ...hover, pans: spaceHeld }] : []);
   /** A touch press still at `t` past `HOLD_MS` becomes a hold where it was last seen, however late the timer. */
   const holdBy = (t: number): Gesture[] => {
     if (!press || press.as !== "press" || press.pans || press.pointerType !== "touch" || t - press.t < HOLD_MS) return [];
     press.as = "hold";
+    lastTap = null;
     return [of("hold", "start", press.at)];
   };
 
@@ -247,12 +281,14 @@ export function createGestureRecognizer(): GestureRecognizer {
       hover = null;
       const out = press ? secondFinger() : [];
       if (multi) {
+        lastTap = null;
         multi.fingers.set(e.id, { from: pt(e), at: pt(e) });
         multi.most = Math.max(multi.most, multi.fingers.size);
         multi.pair = pairOf(multi.fingers);
       } else {
         const pans = e.button === 1 || spaceHeld;
-        press = { id: e.id, t: e.t, from: pt(e), at: pt(e), pointerType: e.pointerType, as: "press", pans };
+        const alt = e.alt ?? false;
+        press = { id: e.id, t: e.t, from: pt(e), at: pt(e), pointerType: e.pointerType, as: "press", pans, alt };
       }
       return out;
     },
@@ -268,6 +304,7 @@ export function createGestureRecognizer(): GestureRecognizer {
       if (press.as === "press") {
         if (Math.hypot(e.x - press.from.x, e.y - press.from.y) <= SLOP_PX) return out;
         press.as = "drag";
+        lastTap = null;
         return [...out, of("drag", "start", pt(e))];
       }
       return [...out, of(press.as, "move", pt(e))];
@@ -278,8 +315,7 @@ export function createGestureRecognizer(): GestureRecognizer {
       const out = holdBy(e.t);
       const { from, pointerType, as, pans } = press;
       // It hovers again from the next move; the editor knows where a drag ended.
-      const tapped: Gesture[] = pans ? [] : [{ type: "tap", at: from, pointerType }];
-      const ended = as === "press" ? tapped : [of(as, "end", pt(e))];
+      const ended = as !== "press" ? [of(as, "end", pt(e))] : pans ? [] : [tapped(from, pointerType, e.t)];
       press = null;
       return [...out, ...ended];
     },

@@ -19,7 +19,7 @@ the Paper view's geometry `paperView` (`test/paper-view.test.ts`), the Blueprint
 `dragHeight`, `dragBall`, `sortRings`, `canInsert`, `insertRing`, `deleteRing`, `nudgeLength` in `src/ringEdits.ts`: `test/ring-edits.test.ts`; the Measure form's typed
 values, `typeRingHeight`, `typeCircumference` and `typeHeight`: `test/typed-edits.test.ts`; and which of its rows a
 measurement warning marks, `placeMeasureWarnings`: `test/measure-warnings.test.ts`), and hand-tracing's gesture recognizer,
-which turns pointer events into taps, drags, holds, pinches, multi-finger taps, Space- and middle-button pans, hovers and wheel turns (`createGestureRecognizer` in `src/handTrace`:
+which turns pointer events into taps, double-taps, drags (saying when Alt was held), holds, pinches, multi-finger taps, Space- and middle-button pans, hovers and wheel turns (`createGestureRecognizer` in `src/handTrace`:
 `test/gesture-recognizer.test.ts`), the record module, which keeps the loaded design and its work across reloads
 (`createRecordKeeper`, `readRecord` and `writeRecord` in `src/designRecord.ts`, against an in-memory store:
 `test/design-record.test.ts`), the hand-trace file's writer and reader with the SVG loader under it, which

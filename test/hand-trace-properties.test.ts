@@ -4,7 +4,7 @@ import type { Point2 } from "../src/core";
 import { readRecord, writeRecord } from "../src/designRecord";
 import { createHandTrace, type HandTrace } from "../src/handTrace";
 import { designFromPathData } from "../src/input/pathDesign";
-import { expectSameOutlines } from "./outlines";
+import { expectSameOutlines, outlinesOf } from "./outlines";
 
 /** The canvas the sequences run on, in px. */
 const SIZE = 400;
@@ -12,20 +12,21 @@ const SIZE = 400;
 const TINY_AREA = 1e-4;
 
 /** The commands a step can press. */
-const COMMANDS = ["close", "end", "undo", "redo", "clear", "delete", "carryOn", "clearSelection"] as const;
+const COMMANDS = ["close", "end", "undo", "redo", "clear", "delete", "carryOn", "clearSelection", "toggleKind"] as const;
 /** The keys a step can press (with or without Ctrl and Shift), the editor's and a few that aren't. */
-const KEYS = ["z", "y", "Enter", "Escape", "Delete", "Backspace", "+", "-", "0", "c", "Tab"] as const;
+const KEYS = ["z", "y", "Enter", "Escape", "Delete", "Backspace", "+", "-", "0", "s", "c", "Tab"] as const;
 const ARROW_KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"] as const;
 
 /**
- * One random step: a gesture somewhere on (or just off) the canvas; a tap on, or drag from, an existing point, insert
- * marker or shape's edge; or a command.
+ * One random step: a gesture somewhere on (or just off) the canvas; a tap or double-tap on, or a drag (with Alt or
+ * not) from, an existing point, handle, insert marker or shape's edge; or a command.
  */
 type Step =
   | { kind: "tap"; at: Point2 }
   | { kind: "tapOn"; target: Target; index: number }
+  | { kind: "doubleTapOn"; target: Target; index: number }
   | { kind: "drag"; from: Point2; to: Point2; cancel: boolean }
-  | { kind: "dragFrom"; target: Target; index: number; to: Point2; cancel: boolean }
+  | { kind: "dragFrom"; target: Target; index: number; to: Point2; cancel: boolean; alt: boolean }
   | { kind: "wheel"; at: Point2; deltaY: number }
   | { kind: "hold"; from: Point2; to: Point2; cancel: boolean }
   | { kind: "holdOn"; target: Target; index: number; to: Point2; cancel: boolean }
@@ -37,8 +38,11 @@ type Step =
   | { kind: "dragEscaped"; target: Target; index: number; to: Point2 }
   | { kind: (typeof COMMANDS)[number] | "done" | "edit" };
 
-/** What a step aims at: a point, an insert marker, or a spot on a shape's outline (a quarter along its first edge). */
-type Target = "point" | "marker" | "outline";
+/**
+ * What a step aims at: a point, a handle's tip (or a stub's), an insert marker, or a spot on a shape's outline (a
+ * quarter of the way between its first two points).
+ */
+type Target = "point" | "handle" | "marker" | "outline";
 
 /**
  * A screen pixel anywhere on the canvas or just off it, spread evenly: fast-check's doubles cluster near zero, and
@@ -46,10 +50,11 @@ type Target = "point" | "marker" | "outline";
  */
 const coordinate = fc.noBias(fc.integer({ min: -20, max: SIZE + 20 }));
 const screen = fc.record({ x: coordinate, y: coordinate });
-const target = fc.constantFrom<Target>("point", "marker", "outline");
+const target = fc.constantFrom<Target>("point", "handle", "marker", "outline");
 const step: fc.Arbitrary<Step> = fc.oneof(
   { weight: 6, arbitrary: fc.record({ kind: fc.constant("tap" as const), at: screen }) },
   { weight: 4, arbitrary: fc.record({ kind: fc.constant("tapOn" as const), target, index: fc.nat() }) },
+  { weight: 2, arbitrary: fc.record({ kind: fc.constant("doubleTapOn" as const), target, index: fc.nat() }) },
   {
     weight: 1,
     arbitrary: fc.record({ kind: fc.constant("drag" as const), from: screen, to: screen, cancel: fc.boolean() }),
@@ -62,6 +67,7 @@ const step: fc.Arbitrary<Step> = fc.oneof(
       index: fc.nat(),
       to: screen,
       cancel: fc.boolean(),
+      alt: fc.boolean(),
     }),
   },
   {
@@ -117,8 +123,9 @@ const step: fc.Arbitrary<Step> = fc.oneof(
 /** Where `target` number `index` (wrapping round) is on screen now, if there's any. */
 function spot(editor: HandTrace, target: Target, index: number): Point2 | null {
   const drawn = editor.drawn();
-  if (target === "point" || target === "marker") {
-    const all = target === "point" ? drawn.points.map((p) => p.at) : drawn.markers;
+  if (target !== "outline") {
+    const all =
+      target === "point" ? drawn.points.map((p) => p.at) : target === "handle" ? drawn.handles.map((h) => h.to) : drawn.markers;
     return all.length > 0 ? all[index % all.length] : null;
   }
   const shapes = editor.shapes().filter((s) => s.points.length >= 2);
@@ -129,11 +136,12 @@ function spot(editor: HandTrace, target: Target, index: number): Point2 | null {
   return { x: page.x + p.x * page.width, y: page.y + (1 - p.y) * page.height };
 }
 
-function dragOf(editor: HandTrace, from: Point2, to: Point2, cancel: boolean): void {
-  const touch = "touch" as const;
-  editor.gesture({ type: "drag", phase: "start", from, at: from, pointerType: touch });
-  editor.gesture({ type: "drag", phase: "move", from, at: to, pointerType: touch });
-  editor.gesture({ type: "drag", phase: cancel ? "cancel" : "end", from, at: to, pointerType: touch });
+/** A drag from `from` to `to`, lifted or cancelled; with Alt, by mouse. */
+function dragOf(editor: HandTrace, from: Point2, to: Point2, cancel: boolean, alt = false): void {
+  const g = { type: "drag" as const, from, pointerType: alt ? ("mouse" as const) : ("touch" as const), ...(alt && { alt }) };
+  editor.gesture({ ...g, phase: "start", at: from });
+  editor.gesture({ ...g, phase: "move", at: to });
+  editor.gesture({ ...g, phase: cancel ? "cancel" : "end", at: to });
 }
 
 /** A touch hold at `from`, aimed to `to`, then lifted or cancelled (as a second finger landing does). */
@@ -155,11 +163,17 @@ function run(editor: HandTrace, s: Step): void {
       if (at) editor.gesture({ type: "tap", at, pointerType: touch });
       return;
     }
+    case "doubleTapOn": {
+      const at = spot(editor, s.target, s.index);
+      if (!at) return;
+      editor.gesture({ type: "tap", at, pointerType: touch });
+      return editor.gesture({ type: "doubleTap", at, pointerType: touch });
+    }
     case "drag":
       return dragOf(editor, s.from, s.to, s.cancel);
     case "dragFrom": {
       const from = spot(editor, s.target, s.index);
-      if (from) dragOf(editor, from, s.to, s.cancel);
+      if (from) dragOf(editor, from, s.to, s.cancel, s.alt);
       return;
     }
     case "wheel":
@@ -214,6 +228,7 @@ function check(editor: HandTrace): void {
   expect(drawn.loupe).toBeNull();
   if (drawn.pill.kind === "drawing") expect(drawn.markers).toEqual([]);
   if (drawn.rubberBand) expect(drawn.pill.kind).toBe("drawing");
+  if (drawn.pill.kind !== "point") expect(drawn.handles).toEqual([]);
   const shapes = editor.shapes();
   expect(shapes.every((s) => s.points.length > 0 && (!s.closed || s.points.length >= 3))).toBe(true);
   for (const p of shapes.flatMap((s) => s.points)) {
@@ -222,13 +237,17 @@ function check(editor: HandTrace): void {
     expect(p.y).toBeGreaterThanOrEqual(0);
     expect(p.y).toBeLessThanOrEqual(1);
   }
-  const closed = shapes.filter((s) => s.closed).map((s) => s.points.map(({ x, y }) => ({ x, y })));
+  // As drawn, curves and all, back on the page.
+  const { page } = drawn;
+  const onPage = (p: Point2) => ({ x: (p.x - page.x) / page.width, y: 1 - (p.y - page.y) / page.height });
+  const closed = drawn.shapes.filter((s) => s.closed).flatMap((s) => outlinesOf(s.d).map((o) => o.map(onPage)));
   const carved = editor.design()?.paths ?? [];
   expect(carved.length).toBeLessThanOrEqual(closed.length);
   const big = (paths: readonly Point2[][]) => paths.filter((p) => area(p) > TINY_AREA);
   expectSameOutlines(big(carved), big(closed), 1e-3);
   const again = reloaded(editor);
-  expect(again.shapes()).toEqual(editor.shapes());
+  // Through JSON, as the record goes: a handle's -0 comes back as 0, which is no change.
+  expect(again.shapes()).toEqual(JSON.parse(JSON.stringify(editor.shapes())));
   expect(again.design()).toEqual(editor.design());
   // The selection isn't kept, like the view: what's drawn matches whenever nothing is selected.
   if (drawn.pill.kind !== "point" && drawn.pill.kind !== "shape") expect(drawnState(again)).toEqual(drawnState(editor));
