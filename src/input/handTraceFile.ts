@@ -6,6 +6,7 @@
 import { distanceToSegment, type BBox, type Design, type Point2 } from "../core";
 import { readRecord, RECORD_VERSION, writeRecord, type DesignRecord, type PhotoFile, type PhotoRecord } from "../designRecord";
 import type { Page } from "../handTrace";
+import { isRecord } from "../validate";
 import { flattenPathData, roughExtent } from "./flattenPath";
 import { RELATIVE_TOLERANCE } from "./pathDesign";
 import { readSvgDesign, RECORD_ELEMENT, RECORD_NAMESPACE } from "./svgDesign";
@@ -103,7 +104,7 @@ function readFile(text: string): { opened: OpenedSvg; stale?: FileRecord } {
   const plain = (note?: string): OpenedSvg => ({ kind: "svg", design: svg.design, notes: note ? [...svg.notes, note] : svg.notes });
   if (svg.record === null) return { opened: plain() };
   const raw = parseJson(svg.record);
-  if (!isObject(raw)) return { opened: plain(INVALID) };
+  if (!isRecord(raw)) return { opened: plain(INVALID) };
   if (raw.version !== RECORD_VERSION) return { opened: plain(UNKNOWN_VERSION) };
   const record = readRecord({ ...raw, photo: readPhoto(raw.photo) });
   if (!record || record.source === "svg" || typeof raw.fingerprint !== "string" || emptied(raw, record)) {
@@ -126,7 +127,7 @@ function writePhoto({ name, type, bytes }: PhotoFile): { name: string; type: str
 
 /** The photo in a file's record with its bytes back as the record module reads them; anything else as it is. */
 function readPhoto(x: unknown): unknown {
-  if (!isObject(x) || typeof x.base64 !== "string") return x;
+  if (!isRecord(x) || typeof x.base64 !== "string") return x;
   const { base64, ...photo } = x;
   try {
     return { ...photo, bytes: Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer };
@@ -137,7 +138,7 @@ function readPhoto(x: unknown): unknown {
 
 /** The validator emptied the hand-trace (it restores an invalid one empty): the file's record is invalid. */
 function emptied(raw: Record<string, unknown>, record: FileRecord): boolean {
-  const shapes = isObject(raw.handTrace) ? raw.handTrace.shapes : undefined;
+  const shapes = isRecord(raw.handTrace) ? raw.handTrace.shapes : undefined;
   return !Array.isArray(shapes) || shapes.length !== record.handTrace.shapes.length;
 }
 
@@ -174,10 +175,6 @@ function parseJson(text: string): unknown {
   } catch {
     return undefined;
   }
-}
-
-function isObject(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
 /** Text safe inside an XML element. */
