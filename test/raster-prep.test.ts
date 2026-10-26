@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { binarize, clampCrop, fitWithin } from "../src/input/rasterPrep";
+import { binarize, fitWithin } from "../src/input/rasterPrep";
 
 /** RGBA bytes from [r, g, b, a] tuples. */
 function px(...pixels: [number, number, number, number][]): Uint8ClampedArray {
@@ -28,20 +28,6 @@ describe("binarize: grayscale + threshold (+ invert) into carve/keep pixels", ()
   it("transparent pixels count as white paper, even if their color is black", () => {
     const out = binarize(px([0, 0, 0, 0]), { threshold: 128, invert: false });
     expect(Array.from(out)).toEqual(WHITE);
-  });
-});
-
-describe("clampCrop: crop rectangle in source pixels", () => {
-  it("keeps a rectangle that fits", () => {
-    expect(clampCrop({ x: 10, y: 20, width: 30, height: 40 }, 100, 100)).toEqual({ x: 10, y: 20, width: 30, height: 40 });
-  });
-
-  it("trims a rectangle that runs past the image edges", () => {
-    expect(clampCrop({ x: -5, y: 90, width: 50, height: 50 }, 100, 100)).toEqual({ x: 0, y: 90, width: 45, height: 10 });
-  });
-
-  it("rounds to whole pixels and never collapses below 1x1", () => {
-    expect(clampCrop({ x: 99.6, y: 0.4, width: 0.2, height: 10 }, 100, 100)).toEqual({ x: 99, y: 0, width: 1, height: 10 });
   });
 });
 

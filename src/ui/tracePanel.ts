@@ -1,16 +1,31 @@
 import type { Design } from "../core";
 import { AUTO_TRACE_DEFAULTS as DEFAULTS, MAX_SPECKLE, THRESHOLD_RANGE, type AutoTraceSettings } from "../designRecord";
-import type { PixelRect } from "../input/rasterPrep";
-import type { TraceSettings } from "../input/traceImage";
+import { exifFocal35Mm, START_FRAME, type Cleanup } from "../input/cleanupFrame";
+import { fitWithin } from "../input/rasterPrep";
+import { startCleanupWarp } from "../worker/cleanupWarp";
+import { mountCleanupPanel } from "./cleanupPanel";
 
 const RETRACE_DELAY_MS = 150;
+/**
+ * The photo's long side once decoded, in px (shrunk with the browser's high-quality filter): a sheet filling two
+ * thirds of the photo still gets the cleaned-up photo's 2000 px, and the warp never shrinks much, which it does
+ * poorly.
+ */
+const MAX_DECODED_SIDE = 3000;
+
+/** What a reload restores a photo with: its cleanup, auto-trace's settings and Done. */
+export interface KeptTrace {
+  cleanup: Cleanup;
+  settings: AutoTraceSettings;
+  accepted: boolean;
+}
 
 export interface TracePanel {
   /**
-   * Load a scanned stencil or photo and trace it with the current settings, or with `kept` ones and Done as they
-   * were (a restore after a reload).
+   * Load a photo and open it in Cleanup; or, with `kept` (a restore after a reload), auto-trace it at once with the
+   * cleanup, settings and Done as they were.
    */
-  load(file: File, kept?: { settings: AutoTraceSettings; accepted: boolean }): Promise<void>;
+  load(file: File, kept?: KeptTrace): Promise<void>;
   /** Hide the panel and forget the image (another kind of design was chosen). */
   clear(): void;
   /** An image is loaded (the panel is showing). */
@@ -19,34 +34,46 @@ export interface TracePanel {
   accepted(): boolean;
   /** The threshold, invert and speckle settings as they are now. */
   autoTrace(): AutoTraceSettings;
+  /** The photo's cleanup as it is now. */
+  cleanup(): Cleanup;
 }
 
 /**
- * Crop, threshold, invert and speckle controls for a raster image. The crop image and the auto-trace result go
- * in `view` (the viewport's Photo view), at viewport size. Every finished trace is reported through
- * `onTraced`; accepting the trace, or going back to adjust it, through `onAccepted`. The image never leaves
- * the browser.
+ * A photo's Cleanup, then auto-trace's threshold, invert and speckle controls. The photo, the cleaned-up photo and
+ * the auto-trace result go in `view` (the viewport's Photo view), at viewport size. Every finished trace is reported
+ * through `onTraced`; accepting the trace, or going back to adjust it, through `onAccepted`; each released cleanup
+ * change through `onCleanup`. The image never leaves the browser.
  */
 export function mountTracePanel(
   root: HTMLElement,
   onTraced: (design: Design | null, status: string, failed: boolean) => void,
   view: HTMLElement,
   onAccepted: () => void,
+  onCleanup: () => void,
 ): TracePanel {
   root.hidden = true;
   root.classList.add("trace");
   view.classList.add("trace-views");
   view.innerHTML = `
-    <figure>
-      <div class="trace-fit"><canvas class="trace-crop" aria-label="Scanned image. Drag to crop."></canvas></div>
-      <figcaption>Drag on the image to crop. <button type="button" class="trace-reset">Use whole image</button></figcaption>
+    <figure class="trace-photo"></figure>
+    <figure class="trace-cleaned">
+      <div class="trace-fit"><div class="cleanup-stack">
+        <canvas aria-label="The cleaned-up photo"></canvas>
+        <svg class="cleaned-overlay" viewBox="0 0 2 1" preserveAspectRatio="none">
+          <line class="symmetry-axis" x1="1" y1="0" x2="1" y2="1" />
+        </svg>
+      </div></div>
+      <figcaption>The cleaned-up photo: what's traced.</figcaption>
     </figure>
-    <figure>
+    <figure class="trace-result-figure">
       <div class="trace-fit trace-result" role="img" aria-label="Auto-trace result"></div>
       <figcaption>Auto-trace result: black areas are carved.</figcaption>
     </figure>
   `;
   root.innerHTML = `
+    <div class="trace-cleanup"></div>
+    <div class="trace-tracing">
+    <button type="button" class="trace-straighten">Straighten photo</button>
     <h3>Tracing method</h3>
     <div class="trace-settings">
     <div class="field">
@@ -72,11 +99,20 @@ export function mountTracePanel(
       <button type="button" class="trace-accept">Done</button>
       <div class="hint trace-accepted-note" hidden>Auto-trace accepted. Pick Photo above the preview to see it again.</div>
     </div>
+    </div>
   `;
 
   const $ = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
-  const cropCanvas = view.querySelector<HTMLCanvasElement>(".trace-crop")!;
+  const cleanedFigure = view.querySelector<HTMLElement>(".trace-cleaned")!;
+  const cleanedStack = cleanedFigure.querySelector<HTMLElement>(".cleanup-stack")!;
+  const cleanedCanvas = cleanedFigure.querySelector("canvas")!;
+  const cleanedAxis = cleanedFigure.querySelector<SVGSVGElement>("svg")!;
+  const photoFigure = view.querySelector<HTMLElement>(".trace-photo")!;
+  const resultFigure = view.querySelector<HTMLElement>(".trace-result-figure")!;
   const resultEl = view.querySelector<HTMLElement>(".trace-result")!;
+  const cleanupEl = $<HTMLElement>(".trace-cleanup");
+  const tracingEl = $<HTMLElement>(".trace-tracing");
+  const straighten = $<HTMLButtonElement>(".trace-straighten");
   const settingsEl = $<HTMLElement>(".trace-settings");
   const acceptButton = $<HTMLButtonElement>(".trace-accept");
   const acceptedNote = $<HTMLElement>(".trace-accepted-note");
@@ -85,6 +121,7 @@ export function mountTracePanel(
     accepted = next;
     settingsEl.hidden = next;
     acceptedNote.hidden = !next;
+    straighten.hidden = next;
     acceptButton.textContent = next ? "Edit" : "Done";
   };
   acceptButton.addEventListener("click", () => {
@@ -92,28 +129,75 @@ export function mountTracePanel(
     onAccepted();
   });
   const threshold = $<HTMLInputElement>("#t-threshold");
-  const thresholdOut = $<HTMLOutputElement>("output");
+  const thresholdOut = $<HTMLOutputElement>(".trace-settings output");
   const invert = $<HTMLInputElement>("#t-invert");
   const speckle = $<HTMLInputElement>("#t-speckle");
 
-  let image: ImageBitmap | null = null;
-  let crop: PixelRect | undefined;
+  const warper = startCleanupWarp();
+  /** The decoded photo's pixels, which the warp samples. */
+  let photoPixels: ImageData | null = null;
+  /** The cleaned-up photo, once warped: what auto-trace traces. */
+  let cleaned: ImageData | null = null;
+  /** Auto-trace has run on this photo: from then on, each new cleaned-up photo is traced again. */
+  let traced = false;
   let traceId = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Show Cleanup, or auto-trace past it. */
+  const showStage = (cleanup: boolean) => {
+    cleanupEl.hidden = photoFigure.hidden = !cleanup;
+    tracingEl.hidden = resultFigure.hidden = cleanup;
+    cleanedAxis.toggleAttribute("hidden", !cleanup); // the symmetry axis is always drawn during Cleanup
+  };
+
+  const cleanupPanel = mountCleanupPanel(
+    cleanupEl,
+    photoFigure,
+    () => {
+      void rewarp();
+      onCleanup();
+    },
+    () => {
+      showStage(false);
+      traced = true;
+      void retrace();
+    },
+  );
+
+  /** Warp the photo for the cleanup as it now is; trace it again once auto-trace has run. */
+  async function rewarp(): Promise<void> {
+    if (!photoPixels) return;
+    const next = cleanupPanel.cleanedUp();
+    try {
+      const pixels = await warper.warp(photoPixels, next);
+      if (!pixels || !photoPixels) return; // a newer warp is coming, or the photo is gone
+      cleaned = pixels;
+      cleanedCanvas.width = pixels.width;
+      cleanedCanvas.height = pixels.height;
+      cleanedCanvas.getContext("2d")!.putImageData(pixels, 0, 0);
+      cleanedStack.style.setProperty("--aspect", String(pixels.width / pixels.height));
+      cleanedAxis.setAttribute("viewBox", `0 0 ${pixels.width} ${pixels.height}`);
+      cleanedAxis.querySelector("line")!.setAttribute("x1", String(pixels.width / 2));
+      cleanedAxis.querySelector("line")!.setAttribute("x2", String(pixels.width / 2));
+      cleanedAxis.querySelector("line")!.setAttribute("y2", String(pixels.height));
+      if (traced) await retrace();
+    } catch (err) {
+      onTraced(null, `The photo couldn't be cleaned up: ${err instanceof Error ? err.message : String(err)}`, true);
+    }
+  }
 
   const autoTrace = (): AutoTraceSettings => ({
     threshold: Number(threshold.value),
     invert: invert.checked,
     speckle: Number(speckle.value) || 0,
   });
-  const settings = (): TraceSettings => ({ ...autoTrace(), crop });
 
   async function retrace(): Promise<void> {
-    if (!image) return;
+    if (!cleaned) return; // traced once the warp lands
     const id = ++traceId;
     try {
       const { traceImage } = await import("../input/traceImage"); // Potrace loads only when needed
-      const result = await traceImage(image, settings());
+      const result = await traceImage(cleaned, autoTrace());
       if (id !== traceId) return;
       resultEl.innerHTML = result.svg;
       fitAspect(resultEl.querySelector("svg"));
@@ -138,117 +222,77 @@ export function mountTracePanel(
   });
   invert.addEventListener("change", scheduleRetrace);
   speckle.addEventListener("input", scheduleRetrace);
-  view.querySelector<HTMLButtonElement>(".trace-reset")!.addEventListener("click", () => {
-    crop = undefined;
-    drawCrop();
-    scheduleRetrace();
-  });
-
-  // Crop by dragging a rectangle on the image; kept in source-image pixels.
-  let dragFrom: { x: number; y: number } | null = null;
-  const toImage = (e: PointerEvent) => {
-    const r = cropCanvas.getBoundingClientRect();
-    const sx = image!.width / r.width;
-    const sy = image!.height / r.height;
-    return {
-      x: Math.min(image!.width, Math.max(0, (e.clientX - r.left) * sx)),
-      y: Math.min(image!.height, Math.max(0, (e.clientY - r.top) * sy)),
-    };
-  };
-  cropCanvas.addEventListener("pointerdown", (e) => {
-    if (!image) return;
-    cropCanvas.setPointerCapture(e.pointerId);
-    dragFrom = toImage(e);
-  });
-  cropCanvas.addEventListener("pointermove", (e) => {
-    if (!dragFrom) return;
-    const p = toImage(e);
-    crop = {
-      x: Math.min(dragFrom.x, p.x),
-      y: Math.min(dragFrom.y, p.y),
-      width: Math.abs(p.x - dragFrom.x),
-      height: Math.abs(p.y - dragFrom.y),
-    };
-    drawCrop();
-  });
-  const endDrag = () => {
-    if (!dragFrom) return;
-    dragFrom = null;
-    if (crop && (crop.width < 4 || crop.height < 4)) crop = undefined; // a click, not a drag
-    drawCrop();
-    scheduleRetrace();
-  };
-  cropCanvas.addEventListener("pointerup", endDrag);
-  cropCanvas.addEventListener("pointercancel", endDrag);
+  straighten.addEventListener("click", () => showStage(true));
 
   /** Give the CSS the element's width/height ratio, so it can scale the element to fit its figure. */
   function fitAspect(el: Element | null): void {
-    if (!(el instanceof HTMLCanvasElement || el instanceof SVGSVGElement)) return;
-    const [w, h] =
-      el instanceof HTMLCanvasElement
-        ? [el.width, el.height]
-        : [Number.parseFloat(el.getAttribute("width") ?? ""), Number.parseFloat(el.getAttribute("height") ?? "")];
+    if (!(el instanceof SVGSVGElement)) return;
+    const [w, h] = [Number.parseFloat(el.getAttribute("width") ?? ""), Number.parseFloat(el.getAttribute("height") ?? "")];
     if (w > 0 && h > 0) el.style.setProperty("--aspect", String(w / h));
   }
 
-  function drawCrop(): void {
-    if (!image) return;
-    const g = cropCanvas.getContext("2d")!;
-    g.drawImage(image, 0, 0, cropCanvas.width, cropCanvas.height);
-    if (!crop) return;
-    const k = cropCanvas.width / image.width;
-    const [x, y, w, h] = [crop.x * k, crop.y * k, crop.width * k, crop.height * k];
-    g.fillStyle = "rgba(0, 0, 0, 0.45)";
-    g.fillRect(0, 0, cropCanvas.width, y);
-    g.fillRect(0, y + h, cropCanvas.width, cropCanvas.height - y - h);
-    g.fillRect(0, y, x, h);
-    g.fillRect(x + w, y, cropCanvas.width - x - w, h);
-    g.strokeStyle = "#e07b00";
-    g.lineWidth = 2;
-    g.strokeRect(x, y, w, h);
-  }
+  /** Forget the loaded photo and anything traced from it. */
+  const forget = () => {
+    clearTimeout(timer);
+    traceId++;
+    [photoPixels, cleaned, traced] = [null, null, false];
+    resultEl.replaceChildren();
+    setAccepted(false);
+  };
 
   return {
     async load(file, kept) {
-      clearTimeout(timer);
+      forget();
       if (kept) {
         threshold.value = thresholdOut.value = String(kept.settings.threshold);
         invert.checked = kept.settings.invert;
         speckle.value = String(kept.settings.speckle);
       }
-      image?.close();
-      image = null;
-      crop = undefined;
-      setAccepted(false);
+      let photo: ImageBitmap;
       try {
-        image = await createImageBitmap(file);
+        photo = await decode(file);
       } catch {
         root.hidden = true;
         onTraced(null, "This image couldn't be read.", true);
         return;
       }
+      const focal = exifFocal35Mm(await file.arrayBuffer());
+      photoPixels = pixelsOf(photo);
       root.hidden = false;
-      const scale = Math.min(1, 1200 / Math.max(image.width, image.height));
-      cropCanvas.width = Math.max(1, Math.round(image.width * scale));
-      cropCanvas.height = Math.max(1, Math.round(image.height * scale));
-      fitAspect(cropCanvas);
-      drawCrop();
-      resultEl.replaceChildren();
-      await retrace();
+      cleanupPanel.show(photo, kept?.cleanup ?? { corners: START_FRAME, aspect: null }, focal);
+      photo.close();
+      showStage(!kept);
+      traced = Boolean(kept);
+      await rewarp();
       if (kept) setAccepted(kept.accepted);
     },
     clear() {
-      clearTimeout(timer);
-      traceId++;
-      image?.close();
-      image = null;
-      crop = undefined;
-      resultEl.replaceChildren();
+      forget();
       root.hidden = true;
-      setAccepted(false);
     },
     loaded: () => !root.hidden,
     accepted: () => accepted,
     autoTrace,
+    cleanup: () => cleanupPanel.cleanup(),
   };
+}
+
+/** The photo decoded the right way up (EXIF orientation), shrunk to `MAX_DECODED_SIDE` with the browser's best filter. */
+async function decode(file: File): Promise<ImageBitmap> {
+  const full = await createImageBitmap(file);
+  const size = fitWithin(full.width, full.height, MAX_DECODED_SIDE);
+  if (size.width === full.width && size.height === full.height) return full;
+  try {
+    return await createImageBitmap(full, { resizeWidth: size.width, resizeHeight: size.height, resizeQuality: "high" });
+  } finally {
+    full.close();
+  }
+}
+
+/** A decoded photo's RGBA pixels. */
+function pixelsOf(photo: ImageBitmap): ImageData {
+  const canvas = new OffscreenCanvas(photo.width, photo.height);
+  const g = canvas.getContext("2d")!;
+  g.drawImage(photo, 0, 0);
+  return g.getImageData(0, 0, photo.width, photo.height);
 }

@@ -9,7 +9,7 @@ export type PlaceholderKind = "empty" | "note";
 export interface Viewport {
   /** The 3D view's canvas, for the Three.js preview. */
   readonly canvas: HTMLCanvasElement;
-  /** The Photo view's element, where the trace panel puts the crop image and the auto-trace result. */
+  /** The Photo view's element, where the trace panel puts the photo's cleanup and the auto-trace result. */
   readonly photoView: HTMLElement;
   /** The Page view's element, where the hand-trace canvas draws a blank page's points. */
   readonly pageView: HTMLElement;

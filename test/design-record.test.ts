@@ -79,10 +79,19 @@ function fakeJpeg(size: number): PhotoFile {
   return { name: "face.jpg", type: "image/jpeg", bytes: new Uint8Array(size).fill(7).buffer };
 }
 
-/** A photo, auto-traced with its settings and accepted. */
+/** A photo, framed with A4 picked, auto-traced with its settings and accepted. */
 const photoRecord = {
   source: "photo",
   photo: fakeJpeg(64),
+  cleanup: {
+    corners: [
+      { x: 0.2, y: 0.15 },
+      { x: 0.85, y: 0.1 },
+      { x: 0.8, y: 0.9 },
+      { x: 0.15, y: 0.85 },
+    ],
+    aspect: "a4",
+  },
   autoTrace: { threshold: 140, invert: false, speckle: 5 },
   done: true,
 } satisfies DesignRecord;
@@ -177,6 +186,43 @@ describe("the record module", () => {
     await storage.set("work", { ...((await storage.get("work")) as object), autoTrace: null });
     const restored = await createRecordKeeper(storage, noShrink).restore();
     expect(restored).toEqual({ ...photoRecord, autoTrace: { threshold: 128, invert: false, speckle: 2 } });
+  });
+
+  /** Where a new photo's frame starts, and what an invalid kept one falls back to. */
+  const startFrame = [
+    { x: 0.1, y: 0.1 },
+    { x: 0.9, y: 0.1 },
+    { x: 0.9, y: 0.9 },
+    { x: 0.1, y: 0.9 },
+  ];
+  const { corners } = photoRecord.cleanup;
+  it.each([
+    ["three corners", { corners: corners.slice(0, 3) }, { corners: startFrame }],
+    ["a corner off the photo", { corners: [{ x: -0.1, y: 0.15 }, ...corners.slice(1)] }, { corners: startFrame }],
+    ["a corner that isn't a number", { corners: [{ x: "left", y: 0.15 }, ...corners.slice(1)] }, { corners: startFrame }],
+    ["a self-crossing frame", { corners: [corners[1], corners[0], corners[2], corners[3]] }, { corners: startFrame }],
+    ["an unknown aspect", { aspect: "legal" }, { aspect: null }],
+  ])("an invalid cleanup (%s) falls back to its default, the rest kept", async (_, bad, fallback) => {
+    const storage = memoryStorage();
+    await createRecordKeeper(storage, noShrink).keep(photoRecord);
+    await storage.set("work", { ...((await storage.get("work")) as object), cleanup: { ...photoRecord.cleanup, ...bad } });
+    const restored = await createRecordKeeper(storage, noShrink).restore();
+    expect(restored).toEqual({ ...photoRecord, cleanup: { ...photoRecord.cleanup, ...fallback } });
+  });
+
+  it("a cleanup that isn't there at all falls back to a new photo's", async () => {
+    const storage = memoryStorage();
+    await createRecordKeeper(storage, noShrink).keep(photoRecord);
+    await storage.set("work", { ...((await storage.get("work")) as object), cleanup: undefined });
+    const restored = await createRecordKeeper(storage, noShrink).restore();
+    expect(restored).toEqual({ ...photoRecord, cleanup: { corners: startFrame, aspect: null } });
+  });
+
+  it("the snapped estimate (no aspect chip picked) is kept as such", async () => {
+    const storage = memoryStorage();
+    const estimated = { ...photoRecord, cleanup: { ...photoRecord.cleanup, aspect: null } };
+    await createRecordKeeper(storage, noShrink).keep(estimated);
+    expect(await createRecordKeeper(storage, noShrink).restore()).toEqual(estimated);
   });
 
   it.each([

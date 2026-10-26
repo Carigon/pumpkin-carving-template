@@ -4,6 +4,7 @@
  * `RecordStorage` (IndexedDB in the app, memory in tests).
  */
 import type { HandTraceRecord, Offset, Page, Point, Shape } from "./handTrace";
+import { isFrame, START_FRAME, type AspectChoice, type Cleanup, type FrameCorners, type FramePoint } from "./input/cleanupFrame";
 import type { TraceSettings } from "./input/traceImage";
 
 /** A photo as the carver chose it: the file's bytes, never pixels. */
@@ -14,8 +15,8 @@ export interface PhotoFile {
   bytes: ArrayBuffer;
 }
 
-/** Auto-trace's settings as kept. */
-export type AutoTraceSettings = Omit<TraceSettings, "crop">;
+/** Auto-trace's settings as kept: all of them (what it traces is the photo as its cleanup leaves it). */
+export type AutoTraceSettings = TraceSettings;
 
 /** Auto-trace's settings before the carver moves them, and what an invalid kept one falls back to. */
 export const AUTO_TRACE_DEFAULTS: AutoTraceSettings = { threshold: 128, invert: false, speckle: 2 };
@@ -27,7 +28,7 @@ export const MAX_SPECKLE = 1000;
 /** The loaded design and the work on it, by where it came from. */
 export type DesignRecord =
   | { source: "svg"; svg: { name: string; text: string } }
-  | { source: "photo"; photo: PhotoFile; autoTrace: AutoTraceSettings; done: boolean }
+  | { source: "photo"; photo: PhotoFile; cleanup: Cleanup; autoTrace: AutoTraceSettings; done: boolean }
   | { source: "page"; page: Page; handTrace: HandTraceRecord };
 
 /** The part of IndexedDB the record needs: one slot of a few named entries, structured-cloned in and out. */
@@ -182,7 +183,8 @@ export function readRecord(raw: unknown): DesignRecord | null {
   }
   if (raw.source === "photo") {
     const photo = readPhoto(raw.photo);
-    return photo && { source: "photo", photo, autoTrace: readAutoTrace(raw.autoTrace), done: raw.done === true };
+    const [cleanup, autoTrace, done] = [readCleanup(raw.cleanup), readAutoTrace(raw.autoTrace), raw.done === true];
+    return photo && { source: "photo", photo, cleanup, autoTrace, done };
   }
   if (raw.source === "page") {
     const page = readPage(raw.page);
@@ -206,6 +208,23 @@ function readAutoTrace(x: unknown): AutoTraceSettings {
     invert: typeof s.invert === "boolean" ? s.invert : d.invert,
     speckle: integerIn(s.speckle, 0, MAX_SPECKLE) ?? d.speckle,
   };
+}
+
+/** The aspect chips a kept cleanup may name. */
+const ASPECT_CHOICES: readonly AspectChoice[] = ["letter", "a4", "square", "estimated"];
+
+/** The frame and the aspect chip, each on its own: an invalid or missing one falls back to a new photo's. */
+function readCleanup(x: unknown): Cleanup {
+  const c = isRecord(x) ? x : {};
+  const corners = Array.isArray(c.corners) ? c.corners.map(readFramePoint) : [];
+  const valid = corners.every((p) => p !== null) && isFrame(corners);
+  return { corners: valid ? (corners as unknown as FrameCorners) : START_FRAME, aspect: oneOf(c.aspect, ASPECT_CHOICES) ?? null };
+}
+
+function readFramePoint(x: unknown): FramePoint | null {
+  if (!isRecord(x)) return null;
+  const [px, py] = [finite(x.x), finite(x.y)];
+  return px === undefined || py === undefined ? null : { x: px, y: py };
 }
 
 function readPage(x: unknown): Page | null {
