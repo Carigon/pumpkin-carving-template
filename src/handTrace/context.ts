@@ -1,5 +1,6 @@
 import type { Side } from "./curves";
-import type { HandTraceOptions, Knob } from "./editor";
+import type { HandTraceOptions } from "./editor";
+import type { Knob } from "./hits";
 import type { ScreenPoint } from "./gestures";
 import type { Page, Point, Shape } from "./model";
 import { shapesAsDrawn, type PointAsDrawn, type ShapeAsDrawn } from "./symmetry";

@@ -5,7 +5,6 @@
 export {
   ARROWS,
   createHandTrace,
-  HIT_RADIUS_PX,
   NUDGE_PX,
   SHIFT_NUDGE_PX,
   type Drawn,
@@ -14,6 +13,7 @@ export {
   type HandTraceOptions,
   type ShapePaths,
 } from "./editor";
+export { HIT_RADIUS_PX } from "./hits";
 export { placeLoupe, type Loupe } from "./loupe";
 export { createGestureRecognizer, HOLD_MS, type Gesture, type PointerInput } from "./gestures";
 export type { XY } from "./curves";
