@@ -150,12 +150,12 @@ export interface FloatingPieceWarning {
   pieces: DesignRegion[];
 }
 
-/** Carve areas whose box is smaller than `minSize` on its longest side, measured on the skin. Worded by the UI. */
+/** Carve areas whose box is smaller than `minSizeMm` on its longest side, measured on the skin. Worded by the UI. */
 export interface TinyCarveAreaWarning {
   kind: "tiny-carve-area";
   areas: DesignRegion[];
   /** The least size a carve area should have across, in mm on the skin. */
-  minSize: number;
+  minSizeMm: number;
 }
 
 export type TemplateWarning =

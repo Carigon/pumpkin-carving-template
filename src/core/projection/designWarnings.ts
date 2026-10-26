@@ -6,7 +6,7 @@ import type { Projection } from "./projection";
 /** Beyond this angle from the front, the design is badly foreshortened on the skin. */
 const FRONT_LIMIT_DEGREES = 60;
 /** A carve area smaller than this across, on the skin, is hard to cut. */
-const MIN_CARVE_AREA_MM = 5;
+const MIN_CARVE_SIZE_MM = 5;
 
 /** The design as placed and projected, for its warnings. */
 export interface PlacedDesign {
@@ -61,9 +61,9 @@ function shapeWarnings({ design, placement, projection }: PlacedDesign): Templat
   const pieces = regions.filter((r) => !r.carved).map(({ outline, bbox }) => ({ outline, bbox }));
   if (pieces.length > 0) warnings.push({ kind: "floating-piece", pieces });
   const areas = regions
-    .filter((r) => r.carved && sizeOnSkin(r.bbox, design, placement, projection) < MIN_CARVE_AREA_MM)
+    .filter((r) => r.carved && sizeOnSkin(r.bbox, design, placement, projection) < MIN_CARVE_SIZE_MM)
     .map(({ outline, bbox }) => ({ outline, bbox }));
-  if (areas.length > 0) warnings.push({ kind: "tiny-carve-area", areas, minSize: MIN_CARVE_AREA_MM });
+  if (areas.length > 0) warnings.push({ kind: "tiny-carve-area", areas, minSizeMm: MIN_CARVE_SIZE_MM });
   return warnings;
 }
 
@@ -76,7 +76,7 @@ function shapeWarnings({ design, placement, projection }: PlacedDesign): Templat
 function sizeOnSkin(box: BBox, design: Design, placement: Placement, projection: Projection): number {
   const scale = placedScale(design.bbox, placement.width);
   const width = (box.maxX - box.minX) * scale, height = (box.maxY - box.minY) * scale;
-  if (Math.max(width, height) >= MIN_CARVE_AREA_MM) return Math.max(width, height);
+  if (Math.max(width, height) >= MIN_CARVE_SIZE_MM) return Math.max(width, height);
   const middle = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
   const [[front]] = placeDesign({ paths: [[middle]], bbox: design.bbox }, placement);
   const hit = projection.project(front);

@@ -58,7 +58,7 @@ function shapeWarningText(w: ShapeWarning, units: Units, autoTrace: boolean): st
     }
     case "tiny-carve-area": {
       const n = w.areas.length;
-      const size = formatLength(w.minSize, units);
+      const size = formatLength(w.minSizeMm, units);
       const line = `${n} carve area${n === 1 ? " is" : "s are"} smaller than ${size} across and will be hard to cut.`;
       return autoTrace ? `${line} Raise Speckle removal.` : line;
     }

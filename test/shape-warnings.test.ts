@@ -63,7 +63,7 @@ describe("shape warnings", () => {
     const design = designOf([[0, 0], [60, 0], [60, 60], [0, 60]], [[96, 28], [100, 28], [100, 32], [96, 32]]);
     const [warning] = warningsOf({ measurements: sphere, ...placed(design, 100) }, "tiny-carve-area");
 
-    expect(warning.minSize).toBe(5);
+    expect(warning.minSizeMm).toBe(5);
     expect(warning.areas).toHaveLength(1);
     expectBox(warning.areas[0].bbox, [96, 28, 100, 32]);
     // 5.2 mm in the front view, and more on the skin.
