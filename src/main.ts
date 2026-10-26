@@ -14,6 +14,7 @@ import { mountSlitPanel } from "./ui/slitPanel";
 import { mountStepTabs } from "./ui/stepTabs";
 import { renderSurfaceInfo } from "./ui/surfaceInfo";
 import { mountViewport } from "./ui/viewport";
+import { isShapeWarning } from "./ui/warnings";
 import {
   createMeasureStore,
   editPatch,
@@ -354,7 +355,8 @@ function openNote(open: number | null): string {
 }
 
 function showWarnings(next: TemplateWarning[]): void {
-  warnings = next;
+  // A test grid is printed, not carved: its cells are meant to be kept paper, not floating pieces.
+  warnings = ballMode() ? next.filter((w) => !isShapeWarning(w)) : next;
   // A failed fit marks the row of the ring edited last; none since the page loaded marks no row.
   form.showWarnings(warnings, measures.get().lastEdited);
   designPanel.showWarnings(warnings);

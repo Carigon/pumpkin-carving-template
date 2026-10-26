@@ -89,7 +89,7 @@ describe.each([
 
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toMatchObject({ kind: "past-front-limit" });
-      expect(warnings[0].message).not.toBe("");
+      expect(warnings[0]).toHaveProperty("message", expect.stringMatching(/\S/));
     });
 
     it("measures the limit by where the surface faces, so it also applies vertically", () => {
@@ -99,7 +99,8 @@ describe.each([
         placement: { width: 2 * IN, verticalOffset: at(70), rotation: 0 },
       });
 
-      expect(warnings.map((w) => w.kind)).toEqual(["past-front-limit"]);
+      // The dot is far too small to carve, too.
+      expect(warnings.map((w) => w.kind)).toEqual(["past-front-limit", "tiny-carve-area"]);
     });
   });
 
@@ -141,7 +142,7 @@ describe.each([
       const silhouette = warnings.filter((w) => w.kind === "outside-silhouette");
       expect(silhouette).toHaveLength(1);
       expect(silhouette[0]).toMatchObject({ kind: "outside-silhouette", count: 2 });
-      expect(silhouette[0].message).not.toBe("");
+      expect(silhouette[0]).toHaveProperty("message", expect.stringMatching(/\S/));
 
       const points = design!.paths[0].points;
       expect(points.map((p) => p.surface === null)).toEqual([true, false, true, false]);

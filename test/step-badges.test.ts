@@ -13,6 +13,9 @@ describe("step warning badges", () => {
     { kind: "impossible-measurement", pumpkin: "measure", grid: "measure" },
     { kind: "past-front-limit", pumpkin: "design", grid: "grid" },
     { kind: "outside-silhouette", pumpkin: "design", grid: "grid" },
+    { kind: "crossing", pumpkin: "design", grid: "grid" },
+    { kind: "floating-piece", pumpkin: "design", grid: "grid" },
+    { kind: "tiny-carve-area", pumpkin: "design", grid: "grid" },
     { kind: "slits-dont-fit", pumpkin: "template", grid: "template" },
     { kind: "slit-limit", pumpkin: "template", grid: "template" },
   ] as const)("$kind badges $pumpkin in pumpkin mode and $grid in test-grid mode", ({ kind, pumpkin, grid }) => {

@@ -1,10 +1,29 @@
-import type { ProjectedDesign, TemplateWarning } from "../types";
+import { boundingBox } from "../geometry/polygon";
+import { arrange } from "../geometry/regions";
+import type { Design, Placement, Point2, ProjectedDesign, TemplateWarning } from "../types";
+import { placeDesign } from "./placement";
+import type { Projection } from "./projection";
 
 /** Beyond this angle from the front, the design is badly foreshortened on the skin. */
 const FRONT_LIMIT_DEGREES = 60;
+/** A carve area smaller than this across, on the skin, is hard to cut. */
+const MIN_CARVE_AREA_MM = 5;
+
+/** The design as placed and projected, for its warnings. */
+export interface PlacedDesign {
+  design: Design;
+  placement: Placement;
+  projection: Projection;
+  projected: ProjectedDesign;
+}
+
+/** Warnings about the design: where the projected design lands, and shapes that won't carve well. */
+export function designWarnings(placed: PlacedDesign): TemplateWarning[] {
+  return [...placementWarnings(placed.projected), ...shapeWarnings(placed)];
+}
 
 /** Warnings about where the projected design lands. */
-export function designWarnings(design: ProjectedDesign): TemplateWarning[] {
+function placementWarnings(design: ProjectedDesign): TemplateWarning[] {
   const warnings: TemplateWarning[] = [];
   let maxAngle = 0;
   let missed = 0;
@@ -33,4 +52,35 @@ export function designWarnings(design: ProjectedDesign): TemplateWarning[] {
     });
   }
   return warnings;
+}
+
+/** Warnings about shapes that won't carve well: crossings, floating pieces and tiny carve areas. */
+function shapeWarnings({ design, placement, projection }: PlacedDesign): TemplateWarning[] {
+  const { crossings, regions } = arrange(design.paths);
+  const warnings: TemplateWarning[] = [];
+  if (crossings.length > 0) warnings.push({ kind: "crossing", at: crossings });
+  const pieces = regions.filter((r) => !r.carved).map(({ outline, bbox }) => ({ outline, bbox }));
+  if (pieces.length > 0) warnings.push({ kind: "floating-piece", pieces });
+  const frontView = (loop: Point2[]) => placeDesign({ paths: [loop], bbox: design.bbox }, placement)[0];
+  const areas = regions
+    .filter((r) => r.carved && sizeOnSkin(frontView(r.outline[0]), projection) < MIN_CARVE_AREA_MM)
+    .map(({ outline, bbox }) => ({ outline, bbox }));
+  if (areas.length > 0) warnings.push({ kind: "tiny-carve-area", areas, minSize: MIN_CARVE_AREA_MM });
+  return warnings;
+}
+
+/**
+ * The longest side of a front-view loop's box on the skin, in mm: each side is stretched by how far the skin at the
+ * box's middle turns away along it. Only loops under the least size in the front view are measured, since the skin
+ * is never smaller than its front view; one whose middle misses the pumpkin keeps its front-view size.
+ */
+function sizeOnSkin(loop: Point2[], projection: Projection): number {
+  const box = boundingBox(loop);
+  const width = box.maxX - box.minX, height = box.maxY - box.minY;
+  if (Math.max(width, height) >= MIN_CARVE_AREA_MM) return Math.max(width, height);
+  const hit = projection.project({ x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 });
+  if (!hit) return Math.max(width, height);
+  const [nx, ny, nz] = hit.normal;
+  const facing = Math.max(Math.abs(nz), 1e-9);
+  return Math.max((width * Math.hypot(nx, nz)) / facing, (height * Math.hypot(ny, nz)) / facing);
 }
