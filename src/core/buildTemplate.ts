@@ -104,7 +104,7 @@ function* buildFromFit(input: TemplateInput, fit: SurfaceFit, flatten: boolean):
   const projection = frontProjection(surface);
   const frontViewPaths = placeDesign(design, placement);
   const projected = projectDesign(frontViewPaths, projection);
-  const warnings: TemplateWarning[] = designWarnings(projected);
+  const warnings: TemplateWarning[] = designWarnings({ design, placement, projection, projected });
   if (!flatten) return { surface: surfaceParameters, design: projected, template: null, warnings };
 
   const margin = input.margin !== undefined && input.margin > 0 ? input.margin : defaultMargin();

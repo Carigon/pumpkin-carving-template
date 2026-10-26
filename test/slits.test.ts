@@ -221,7 +221,7 @@ describe("slits", () => {
         expect(auto!.slits).toEqual([]);
         expect(paperStrain(auto!).p95).toBeGreaterThan(0.03);
         expect(autoWarnings).toMatchObject([{ kind: "slit-limit" }]);
-        expect(autoWarnings[0].message).toMatch(/smaller design|wider margin/);
+        expect(autoWarnings[0]).toHaveProperty("message", expect.stringMatching(/smaller design|wider margin/));
       },
       SLOW,
     );
@@ -232,7 +232,7 @@ describe("slits", () => {
       expect(template!.slits).toEqual([]);
       expect(paperStrain(template!).p95).toBeGreaterThan(0.03);
       expect(warnings).toMatchObject([{ kind: "slit-limit" }]);
-      expect(warnings[0].message).not.toBe("");
+      expect(warnings[0]).toHaveProperty("message", expect.stringMatching(/\S/));
     });
   });
 
@@ -245,7 +245,7 @@ describe("slits", () => {
       expect(template!.slits.length).toBeGreaterThan(0);
       expect(template!.slits.length).toBeLessThan(12);
       expect(warnings).toMatchObject([{ kind: "slits-dont-fit", count: template!.slits.length }]);
-      expect(warnings[0].message).not.toBe("");
+      expect(warnings[0]).toHaveProperty("message", expect.stringMatching(/\S/));
     },
     SLOW,
   );

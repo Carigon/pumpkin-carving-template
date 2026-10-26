@@ -1,4 +1,4 @@
-import type { Point2 } from "../types";
+import type { BBox, Point2 } from "../types";
 import { distance } from "./vector";
 
 const cross = (o: Point2, a: Point2, b: Point2) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
@@ -40,6 +40,18 @@ export function nearestOnPolygon(p: Point2, polygon: Point2[]): { point: Point2;
     if (d < best.distance) best = { point: q, distance: d };
   }
   return best;
+}
+
+/** The smallest axis-aligned box holding every point. */
+export function boundingBox(points: Point2[]): BBox {
+  const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const { x, y } of points) {
+    box.minX = Math.min(box.minX, x);
+    box.minY = Math.min(box.minY, y);
+    box.maxX = Math.max(box.maxX, x);
+    box.maxY = Math.max(box.maxY, y);
+  }
+  return box;
 }
 
 /** Is `p` inside the closed polygon (even-odd rule)? */
