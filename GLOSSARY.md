@@ -48,6 +48,14 @@ _Avoid_: Manual trace, drawing, outlining
 A region of the design that gets cut out of the pumpkin. One carve area can come from several shapes: an eye shape with a pupil shape inside it is one ring-shaped carve area.
 _Avoid_: Hole, cut-out
 
+**Floating piece**:
+An uncarved piece of pumpkin with carving all the way around it, like a pupil drawn inside an eye. Cut through, nothing holds it, so it falls out.
+_Avoid_: Island, loose bit
+
+**Crossing**:
+A place where a shape's edge crosses itself or another shape's edge. The pumpkin caught between the crossing edges is held only at the crossings.
+_Avoid_: Intersection, overlap
+
 **Shape**:
 One run of points the carver draws in a hand-trace, open while it's being drawn and closed once finished. A shape drawn inside another keeps that part uncarved.
 _Avoid_: Path, outline, contour
