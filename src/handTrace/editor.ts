@@ -214,6 +214,11 @@ export interface HandTrace {
   toggleSymmetry(): void;
   /** Remove every shape, as one undo step. */
   clear(): void;
+  /**
+   * Edit as hand-trace's copy: put `shapes` in place of every shape, as one undo step, with nothing being drawn or
+   * selected. Each gets an id of its own.
+   */
+  replace(shapes: readonly Shape[]): void;
   undo(): void;
   redo(): void;
   /** Done: end the shape being drawn open, hide the tools and stop taking input. */
@@ -1313,6 +1318,11 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     clear() {
       if (finished || state.shapes.length === 0) return;
       change({ shapes: [], drawing: null });
+      selection = null;
+    },
+    replace(shapes) {
+      if (finished) return;
+      change({ shapes: shapes.map((s) => ({ ...s, id: nextId++ })), drawing: null });
       selection = null;
     },
     undo,

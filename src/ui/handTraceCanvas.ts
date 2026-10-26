@@ -11,6 +11,7 @@ import {
   type Loupe,
   type Page,
   type PointerInput,
+  type Shape,
 } from "../handTrace";
 import { designFromPathData } from "../input/pathDesign";
 import { el } from "./svg";
@@ -29,6 +30,8 @@ export interface HandTraceCanvas {
   setTone(filter: string): void;
   /** Forget the hand-trace (another design was loaded). */
   clear(): void;
+  /** Edit as hand-trace's copy: `shapes` in place of the hand-trace's, as one undo step. */
+  replace(shapes: readonly Shape[]): void;
   /** The hand-trace being shown, or null when there's none. */
   editor(): HandTrace | null;
   /** Done (true) or Edit (false): hide the tools and stop taking input, or bring them back. */
@@ -265,6 +268,10 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
       editor = null;
       reported = null;
       photo.removeAttribute("href");
+      render();
+    },
+    replace(shapes) {
+      editor?.replace(shapes);
       render();
     },
     editor: () => editor,
