@@ -282,8 +282,11 @@ export interface HandTrace<C = unknown> {
   showWarnings(warnings: readonly TemplateWarning[]): void;
 }
 
-/** Screen radius (px) within which a tap hits a point or an outline, whatever the zoom; the axis snap's too. */
-const HIT_RADIUS_PX = 22;
+/**
+ * Screen radius (px) within which a tap hits a point or an outline, whatever the zoom; the axis snap's too, and
+ * Cleanup's frame corners'.
+ */
+export const HIT_RADIUS_PX = 22;
 /** How many hit radii a snapped point is dragged off the axis before it lets go: clearly past the snap. */
 const SNAP_RELEASE = 1.5;
 /** Edges shorter than this on screen (px), measured along the curve, show no insert marker. */
@@ -307,11 +310,11 @@ const LOUPE_GAP_PX = 56;
 const LOUPE_MARGIN_PX = 4;
 /** How much + and − zoom, as the Blueprint view's zoom buttons do. */
 const KEY_ZOOM_STEP = 1.25;
-/** How far an arrow key nudges, in screen px, and with Shift. */
-const NUDGE_PX = 1;
-const SHIFT_NUDGE_PX = 10;
+/** How far an arrow key nudges, in screen px, and with Shift (Cleanup's frame corners too). */
+export const NUDGE_PX = 1;
+export const SHIFT_NUDGE_PX = 10;
 /** Each arrow key's direction on screen (y down). */
-const ARROWS = new Map([
+export const ARROWS: ReadonlyMap<string, { x: number; y: number }> = new Map([
   ["ArrowLeft", { x: -1, y: 0 }],
   ["ArrowRight", { x: 1, y: 0 }],
   ["ArrowUp", { x: 0, y: -1 }],

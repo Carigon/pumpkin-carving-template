@@ -398,23 +398,27 @@ function draw(svg: SVGSVGElement, drawn: Drawn, id: string, photo: SVGElement): 
 }
 
 /**
- * The loupe: a circle showing the drawing (by reference, as drawn) magnified about its focus, with a crosshair
- * where the point lands. Its points and markers are drawn faint so they don't hide the line under them.
+ * The loupe: a circle showing the drawing with id `drawingId` (by reference, as drawn) magnified about its focus,
+ * with a crosshair where the point lands. Its points and markers are drawn faint so they don't hide the line under
+ * them. The loupe is placed in screen px; `k` is the drawing's units per screen px (1 on the canvas; Cleanup's frame
+ * is drawn in the photo's px).
  */
-function loupeOf({ box, focus, magnification }: Loupe, drawingId: string): SVGElement {
-  const span = box.width / magnification;
-  const [x0, y0] = [focus.x - span / 2, focus.y - span / 2];
-  const lens = el("svg", { class: "ht-loupe", ...box, viewBox: `${x0} ${y0} ${span} ${span}` });
+export function loupeOf({ box, focus, magnification }: Loupe, drawingId: string, k = 1): SVGElement {
+  const span = (box.width / magnification) * k;
+  const [fx, fy] = [focus.x * k, focus.y * k];
+  const [x0, y0] = [fx - span / 2, fy - span / 2];
+  const at = { x: box.x * k, y: box.y * k, width: box.width * k, height: box.height * k };
+  const lens = el("svg", { class: "ht-loupe", ...at, viewBox: `${x0} ${y0} ${span} ${span}` });
   const clip = `${drawingId}-loupe`;
   const clipPath = el("clipPath", { id: clip });
-  clipPath.append(el("circle", { cx: focus.x, cy: focus.y, r: span / 2 }));
+  clipPath.append(el("circle", { cx: fx, cy: fy, r: span / 2 }));
   const view = el("g", { "clip-path": `url(#${clip})` });
   view.append(
-    el("circle", { class: "ht-loupe-back", cx: focus.x, cy: focus.y, r: span / 2 }),
+    el("circle", { class: "ht-loupe-back", cx: fx, cy: fy, r: span / 2 }),
     el("use", { href: `#${drawingId}` }),
-    el("line", { class: "ht-loupe-cross", x1: x0, y1: focus.y, x2: x0 + span, y2: focus.y }),
-    el("line", { class: "ht-loupe-cross", x1: focus.x, y1: y0, x2: focus.x, y2: y0 + span }),
+    el("line", { class: "ht-loupe-cross", x1: x0, y1: fy, x2: x0 + span, y2: fy }),
+    el("line", { class: "ht-loupe-cross", x1: fx, y1: y0, x2: fx, y2: y0 + span }),
   );
-  lens.append(clipPath, view, el("circle", { class: "ht-loupe-rim", cx: focus.x, cy: focus.y, r: span / 2 }));
+  lens.append(clipPath, view, el("circle", { class: "ht-loupe-rim", cx: fx, cy: fy, r: span / 2 }));
   return lens;
 }

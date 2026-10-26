@@ -108,7 +108,7 @@ These are guesses from the spec, to be tuned once the checks above have been run
 |---|---|---|
 | 22 px | Hit radius for points, handles, stubs and insert markers, whatever the zoom | `HIT_RADIUS_PX`, `src/handTrace/editor.ts` |
 | 22 px | Axis snap, the same radius (let go at 1.5 times it) | `HIT_RADIUS_PX`, `SNAP_RELEASE`, `src/handTrace/editor.ts` |
-| 22 px | Frame corner hit radius in Cleanup | `HIT_RADIUS`, `src/ui/cleanupPanel.ts` |
+| 22 px | Frame corner hit radius in Cleanup, the same radius | `HIT_RADIUS_PX`, `src/handTrace/editor.ts` |
 | 48 px | Edges shorter than this, along the curve, show no insert marker | `MARKER_MIN_EDGE_PX`, `src/handTrace/editor.ts` |
 | 40 px | How far a stub reaches out along its edge | `STUB_PX`, `src/handTrace/editor.ts` |
 | 10 px | A handle dragged this close to its point is removed | `RETRACT_PX`, `src/handTrace/editor.ts` |

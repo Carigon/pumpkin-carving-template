@@ -1,4 +1,5 @@
-import { placeLoupe, type Loupe } from "../handTrace";
+// A frame corner is grabbed and nudged as a point on the hand-trace canvas is.
+import { ARROWS, HIT_RADIUS_PX, NUDGE_PX, placeLoupe, SHIFT_NUDGE_PX, type Loupe } from "../handTrace";
 import {
   applyHomography,
   cleanUp,
@@ -15,25 +16,13 @@ import {
   type PhotoSize,
 } from "../input/cleanupFrame";
 import { TONE_DEFAULTS, TONE_RANGE, type Tone } from "../designRecord";
+import { loupeOf, MOD } from "./handTraceCanvas";
 import { el } from "./svg";
-import { MOD } from "./handTraceCanvas";
 
-/** How near a press must be to a frame corner to grab it, in screen px (as the Blueprint view's handles). */
-const HIT_RADIUS = 22;
 /** A frame corner's drawn radius, in screen px. */
 const CORNER_RADIUS = 9;
-/** How far an arrow key nudges the selected frame corner, in screen px, and with Shift (as on the hand-trace canvas). */
-const NUDGE_PX = 1;
-const SHIFT_NUDGE_PX = 10;
 /** A run of nudges ends this long after the last one if no key release ends it first, ms (as the Blueprint view's). */
 const NUDGE_IDLE_MS = 600;
-/** Each arrow key's direction on screen (y down). */
-const ARROWS = new Map([
-  ["ArrowLeft", { x: -1, y: 0 }],
-  ["ArrowRight", { x: 1, y: 0 }],
-  ["ArrowUp", { x: 0, y: -1 }],
-  ["ArrowDown", { x: 0, y: 1 }],
-]);
 /** Turn's reach either way, in degrees. */
 const MAX_TURN_DEGREES = 45;
 /** Cleanup panels mounted so far, to give each frame drawing its own id (the loupe shows it by reference). */
@@ -245,7 +234,7 @@ export function mountCleanupPanel(
         return el("circle", { class: cls, cx: p.x, cy: p.y, r: CORNER_RADIUS * k });
       }),
     );
-    frameSvg.replaceChildren(drawing, ...(loupe ? [loupeOf(loupe, k)] : []));
+    frameSvg.replaceChildren(drawing, ...(loupe ? [loupeOf(loupe, drawingId, k)] : []));
     for (const chip of chips) chip.checked = chip.value === cleaned.aspect;
   }
 
@@ -262,25 +251,6 @@ export function mountCleanupPanel(
     const focus = { x: c.x * r.width, y: c.y * r.height };
     return placeLoupe({ x: e.clientX - r.left, y: e.clientY - r.top }, focus, r.width);
   };
-  /** The loupe as drawn over the frame: the drawing magnified by reference, clipped round, with a crosshair. */
-  const loupeOf = ({ box, focus, magnification }: Loupe, k: number): SVGElement => {
-    const span = (box.width / magnification) * k;
-    const [fx, fy] = [focus.x * k, focus.y * k];
-    const [x0, y0] = [fx - span / 2, fy - span / 2];
-    const lens = el("svg", { class: "ht-loupe", x: box.x * k, y: box.y * k, width: box.width * k, height: box.height * k, viewBox: `${x0} ${y0} ${span} ${span}` });
-    const clip = `${drawingId}-loupe`;
-    const clipPath = el("clipPath", { id: clip });
-    clipPath.append(el("circle", { cx: fx, cy: fy, r: span / 2 }));
-    const view = el("g", { "clip-path": `url(#${clip})` });
-    view.append(
-      el("circle", { class: "ht-loupe-back", cx: fx, cy: fy, r: span / 2 }),
-      el("use", { href: `#${drawingId}` }),
-      el("line", { class: "ht-loupe-cross", x1: x0, y1: fy, x2: x0 + span, y2: fy }),
-      el("line", { class: "ht-loupe-cross", x1: fx, y1: y0, x2: fx, y2: y0 + span }),
-    );
-    lens.append(clipPath, view, el("circle", { class: "ht-loupe-rim", cx: fx, cy: fy, r: span / 2 }));
-    return lens;
-  };
   const spotOf = (e: PointerEvent): FramePoint => {
     const r = frameSvg.getBoundingClientRect();
     return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
@@ -288,7 +258,7 @@ export function mountCleanupPanel(
   frameSvg.addEventListener("pointerdown", (e) => {
     frameSvg.focus({ preventScroll: true });
     endNudges();
-    dragging = cornerAt(cleanup.corners, spotOf(e), photo, HIT_RADIUS * pxPerScreen());
+    dragging = cornerAt(cleanup.corners, spotOf(e), photo, HIT_RADIUS_PX * pxPerScreen());
     selected = dragging;
     loupe = dragging !== null && e.pointerType === "touch" ? loupeFor(e, dragging) : null;
     draw();
