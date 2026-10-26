@@ -34,12 +34,12 @@ Trace the face from its photo, with Symmetry and curves, then reload mid-trace, 
 
 **Cleanup**
 
-1. In Design, tap **SVG file or photo** and pick the photo. The Photo view opens full screen in Cleanup.
+1. In Design, tap **SVG file or photo** and pick the photo. The Photo view opens in Cleanup, inside the viewport as on a desktop; it goes full screen only once you're past Cleanup with Hand-trace chosen.
 2. Drag each frame corner onto a corner of the sheet. The loupe shows above your finger, or beside it near the top edge, with a crosshair on the corner.
 3. Try **Turn**, **Rotate 90°**, each Sheet chip, Brightness and Contrast, then **Reset** and frame the sheet again.
 4. Press **Start tracing**.
 
-Look for: the cleaned-up photo comes out squared up a moment after each corner is released; the Sheet chip preselected matches the sheet you photographed; Brightness and Contrast change only the photo behind the hand-trace, not what auto-trace finds.
+Look for: the Tracing method switch shows above Cleanup the whole time; Cleanup's Undo takes back each released corner, Turn, Rotate 90° or chip, one at a time, and Redo puts it back; the cleaned-up photo comes out squared up a moment after each corner is released; the Sheet chip preselected matches the sheet you photographed; Brightness and Contrast change only the photo behind the hand-trace, not what auto-trace finds.
 
 **Tracing**
 
@@ -57,16 +57,17 @@ Look for: after the reload you're back in Design in the Photo view, with the hal
 **Warning marks**
 
 1. With the pupil inside the eye, the pupil's piece is tinted on the canvas, and on its reflection too.
-2. Draw a figure-eight whose two loops differ in size: a small ring shows at the crossing. (A figure-eight with equal loops drops out of the design entirely; that's a known gap.)
+2. Draw a figure-eight: a small ring shows at the crossing.
 3. In Placement, make the Width small until rings show round the smallest carve areas, then put it back.
 
 Look for: the marks stay put during a drag and move after it; the Design panel and its step badge list the same warnings; nothing is marked on the auto-trace result or in the 3D view.
 
 **Straighten, auto-trace and Done**
 
-1. Press **Straighten photo**. The shapes stay drawn over the photo. Drag a frame corner: they follow it live, and an off-centre frame makes the reflections drift. Press Start tracing, then Undo and Redo the re-frame from the canvas.
-2. Flip to **Auto-trace**: it traces the cleaned-up photo. Flip back to Hand-trace: your shapes are there. Flip to Auto-trace again, then **Edit as hand-trace**: the points land on the auto-trace result's outlines.
-3. Undo back to your own shapes, and press **Done**. The tools hide, the canvas stops taking taps, and Design opens on 3D with the face on the pumpkin.
+1. On the phone, Done, Straighten photo and Download SVG sit in the Design card, under the full-screen canvas. Pick **3D** in the view switcher over the canvas: the canvas leaves full screen and the Design card shows them. Pick **Photo** to go back to the canvas as you left it.
+2. Press **Straighten photo**. The shapes stay drawn over the photo. Drag a frame corner: they follow it live, and an off-centre frame makes the reflections drift. Undo and Redo the re-frame with Cleanup's own buttons, then press Start tracing and Undo and Redo it again from the canvas.
+3. Flip to **Auto-trace**: the status reads "Auto-tracing…" until it has traced the cleaned-up photo. Flip back to Hand-trace: your shapes are there. Flip to Auto-trace again, then **Edit as hand-trace**: the points land on the auto-trace result's outlines.
+4. Undo back to your own shapes, and press **Done**. The tools hide, the canvas stops taking taps, and Design opens on 3D with the face on the pumpkin.
 
 **Download and reopen**
 
@@ -87,7 +88,7 @@ Run check 2 again with a mouse and keys, and look for these instead of the touch
 - A double-click switches Smooth / Corner. Alt + drag on a smooth point's handle makes it a corner and moves that handle alone.
 - Keys work once the canvas is clicked: Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z and Ctrl+Y redo; Enter closes (or ends a shape under 3 points, or carries on from a selected open end); Escape cancels a drag, else ends the shape open, else clears the selection; Delete deletes the selection, and Backspace while drawing takes off the last point; S switches Smooth / Corner; M switches Symmetry; + − and 0 zoom.
 - The arrows nudge the selected point, handle or shape 1 px (10 with Shift), and a run of nudges is one undo step.
-- In Cleanup, frame corners drag without a loupe; a click selects one, and the arrows nudge it.
+- In Cleanup, frame corners drag without a loupe; a click selects one, and the arrows nudge it. With the frame or Cleanup's controls focused, Ctrl/Cmd+Z undoes a released change and Ctrl/Cmd+Shift+Z or Ctrl+Y redoes it.
 
 ## 4. Print and carve-check one design
 
