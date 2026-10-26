@@ -81,6 +81,17 @@ describe("shape warnings", () => {
     expect(warningsOf({ measurements: sphere, ...placed(inMiddle, 450) }, "tiny-carve-area")).toHaveLength(1);
   });
 
+  it("measures a carve area's box in the design's own axes, so rotating the placement doesn't change the warning", () => {
+    // A 4.5 mm square in the middle of the pumpkin: turned 30°, its front-view box is over 6 mm across.
+    const design = designOf([[0, 0], [40, 0], [40, 40], [0, 40]], [[198, 18], [202, 18], [202, 22], [198, 22]], [[360, 0], [400, 0], [400, 40], [360, 40]]);
+    const turned = (rotation: number) => ({ measurements: sphere, design, placement: { width: 450, verticalOffset: 0, rotation } });
+
+    const [upright] = warningsOf(turned(0), "tiny-carve-area");
+    expect(upright.areas).toHaveLength(1);
+    expect(warningsOf(turned(30), "tiny-carve-area")).toEqual([upright]);
+    expect(warningsOf(turned(-30), "tiny-carve-area")).toEqual([upright]);
+  });
+
   it("the quick preview gives the same shape warnings as the full build", () => {
     const design = designOf(circle(0, 0, 30), circle(10, 5, 8), [[40, -10], [80, 10], [80, -10], [40, 10]], [[90, 0], [92, 0], [92, 2]]);
     const input: TemplateInput = { measurements: sphere, ...placed(design, 150), slits: { count: 0, depth: 0 } };
