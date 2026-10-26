@@ -2,10 +2,11 @@ import type { Design, Placement, TemplateWarning, Units } from "../core";
 import type { PageRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
 import type { HandTraceRecord } from "../handTrace";
 import { editOnStalePhoto, readHandTraceFile } from "../input/handTraceFile";
-import { autoTraceShapes, readSvgHandTrace, type SvgHandTrace } from "../input/svgHandTrace";
+import { autoTraceShapes } from "../input/svgHandTrace";
 import { counted } from "./counted";
 import { designRecordOf, keepDesign } from "./designKeeping";
 import { mountDownloadSvg } from "./downloadSvg";
+import { mountEditSvgRow } from "./editSvgRow";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
 import { mountPlacementCard } from "./placementCard";
@@ -18,8 +19,6 @@ const FILE_HINT = "Photos never leave your browser.";
 const CLEANUP_HINT = "Frame the sheet in the photo, then press Start tracing.";
 /** The status line while auto-trace runs. */
 const AUTO_TRACING = "Auto-tracing…";
-/** Above this many points, Edit as hand-trace warns that editing may be slow (a starting guess, to tune on phones). */
-const MANY_POINTS = 2000;
 
 export interface DesignPanel {
   design(): Design | null;
@@ -311,31 +310,17 @@ export function mountDesignPanel(
     showEditSvg();
   };
 
-  const editSvg = $<HTMLElement>("d-edit-svg");
-  const manyPoints = editSvg.querySelector<HTMLElement>(".hint")!;
-  /** The loaded SVG design as a hand-trace, worked out once per file: what Edit as hand-trace lands on. */
-  let svgHandTrace: { of: string; read: SvgHandTrace | null } | null = null;
-  const editedSvg = () => {
-    if (!svg) return null;
-    if (svgHandTrace?.of !== svg.text) svgHandTrace = { of: svg.text, read: readSvgHandTrace(svg.text) };
-    return svgHandTrace.read;
-  };
-  /** Edit as hand-trace shows for an SVG design with at least one shape, with a hint when it has a great many points. */
-  const showEditSvg = () => {
-    const edited = editedSvg();
-    const shapes = edited?.handTrace.shapes ?? [];
-    editSvg.hidden = shapes.length === 0;
-    manyPoints.hidden = shapes.reduce((n, s) => n + s.points.length, 0) <= MANY_POINTS;
-  };
+  const editSvgRow = mountEditSvgRow($("d-edit-svg"), () => void editSvgDesign());
+  /** Offer Edit as hand-trace for the loaded SVG design, if any. */
+  const showEditSvg = () => editSvgRow.show(svg?.text ?? null);
   /**
    * Edit as hand-trace: the SVG design becomes a hand-trace for good, looking as it did; the file isn't kept. A
    * hand-trace file changed in another program goes back over its stale record's photo, as that photo's hand-trace,
    * when the photo still reads; any other lands on a page shaped to it, in the Page view, the loader's notes staying
    * on the status line. It asks nothing.
    */
-  editSvg.querySelector("button")!.addEventListener("click", () => void editSvgDesign());
   async function editSvgDesign() {
-    const edited = editedSvg();
+    const edited = editSvgRow.edited();
     if (!svg || !edited) return;
     const { name, text } = svg;
     svg = null;
