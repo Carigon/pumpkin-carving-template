@@ -1,10 +1,11 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
-import type { DesignRecord, PageRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
+import type { PageRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
 import type { HandTraceRecord } from "../handTrace";
 import { editOnStalePhoto, handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
 import { filePhoto } from "../input/shrinkPhoto";
 import { autoTraceShapes, readSvgHandTrace, type SvgHandTrace } from "../input/svgHandTrace";
 import { counted } from "./counted";
+import { designRecordOf, keepDesign } from "./designKeeping";
 import { downloadBlob } from "./download";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
@@ -20,8 +21,6 @@ const CLEANUP_HINT = "Frame the sheet in the photo, then press Start tracing.";
 const AUTO_TRACING = "Auto-tracing…";
 /** Above this many points, Edit as hand-trace warns that editing may be slow (a starting guess, to tune on phones). */
 const MANY_POINTS = 2000;
-/** A hand-trace with nothing drawn: a new photo's. */
-const EMPTY_HAND_TRACE: HandTraceRecord = { shapes: [], drawing: null, done: false };
 
 export interface DesignPanel {
   design(): Design | null;
@@ -113,40 +112,14 @@ export function mountDesignPanel(
   let photo: PhotoFile | null = null;
   /** The SVG file a hand-trace on a page was made from by Edit as hand-trace; undefined for a blank page's. */
   let pageName: string | undefined;
-  /** The kept design was restored, or the carver loaded one first: from now on the work is kept. */
-  let keeping = false;
-  const notKept = $<HTMLElement>("d-not-kept");
 
   /** The loaded photo's auto-trace result and its status line: kept while hand-trace is chosen. */
   let autoDesign: Design | null = null;
   let autoStatus = { text: "", failed: false };
 
-  /** The loaded design and the work on it, as the record keeps it; null with none loaded. */
-  const record = (): DesignRecord | null => {
-    const editor = handTrace.editor();
-    if (photo && trace.loaded())
-      return {
-        source: "photo",
-        photo,
-        cleanup: trace.cleanup(),
-        tone: trace.tone(),
-        inCleanup: trace.inCleanup(),
-        autoTrace: trace.autoTrace(),
-        handTrace: editor?.record() ?? EMPTY_HAND_TRACE,
-        method: trace.method(),
-        done: trace.accepted(),
-      };
-    const name = pageName === undefined ? {} : { name: pageName };
-    if (editor) return { source: "page", page: editor.page(), handTrace: editor.record(), ...name };
-    return svg && { source: "svg", svg };
-  };
-  /** Keep the work after a finished change; once that fails, say so, quietly and for good. */
-  const keep = () => {
-    if (!keeping) return;
-    void keeper.keep(record()).then(() => {
-      notKept.hidden = keeper.keepsWork();
-    });
-  };
+  const record = () => designRecordOf({ photo, svg, pageName, trace, handTrace: handTrace.editor() });
+  const keeping = keepDesign(keeper, $("d-not-kept"), record);
+  const keep = () => keeping.keep();
 
   /** The loaded photo's chosen tracing method: what the card does by it. */
   const chosenMethod = () => TRACING_METHODS[trace.method()];
@@ -328,7 +301,7 @@ export function mountDesignPanel(
   };
   $<HTMLButtonElement>("d-blank").addEventListener("click", () => {
     if (!mayReplaceHandTrace()) return;
-    keeping = true;
+    keeping.start();
     trace.clear();
     [svg, photo] = [null, null];
     showEditSvg();
@@ -410,7 +383,7 @@ export function mountDesignPanel(
       file.value = "";
       return;
     }
-    keeping = true;
+    keeping.start();
     dropHandTrace();
     [svg, photo] = [null, null];
     showEditSvg();
@@ -451,9 +424,7 @@ export function mountDesignPanel(
 
   /** Put the kept design back as it was left: the same source, settings, shapes and Done. */
   async function restoreDesign() {
-    const kept = await keeper.restore();
-    if (keeping) return; // The carver loaded a design while it was being read.
-    keeping = true;
+    const kept = await keeping.restore();
     if (!kept) return;
     if (kept.source === "svg") await openSvg(kept.svg.name, kept.svg.text);
     else if (kept.source === "photo") await openPhoto(kept);
@@ -464,10 +435,6 @@ export function mountDesignPanel(
     if (trace.loaded()) return chosenMethod().handTraceView;
     return pageEditor() ? "page" : null;
   }
-  // A phone may discard the tab once it's hidden: keep the work as it is then.
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") keep();
-  });
   file.addEventListener("change", () => void load());
   form.addEventListener("input", (e) => {
     if (e.target !== file && !traceEl.contains(e.target as Node)) onChange();
