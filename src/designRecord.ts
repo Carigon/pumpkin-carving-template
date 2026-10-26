@@ -54,8 +54,8 @@ export interface RecordKeeper {
   keepsWork(): boolean;
 }
 
-/** The record format's version: a record with any other restores nothing. */
-const VERSION = 1;
+/** The record format's version: a record with any other restores nothing (and a hand-trace file opens as plain shapes). */
+export const RECORD_VERSION = 1;
 /** The entry holding everything but the photo, and which photo it goes with. */
 const WORK = "work";
 /** The entry holding the photo, written once per photo since it's the big part. */
@@ -170,12 +170,12 @@ function newId(): string {
 
 /** `record` as stored: plain data with the format's version. */
 export function writeRecord(record: DesignRecord): Record<string, unknown> {
-  return { version: VERSION, ...record };
+  return { version: RECORD_VERSION, ...record };
 }
 
 /** The record in `raw`, each part checked on its own; null when there's nothing usable to restore. */
 export function readRecord(raw: unknown): DesignRecord | null {
-  if (!isRecord(raw) || raw.version !== VERSION) return null;
+  if (!isRecord(raw) || raw.version !== RECORD_VERSION) return null;
   if (raw.source === "svg") {
     const svg = isRecord(raw.svg) ? raw.svg : {};
     const readable = typeof svg.name === "string" && typeof svg.text === "string" && svg.text !== "";

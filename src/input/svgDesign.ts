@@ -7,7 +7,14 @@ export interface SvgReadResult {
   design: Design | null;
   /** Problems worth telling the user about (not fatal unless design is null). */
   notes: string[];
+  /** The text of the hand-trace record in the file's `<metadata>` (ADR 0005), or null when it carries none. */
+  record: string | null;
 }
+
+/** The namespace of the element in `<metadata>` that holds a hand-trace file's record. */
+export const RECORD_NAMESPACE = "https://github.com/Carigon/pumpkin-carving-template/hand-trace";
+/** That element's name. */
+export const RECORD_ELEMENT = "hand-trace";
 
 const SKIP = new Set(["defs", "clipPath", "mask", "symbol", "marker", "pattern", "metadata", "title", "desc", "style", "script"]);
 
@@ -19,14 +26,17 @@ interface RawPath {
 
 /**
  * Read an SVG file's shapes into the builder's design format: closed polylines, y flipped to point up,
- * plus their bounding box. Open shapes (lines, polylines, unclosed paths) are closed, with a note.
+ * plus their bounding box. Open shapes (lines, polylines, unclosed paths) are closed, with a note. A file carrying
+ * a hand-trace record, even a stale one, takes its box as the union of its `viewBox` and its shapes' box, so a
+ * mirrored design stays centred on its symmetry axis.
  */
 export function readSvgDesign(text: string): SvgReadResult {
   const doc = new DOMParser().parseFromString(text, "image/svg+xml");
   const root = doc.documentElement;
   if (doc.getElementsByTagName("parsererror").length > 0 || root.localName !== "svg") {
-    return { design: null, notes: ["This file isn't a valid SVG."] };
+    return { design: null, notes: ["This file isn't a valid SVG."], record: null };
   }
+  const record = doc.getElementsByTagNameNS(RECORD_NAMESPACE, RECORD_ELEMENT)[0]?.textContent ?? null;
 
   const raw: RawPath[] = [];
   let skippedUse = false;
@@ -44,7 +54,7 @@ export function readSvgDesign(text: string): SvgReadResult {
 
   const notes: string[] = [];
   if (skippedUse) notes.push("Reused symbols (<use>) were ignored.");
-  if (raw.length === 0) return { design: null, notes: [...notes, "No shapes found in this SVG."] };
+  if (raw.length === 0) return { design: null, notes: [...notes, "No shapes found in this SVG."], record };
 
   const extent = raw.map((r) => roughExtent(r.d, r.transform)).reduce(union);
   const tolerance = RELATIVE_TOLERANCE * Math.max(extent.maxX - extent.minX, extent.maxY - extent.minY, 1e-9);
@@ -57,9 +67,19 @@ export function readSvgDesign(text: string): SvgReadResult {
     for (const path of flat) paths.push(path.map(({ x, y }) => ({ x, y: -y })));
   }
   if (closedOpen) notes.push("Open lines were closed into shapes.");
-  if (paths.length === 0) return { design: null, notes: [...notes, "No shapes with an area found in this SVG."] };
+  if (paths.length === 0) return { design: null, notes: [...notes, "No shapes with an area found in this SVG."], record };
 
-  return { design: { paths, bbox: bboxOf(paths) }, notes };
+  const box = bboxOf(paths);
+  const viewBox = record === null ? null : viewBoxOf(root);
+  return { design: { paths, bbox: viewBox ? union(box, viewBox) : box }, notes, record };
+}
+
+/** The root's `viewBox` as a box in design units (y up), or null when it has none that's usable. */
+function viewBoxOf(root: Element): BBox | null {
+  const v = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  if (v.length !== 4 || !v.every(Number.isFinite) || !(v[2] > 0 && v[3] > 0)) return null;
+  const [x, y, w, h] = v;
+  return { minX: x, minY: -(y + h), maxX: x + w, maxY: -y };
 }
 
 function shapeToPath(el: Element): { d: string; open: boolean } | null {

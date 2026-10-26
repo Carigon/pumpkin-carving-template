@@ -570,6 +570,23 @@ body {
   line-height: 1.35;
 }
 
+/* A button that reads as a link inside a line of text, e.g. "Download SVG" in the "won't keep your work" hint
+   (specific enough to undo card buttons' padding). */
+.controls .card .link-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.controls .card .link-button[hidden] {
+  display: none;
+}
+
 /* "more": the full detail behind a short hint. The link follows the short text; open, it reads "less" and the
    detail follows on the lines below. */
 .more {
@@ -1638,6 +1655,23 @@ body {
 .ht-close-ring {
   fill: rgb(226 106 18 / 0.15);
   stroke: #e26a12;
+  stroke-width: 2;
+}
+
+/* Warning marks: display only, so never in the way of a tap. Fixed colors, as the page is white in both themes. */
+.ht-warn-tint,
+.ht-warn-ring {
+  pointer-events: none;
+}
+
+.ht-warn-tint {
+  fill: rgb(198 40 40 / 0.18);
+  fill-rule: evenodd;
+}
+
+.ht-warn-ring {
+  fill: none;
+  stroke: #c62828;
   stroke-width: 2;
 }
 
