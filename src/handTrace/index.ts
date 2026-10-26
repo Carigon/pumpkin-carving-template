@@ -12,10 +12,9 @@ export {
   type HandTrace,
   type HandTraceCleanup,
   type HandTraceOptions,
-  type Loupe,
-  placeLoupe,
   type ShapePaths,
 } from "./editor";
+export { placeLoupe, type Loupe } from "./loupe";
 export { createGestureRecognizer, HOLD_MS, type Gesture, type PointerInput } from "./gestures";
 export type { XY } from "./curves";
 export type { HandTraceRecord, Offset, Page, Point, Shape } from "./model";
