@@ -1567,11 +1567,26 @@ body {
   background: var(--desk);
 }
 
-/* Below the breakpoint the pane has no set height: give the canvas the viewport's 4:3 box. */
+/*
+ * Below the breakpoint the pane has no set height: give the canvas the viewport's 4:3 box. While hand-tracing
+ * (not Done) the canvas takes the whole screen instead, the view switcher still over it as the way out.
+ */
 @media not (min-width: 60rem) {
   .view-page {
     position: relative;
     aspect-ratio: 4 / 3;
+  }
+
+  .viewport:has(> .view-page:not([hidden]) .ht-svg:not(.ht-done)) {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+  }
+
+  .viewport:has(> .view-page:not([hidden]) .ht-svg:not(.ht-done)) > .view-page {
+    position: absolute;
+    inset: 0;
+    aspect-ratio: auto;
   }
 }
 
@@ -1584,6 +1599,8 @@ body {
   cursor: crosshair;
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .ht-svg.ht-done {
@@ -1673,6 +1690,43 @@ body {
   fill: none;
   stroke: #c62828;
   stroke-width: 2;
+}
+
+/*
+ * The loupe shows the drawing by reference (`<use>`), where page selectors can't reach: the custom property below
+ * inherits into it and fades the points and markers, which would otherwise hide the line under the crosshair.
+ */
+.ht-loupe {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ht-loupe use {
+  --ht-mark-opacity: 0.35;
+}
+
+.ht-point,
+.ht-marker,
+.ht-end,
+.ht-close-ring {
+  opacity: var(--ht-mark-opacity, 1);
+}
+
+.ht-loupe-back {
+  fill: var(--desk);
+}
+
+.ht-loupe-cross {
+  stroke: #e26a12;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ht-loupe-rim {
+  fill: none;
+  stroke: #2b2118;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 
 .ht-tools {

@@ -24,6 +24,10 @@ type Step =
   | { kind: "drag"; from: Point2; to: Point2; cancel: boolean }
   | { kind: "dragFrom"; target: Target; index: number; to: Point2; cancel: boolean }
   | { kind: "wheel"; at: Point2; deltaY: number }
+  | { kind: "hold"; from: Point2; to: Point2; cancel: boolean }
+  | { kind: "holdOn"; target: Target; index: number; to: Point2; cancel: boolean }
+  | { kind: "pinch"; from: Point2; at: Point2; scale: number }
+  | { kind: "multiTap"; fingers: 2 | 3 }
   | { kind: (typeof COMMANDS)[number] | "done" | "edit" };
 
 /** What a step aims at: a point, an insert marker, or a spot on a shape's outline (a quarter along its first edge). */
@@ -57,6 +61,30 @@ const step: fc.Arbitrary<Step> = fc.oneof(
     weight: 1,
     arbitrary: fc.record({ kind: fc.constant("wheel" as const), at: screen, deltaY: fc.integer({ min: -400, max: 400 }) }),
   },
+  {
+    weight: 2,
+    arbitrary: fc.record({ kind: fc.constant("hold" as const), from: screen, to: screen, cancel: fc.boolean() }),
+  },
+  {
+    weight: 2,
+    arbitrary: fc.record({
+      kind: fc.constant("holdOn" as const),
+      target,
+      index: fc.nat(),
+      to: screen,
+      cancel: fc.boolean(),
+    }),
+  },
+  {
+    weight: 1,
+    arbitrary: fc.record({
+      kind: fc.constant("pinch" as const),
+      from: screen,
+      at: screen,
+      scale: fc.constantFrom(0.5, 0.8, 1.25, 2),
+    }),
+  },
+  { weight: 1, arbitrary: fc.record({ kind: fc.constant("multiTap" as const), fingers: fc.constantFrom(2 as const, 3 as const) }) },
   { weight: 4, arbitrary: fc.record({ kind: fc.constantFrom(...COMMANDS) }) },
   { weight: 1, arbitrary: fc.record({ kind: fc.constantFrom("done", "edit" as const) }) },
 );
@@ -83,6 +111,14 @@ function dragOf(editor: HandTrace, from: Point2, to: Point2, cancel: boolean): v
   editor.gesture({ type: "drag", phase: cancel ? "cancel" : "end", from, at: to, pointerType: touch });
 }
 
+/** A touch hold at `from`, aimed to `to`, then lifted or cancelled (as a second finger landing does). */
+function holdOf(editor: HandTrace, from: Point2, to: Point2, cancel: boolean): void {
+  const touch = "touch" as const;
+  editor.gesture({ type: "hold", phase: "start", from, at: from, pointerType: touch });
+  editor.gesture({ type: "hold", phase: "move", from, at: to, pointerType: touch });
+  editor.gesture({ type: "hold", phase: cancel ? "cancel" : "end", from, at: to, pointerType: touch });
+}
+
 function run(editor: HandTrace, s: Step): void {
   const touch = "touch" as const;
   switch (s.kind) {
@@ -102,6 +138,17 @@ function run(editor: HandTrace, s: Step): void {
     }
     case "wheel":
       return editor.gesture({ type: "wheel", at: s.at, deltaY: s.deltaY });
+    case "hold":
+      return holdOf(editor, s.from, s.to, s.cancel);
+    case "holdOn": {
+      const from = spot(editor, s.target, s.index);
+      if (from) holdOf(editor, from, s.to, s.cancel);
+      return;
+    }
+    case "pinch":
+      return editor.gesture({ type: "pinch", from: s.from, at: s.at, scale: s.scale, pointerType: touch });
+    case "multiTap":
+      return editor.gesture({ type: "multiTap", fingers: s.fingers, pointerType: touch });
     default:
       return editor[s.kind]();
   }
@@ -118,6 +165,8 @@ function check(editor: HandTrace): void {
   expect(selected).toBeLessThanOrEqual(1);
   expect(drawn.shapes.filter((s) => s.selected).length).toBeLessThanOrEqual(1);
   expect(drawn.pill.kind === "point").toBe(selected === 1);
+  // Every step's gesture has lifted: nothing is aiming.
+  expect(drawn.loupe).toBeNull();
   if (drawn.pill.kind === "drawing") expect(drawn.markers).toEqual([]);
   const shapes = editor.shapes();
   expect(shapes.every((s) => s.points.length > 0 && (!s.closed || s.points.length >= 3))).toBe(true);

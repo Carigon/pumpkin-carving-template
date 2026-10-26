@@ -24,9 +24,23 @@ export function fitView(page: Page, width: number, height: number): ViewTransfor
 
 /** `view` zoomed by a wheel turn of `deltaY` about the screen point `at`, which stays put. */
 export function wheelZoom(view: ViewTransform, fit: number, at: ScreenPoint, deltaY: number): ViewTransform {
-  const scale = Math.min(fit * MAX_ZOOM, Math.max(fit * MIN_ZOOM, view.scale * Math.exp(-deltaY * WHEEL_RATE)));
+  return pinchZoom(view, fit, at, at, Math.exp(-deltaY * WHEEL_RATE));
+}
+
+/**
+ * `view` zoomed `factor` times (within the zoom limits, `fit` being the fitted scale) and panned so what was drawn at
+ * screen point `from` is drawn at `at`.
+ */
+export function pinchZoom(
+  view: ViewTransform,
+  fit: number,
+  from: ScreenPoint,
+  at: ScreenPoint,
+  factor: number,
+): ViewTransform {
+  const scale = Math.min(fit * MAX_ZOOM, Math.max(fit * MIN_ZOOM, view.scale * factor));
   const k = scale / view.scale;
-  return { scale, tx: at.x - (at.x - view.tx) * k, ty: at.y - (at.y - view.ty) * k };
+  return { scale, tx: at.x - (from.x - view.tx) * k, ty: at.y - (from.y - view.ty) * k };
 }
 
 /** The fitted scale, for the zoom limits. */
