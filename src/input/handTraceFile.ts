@@ -1,0 +1,139 @@
+/**
+ * The hand-trace file (ADR 0005): an ordinary SVG of a hand-trace's closed shapes that carries the hand-trace's
+ * record, so it reopens here as an editable hand-trace while other programs see carved size and one shape with
+ * holes. Reading needs the DOM (`readSvgDesign`); writing is plain text.
+ */
+import { distanceToSegment, type BBox, type Design, type Point2 } from "../core";
+import { readRecord, RECORD_VERSION, writeRecord, type DesignRecord } from "../designRecord";
+import { flattenPathData, roughExtent } from "./flattenPath";
+import { RELATIVE_TOLERANCE } from "./pathDesign";
+import { readSvgDesign, RECORD_ELEMENT, RECORD_NAMESPACE } from "./svgDesign";
+
+/** The record a hand-trace file carries: a blank page's for now (a photo's comes with hand-tracing a photo). */
+type FileRecord = Extract<DesignRecord, { source: "page" }>;
+
+/** What a hand-trace file is written from. */
+export interface HandTraceFileContent {
+  record: FileRecord;
+  /** The closed shapes as SVG path data (y down), as the editor makes the `Design` from it. */
+  pathData: string;
+  /** The hand-trace's `Design` (its box, widened about the symmetry axis, is the file's `viewBox`); null with none. */
+  design: Design | null;
+  /** The placed front-view Width in mm: the file's carved size. */
+  width: number;
+}
+
+/** What loading an SVG file gives: a hand-trace to reopen, or an SVG design with notes saying why it isn't one. */
+export type OpenedSvg =
+  | { kind: "hand-trace"; record: FileRecord }
+  | { kind: "svg"; design: Design | null; notes: string[] };
+
+/** The note for a hand-trace file whose drawing no longer matches its record. */
+const CHANGED = "This file was changed in another program, so it opens as plain shapes, not as an editable hand-trace.";
+/** The note for a hand-trace file from a version of the record this one can't read. */
+const UNKNOWN_VERSION =
+  "This file's hand-trace was saved by another version of this app, so it opens as plain shapes, not as an editable hand-trace.";
+/** The note for a hand-trace file whose record fails validation. */
+const INVALID = "This file's hand-trace can't be read, so it opens as plain shapes, not as an editable hand-trace.";
+
+/**
+ * The hand-trace file for `content`: one compound `<path>` of the closed shapes, filled even-odd, and the record
+ * (with a fingerprint of that drawing, and no placement) in a namespaced `<metadata>` element.
+ */
+export function writeHandTraceFile({ record, pathData, design, width }: HandTraceFileContent): string {
+  const { page } = record;
+  const box: BBox = design?.bbox ?? { minX: 0, minY: 0, maxX: page.width, maxY: page.height };
+  const [w, h] = [box.maxX - box.minX, box.maxY - box.minY];
+  const json = JSON.stringify({ ...writeRecord(record), fingerprint: pathData });
+  const path = pathData ? `\n  <path d="${pathData}" fill="black" fill-rule="evenodd"/>` : "";
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${num(width)}mm" height="${num((width * h) / w)}mm" ` +
+    `viewBox="${[box.minX, -box.maxY, w, h].map(designUnits).join(" ")}">\n` +
+    `  <metadata><${RECORD_ELEMENT} xmlns="${RECORD_NAMESPACE}">${escapeXml(json)}</${RECORD_ELEMENT}></metadata>` +
+    `${path}\n</svg>\n`
+  );
+}
+
+/** A blank page's hand-trace file name, for the local day `date` falls on: `hand-trace-<YYYY-MM-DD>.svg`. */
+export function handTraceFileName(date: Date): string {
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `hand-trace-${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}.svg`;
+}
+
+/**
+ * Read an SVG file: a hand-trace file whose drawing still matches its record's fingerprint, as geometry within the
+ * loader's tolerance, reopens as a hand-trace; anything else is an SVG design, with a note when it carries a record
+ * that's stale, from an unknown version or invalid.
+ */
+export function readHandTraceFile(text: string): OpenedSvg {
+  const svg = readSvgDesign(text);
+  const plain = (note?: string): OpenedSvg => ({ kind: "svg", design: svg.design, notes: note ? [...svg.notes, note] : svg.notes });
+  if (svg.record === null) return plain();
+  const raw = parseJson(svg.record);
+  if (!isObject(raw)) return plain(INVALID);
+  if (raw.version !== RECORD_VERSION) return plain(UNKNOWN_VERSION);
+  const record = readRecord(raw);
+  if (record?.source !== "page" || typeof raw.fingerprint !== "string" || emptied(raw, record)) return plain(INVALID);
+  return draws(svg.design, raw.fingerprint) ? { kind: "hand-trace", record } : plain(CHANGED);
+}
+
+/** The validator emptied the hand-trace (it restores an invalid one empty): the file's record is invalid. */
+function emptied(raw: Record<string, unknown>, record: FileRecord): boolean {
+  const shapes = isObject(raw.handTrace) ? raw.handTrace.shapes : undefined;
+  return !Array.isArray(shapes) || shapes.length !== record.handTrace.shapes.length;
+}
+
+/** `design` (as the loader read the file) is the geometry `fingerprint` draws, within the loader's tolerance. */
+function draws(design: Design | null, fingerprint: string): boolean {
+  if (!fingerprint.trim()) return design === null;
+  const extent = roughExtent(fingerprint, "");
+  const tolerance = RELATIVE_TOLERANCE * Math.max(extent.maxX - extent.minX, extent.maxY - extent.minY, 1e-9);
+  const expected = flattenPathData(fingerprint, "", tolerance).map((p) => p.map(({ x, y }) => ({ x, y: -y })));
+  const actual = [...(design?.paths ?? [])];
+  if (actual.length !== expected.length) return false;
+  return expected.every((want) => {
+    const i = actual.findIndex((got) => near(got, want, tolerance) && near(want, got, tolerance));
+    return i >= 0 && actual.splice(i, 1).length === 1;
+  });
+}
+
+/** Every vertex of closed polyline `a` lies within `tolerance` of closed polyline `b`. */
+function near(a: readonly Point2[], b: readonly Point2[], tolerance: number): boolean {
+  const [boxA, boxB] = [boxOf(a), boxOf(b)];
+  if (boxA.some((v, i) => Math.abs(v - boxB[i]) > tolerance)) return false;
+  return a.every((p) => b.some((q, i) => distanceToSegment(p, q, b[(i + 1) % b.length]) <= tolerance));
+}
+
+/** A polyline's box as [minX, minY, maxX, maxY]. */
+function boxOf(path: readonly Point2[]): number[] {
+  const [xs, ys] = [path.map((p) => p.x), path.map((p) => p.y)];
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function isObject(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+/** Text safe inside an XML element. */
+function escapeXml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** A `viewBox` number in design units: rounding noise dropped, far finer than the path data's 6 digits. */
+function designUnits(v: number): string {
+  return String(Number(v.toPrecision(12)));
+}
+
+/** A length in mm for an attribute: a few decimals, no trailing zeros. */
+function num(v: number): string {
+  return String(Number(v.toFixed(3)));
+}

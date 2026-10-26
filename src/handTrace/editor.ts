@@ -125,6 +125,11 @@ export interface HandTrace {
   drawn(): Drawn;
   /** The closed shapes as the core's `Design`; null with none that encloses an area. A new object only on change. */
   design(): Design | null;
+  /**
+   * The closed shapes as SVG path data (y down; empty with none closed): what the `Design` is made from, and what a
+   * hand-trace file draws.
+   */
+  pathData(): string;
   /** The shapes, in the order drawn, as the stored record holds them. */
   shapes(): readonly Shape[];
   /** What the stored record keeps of the hand-trace. A new object only on a finished change or Done/Edit. */
@@ -201,11 +206,15 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
   /** The warnings last shown, and the Design they were for: once that changes, they're out of date. */
   let warnings: { design: Design | null; warnings: readonly TemplateWarning[] } | null = null;
 
+  // SVG space is y down: flip on the way out, as the loader flips back.
+  const closedPathData = () =>
+    pathData(
+      state.shapes.filter((s) => s.closed),
+      ({ x, y }) => ({ x, y: -y }),
+    );
   const design = (): Design | null => {
     if (designOf?.shapes !== state.shapes) {
-      const closed = state.shapes.filter((s) => s.closed);
-      // SVG space is y down: flip on the way out, as the loader flips back.
-      const d = pathData(closed, ({ x, y }) => ({ x, y: -y }));
+      const d = closedPathData();
       designOf = { shapes: state.shapes, design: d ? options.toDesign(d) : null };
     }
     return designOf.design;
@@ -559,6 +568,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     isDone: () => finished,
     drawn,
     design,
+    pathData: closedPathData,
     shapes: () => state.shapes,
     record() {
       if (recordOf?.state !== state || recordOf.finished !== finished) {

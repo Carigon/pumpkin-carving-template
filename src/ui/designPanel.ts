@@ -1,6 +1,7 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
 import type { DesignRecord, PhotoFile, RecordKeeper } from "../designRecord";
-import { readSvgDesign } from "../input/svgDesign";
+import { handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
+import { downloadBlob } from "./download";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
 import { lengthFields } from "./lengthFields";
 import { mountTracePanel } from "./tracePanel";
@@ -63,8 +64,10 @@ export function mountDesignPanel(
       <div id="d-hand-trace" class="trace-accept-row" hidden>
         <button type="button" class="trace-accept">Done</button>
         <div class="hint trace-accepted-note" hidden>Hand-trace done. Pick Page above the preview to see it again.</div>
+        <button type="button" data-download-svg>Download SVG</button>
       </div>
-      <div class="hint" id="d-not-kept" hidden>This browser won't keep your work after a reload.</div>
+      <div class="hint" id="d-not-kept" hidden>This browser won't keep your work after a reload.
+        <button type="button" class="link-button" data-download-svg>Download SVG</button></div>
       </section>
       <section class="card">
       <h2>Placement</h2>
@@ -164,17 +167,41 @@ export function mountDesignPanel(
       design = handTrace.editor()?.design() ?? null;
       onChange();
     },
-    keep,
+    () => {
+      showHandTrace(); // a point placed or deleted: Download SVG may have changed
+      keep();
+    },
   );
   const handTraceEl = $<HTMLElement>("d-hand-trace");
   const handTraceAccept = handTraceEl.querySelector<HTMLButtonElement>(".trace-accept")!;
   const handTraceNote = handTraceEl.querySelector<HTMLElement>(".trace-accepted-note")!;
+  /** Download SVG, below Done/Edit and in the "won't keep your work" line. */
+  const downloads = Array.from(form.querySelectorAll<HTMLButtonElement>("[data-download-svg]"));
   const handTraceDone = () => handTrace.editor()?.isDone() ?? false;
   const showHandTrace = () => {
-    handTraceEl.hidden = handTrace.editor() === null;
+    const editor = handTrace.editor();
+    handTraceEl.hidden = editor === null;
     handTraceAccept.textContent = handTraceDone() ? "Edit" : "Done";
     handTraceNote.hidden = !handTraceDone();
+    for (const b of downloads) {
+      b.hidden = editor === null;
+      b.disabled = (editor?.counts().points ?? 0) === 0;
+    }
   };
+  /** Download the hand-trace as a hand-trace file, at the placed Width (the default while the field is empty). */
+  const downloadSvg = () => {
+    const editor = handTrace.editor();
+    if (!editor) return;
+    const placed = lengths.value(width);
+    const text = writeHandTraceFile({
+      record: { source: "page", page: editor.page(), handTrace: editor.record() },
+      pathData: editor.pathData(),
+      design: editor.design(),
+      width: placed > 0 ? placed : DEFAULTS_MM.width,
+    });
+    downloadBlob(new Blob([text], { type: "image/svg+xml" }), handTraceFileName(new Date()));
+  };
+  for (const b of downloads) b.addEventListener("click", downloadSvg);
   handTraceAccept.addEventListener("click", () => {
     handTrace.setDone(!handTraceDone());
     showHandTrace();
@@ -201,13 +228,23 @@ export function mountDesignPanel(
     keep();
   });
 
-  /** Show an SVG design read from its file; kept as that file while it reads as one. */
-  const showSvg = (name: string, text: string) => {
-    const { design: read, notes } = readSvgDesign(text);
+  /**
+   * Open an SVG file: a hand-trace file reopens as its hand-trace, restored as after a reload; any other is an SVG
+   * design, kept as that file while it reads as one.
+   */
+  const openSvg = (name: string, text: string) => {
+    const opened = readHandTraceFile(text);
+    if (opened.kind === "hand-trace") {
+      handTrace.startBlankPage(opened.record);
+      design = handTrace.editor()?.design() ?? null;
+      showHandTrace();
+      return showStatus("Reopened your hand-trace.", false);
+    }
+    const read = opened.design;
     design = read;
     svg = read && { name, text };
     const count = read ? `${read.paths.length} shape${read.paths.length === 1 ? "" : "s"} loaded.` : "";
-    showStatus([count, ...notes].filter(Boolean).join(" "), read === null);
+    showStatus([count, ...opened.notes].filter(Boolean).join(" "), read === null);
   };
 
   async function load() {
@@ -230,7 +267,7 @@ export function mountDesignPanel(
       return;
     }
     trace.clear();
-    showSvg(f.name, await f.text());
+    openSvg(f.name, await f.text());
     onChange();
     keep();
   }
@@ -241,7 +278,7 @@ export function mountDesignPanel(
     if (keeping) return; // The carver loaded a design while it was being read.
     keeping = true;
     if (!kept) return;
-    if (kept.source === "svg") showSvg(kept.svg.name, kept.svg.text);
+    if (kept.source === "svg") openSvg(kept.svg.name, kept.svg.text);
     else if (kept.source === "photo") {
       photo = kept.photo;
       const restored = new File([kept.photo.bytes], kept.photo.name, { type: kept.photo.type });
