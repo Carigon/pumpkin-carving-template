@@ -23,11 +23,13 @@ which turns pointer events into taps, double-taps, drags (saying when Alt was he
 `test/gesture-recognizer.test.ts`), the record module, which keeps the loaded design and its work across reloads
 (`createRecordKeeper`, `readRecord` and `writeRecord` in `src/designRecord.ts`, against an in-memory store:
 `test/design-record.test.ts`), the hand-trace file's writer and reader with the SVG loader under it, which
-reopen a downloaded hand-trace or load a changed one as an SVG design (`writeHandTraceFile`, `readHandTraceFile` and
+reopen a downloaded hand-trace or load a changed one as an SVG design, and put a changed one's shapes back over its
+stale record's photo for Edit as hand-trace (`writeHandTraceFile`, `readHandTraceFile`, `editOnStalePhoto` and
 `handTraceFileName` in `src/input/handTraceFile.ts`, and `readSvgDesign` in `src/input/svgDesign.ts`, in jsdom:
 `test/hand-trace-file.test.ts`), the curve-keeping SVG reader behind Edit as hand-trace, which turns an SVG design
-into a hand-trace's shapes on a page shaped to it (`readSvgHandTrace` in `src/input/svgHandTrace.ts`, in jsdom,
-through the editor: `test/svg-hand-trace.test.ts`), and the cleanup frame, which squares up the part of a photo inside four dragged
+into a hand-trace's shapes on a page shaped to it, and the auto-trace result into shapes on its photo
+(`readSvgHandTrace` and `autoTraceShapes` in `src/input/svgHandTrace.ts`, in jsdom, through the editor:
+`test/svg-hand-trace.test.ts`), and the cleanup frame, which squares up the part of a photo inside four dragged
 corners (`cleanUp`, `moveCorner`, `turnFrame`, `rotateFrame`, `cornerAt`, `warpPhoto` and `exifFocal35Mm` in
 `src/input/cleanupFrame.ts`: `test/cleanup-frame.test.ts`). They are cheap, fast, and have caught real mistakes (page tiling,
 corrupt saved settings, unit drift).

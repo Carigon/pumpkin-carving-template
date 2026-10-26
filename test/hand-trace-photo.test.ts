@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Point2 } from "../src/core";
-import { createHandTrace, type HandTrace } from "../src/handTrace";
+import { createHandTrace, type HandTrace, type Point, type Shape } from "../src/handTrace";
 import { designFromPathData } from "../src/input/pathDesign";
 import { expectSameOutlines } from "./outlines";
 
@@ -95,3 +95,63 @@ describe("hand-trace editor: over a non-square photo", () => {
     expect(axis).not.toBeNull();
   });
 });
+
+describe("hand-trace editor: Edit as hand-trace copies shapes in", () => {
+  /** Auto-trace's result as shapes: a square with a square hole in it. */
+  const copied: Shape[] = [
+    { id: 1, closed: true, mirror: "none", points: square(0.2, 0.1, 0.6) },
+    { id: 2, closed: true, mirror: "none", points: square(0.3, 0.2, 0.2) },
+  ];
+  const outlines = copied.map((s) => s.points.map(({ x, y }) => ({ x, y })));
+
+  /** A hand-trace with a closed triangle and a shape being drawn. */
+  const traced = () => {
+    const editor = overPhoto();
+    const taps = [
+      { x: 0.1, y: 0.1 },
+      { x: 0.9, y: 0.1 },
+      { x: 0.5, y: 0.7 },
+      { x: 0.1, y: 0.1 },
+      { x: 0.8, y: 0.6 },
+    ];
+    for (const p of taps) tap(editor, screenOf(editor, p));
+    return editor;
+  };
+
+  it("puts the copied shapes in place of every shape, with nothing being drawn", () => {
+    const editor = traced();
+    editor.replace(copied);
+    expectSameOutlines(editor.design()!.paths, outlines, TOL);
+    expect(editor.shapes().map(({ id: _, ...s }) => s)).toEqual(copied.map(({ id: _, ...s }) => s));
+    expect(editor.drawn().pill.kind).toBe("hint");
+    expect(editor.record().drawing).toBeNull();
+  });
+
+  it("is one undo step: undo puts the hand-trace back as it was, redo the copy", () => {
+    const editor = traced();
+    const before = editor.record();
+    editor.replace(copied);
+    editor.undo();
+    expect(editor.record()).toEqual(before);
+    editor.redo();
+    expectSameOutlines(editor.design()!.paths, outlines, TOL);
+  });
+
+  it("gives the copied shapes ids no shape had before, so an undo never mistakes one for another", () => {
+    const editor = traced();
+    const old = editor.shapes().map((s) => s.id);
+    editor.replace(copied);
+    const ids = editor.shapes().map((s) => s.id);
+    expect(new Set([...old, ...ids]).size).toBe(old.length + ids.length);
+  });
+});
+
+/** A square's corners, counterclockwise from (`x`, `y`), `side` across. */
+function square(x: number, y: number, side: number): Point[] {
+  return [
+    { x, y, kind: "corner" },
+    { x: x + side, y, kind: "corner" },
+    { x: x + side, y: y + side, kind: "corner" },
+    { x, y: y + side, kind: "corner" },
+  ];
+}

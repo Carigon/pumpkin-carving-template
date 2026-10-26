@@ -5,7 +5,7 @@ import type { Design, Point2 } from "../src/core";
 import { createHandTrace, type HandTrace } from "../src/handTrace";
 import { designFromPathData } from "../src/input/pathDesign";
 import { readSvgDesign } from "../src/input/svgDesign";
-import { readSvgHandTrace } from "../src/input/svgHandTrace";
+import { autoTraceShapes, readSvgHandTrace } from "../src/input/svgHandTrace";
 import { expectSameOutlines, outlinesOf } from "./outlines";
 
 /** An SVG file drawing `body`. */
@@ -126,6 +126,51 @@ describe("Edit as hand-trace on an SVG design", () => {
   it("finds nothing to edit in an SVG with no shape that has an area", () => {
     expect(readSvgHandTrace(svgOf('<line x1="0" y1="0" x2="10" y2="10"/>'))).toBeNull();
     expect(readSvgHandTrace("not svg")).toBeNull();
+  });
+});
+
+/**
+ * Auto-trace's result over a cleaned-up photo 400 × 300 px, written as Potrace writes it: y up, at ten times the
+ * pixel size, under one transform that puts it back.
+ */
+const potraceOf = (d: string) =>
+  `<svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="400.000000pt" height="300.000000pt" ` +
+  `viewBox="0 0 400.000000 300.000000"><g transform="translate(0.000000,300.000000) scale(0.100000,-0.100000)" ` +
+  `fill="#000000" stroke="none"><path d="${d}"/></g></svg>`;
+/** That photo as design space has it: one unit across, three quarters of one up. */
+const PHOTO = { width: 400, height: 300 };
+
+describe("Edit as hand-trace on the auto-trace result", () => {
+  /** The copied shapes over the photo, on a 400 × 400 px canvas. */
+  const copied = (svg: string) => {
+    const editor = createHandTrace({ toDesign: designFromPathData, page: { width: 1, height: 0.75 }, photo: true });
+    editor.resize(400, 400);
+    editor.replace(autoTraceShapes(svg, PHOTO));
+    return editor;
+  };
+
+  it("lands each shape where it is on the photo: nothing moves", () => {
+    // Pixels 100–300 across and 75–225 down (y down): in design space 0.25–0.75 across and 0.1875–0.5625 up.
+    const editor = copied(potraceOf("M1000 2250 L3000 2250 L3000 750 L1000 750 Z"));
+    const square = [
+      { x: 0.25, y: 0.5625 },
+      { x: 0.75, y: 0.5625 },
+      { x: 0.75, y: 0.1875 },
+      { x: 0.25, y: 0.1875 },
+    ];
+    expectSameOutlines(editor.design()!.paths, [square], TOL);
+  });
+
+  it("keeps Potrace's curves and holes, its Design the result's own", () => {
+    const svg = potraceOf("M2000 2800 c600 0 1000 -400 1000 -1000 c0 -600 -400 -1000 -1000 -1000 c-600 0 -1000 400 -1000 1000 c0 600 400 1000 1000 1000z m0 -600 l-300 -400 300 -400 300 400z");
+    const editor = copied(svg);
+    // The loader reads the result in pixels, y up from the top edge: a pixel (u, -v) is (u / 400, (300 - v) / 400).
+    const result = readSvgDesign(svg).design!.paths.map((p) => p.map(({ x, y }) => ({ x: x / 400, y: (300 + y) / 400 })));
+    expectSameOutlines(editor.design()!.paths, result, TOL);
+    expect(editor.shapes().map((s) => [s.closed, s.mirror, s.points.length])).toEqual([
+      [true, "none", 4],
+      [true, "none", 4],
+    ]);
   });
 });
 

@@ -5,6 +5,7 @@
  */
 import svgpath from "svgpath";
 import type { HandTraceRecord, Offset, Page, Point, Shape } from "../handTrace";
+import type { PhotoSize } from "./cleanupFrame";
 import { RELATIVE_TOLERANCE } from "./pathDesign";
 import { readSvgDesign, svgPaths, svgRoot, type SvgPath } from "./svgDesign";
 
@@ -22,7 +23,7 @@ export interface SvgHandTrace {
 }
 
 /** A position in some 2D space. */
-interface XY {
+export interface XY {
   x: number;
   y: number;
 }
@@ -45,17 +46,38 @@ interface Segment {
  * no shape with an area.
  */
 export function readSvgHandTrace(text: string): SvgHandTrace | null {
-  const { design } = readSvgDesign(text);
-  const root = svgRoot(text);
-  if (!design || !root) return null;
-  const box = design.bbox;
+  const box = readSvgDesign(text).design?.bbox;
+  if (!box) return null;
   const [w, h] = [box.maxX - box.minX, box.maxY - box.minY];
   const margin = PAGE_MARGIN * Math.max(w, h);
   const across = w + 2 * margin;
   // SVG space is y down: flipped as the loader flips it, then moved in by the margin and scaled to one unit across.
   const toPage = ({ x, y }: XY): XY => ({ x: (x - box.minX + margin) / across, y: (-y - box.minY + margin) / across });
-  const same = (SAME_PLACE * RELATIVE_TOLERANCE * Math.max(w, h)) / across;
+  const shapes = svgShapes(text, toPage);
+  return { page: { width: 1, height: (h + 2 * margin) / across }, handTrace: { shapes, drawing: null, done: false } };
+}
 
+/**
+ * Edit as hand-trace on the auto-trace result: Potrace's SVG of a cleaned-up photo `photo` px in size, as shapes in
+ * that photo's design space (ADR 0003), so nothing moves. Shapes as `readSvgHandTrace` makes them.
+ */
+export function autoTraceShapes(svg: string, photo: PhotoSize): Shape[] {
+  // A pixel (u, v) from the photo's top-left is (u / W, (H − v) / W).
+  return svgShapes(svg, ({ x, y }) => ({ x: x / photo.width, y: (photo.height - y) / photo.width }));
+}
+
+/**
+ * The shapes the SVG in `text` draws, as `readSvgHandTrace` makes them, taken from SVG user space onto a page by
+ * `toPage`: a map that only moves, turns and scales evenly, so curves map exactly. None when the loader finds none.
+ */
+export function svgShapes(text: string, toPage: (p: XY) => XY): Shape[] {
+  const box = readSvgDesign(text).design?.bbox;
+  const root = svgRoot(text);
+  if (!box || !root) return [];
+  const o = toPage({ x: 0, y: 0 });
+  const unit = toPage({ x: 1, y: 0 });
+  const scale = Math.hypot(unit.x - o.x, unit.y - o.y);
+  const same = SAME_PLACE * RELATIVE_TOLERANCE * Math.max(box.maxX - box.minX, box.maxY - box.minY) * scale;
   const shapes: Shape[] = [];
   for (const path of svgPaths(root).paths) {
     for (const loop of loopsOf(path)) {
@@ -63,7 +85,7 @@ export function readSvgHandTrace(text: string): SvgHandTrace | null {
       if (points.length > 0) shapes.push({ id: shapes.length + 1, closed: true, mirror: "none", points });
     }
   }
-  return { page: { width: 1, height: (h + 2 * margin) / across }, handTrace: { shapes, drawing: null, done: false } };
+  return shapes;
 }
 
 /** Each subpath of `path`'s data, transforms applied, as segments in SVG space. */
