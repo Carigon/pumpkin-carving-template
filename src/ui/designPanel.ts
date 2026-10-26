@@ -330,6 +330,8 @@ export function mountDesignPanel(
     showWarnings(next: TemplateWarning[]) {
       warnings = next;
       showWarnings();
+      // Only a hand-trace is marked: never an auto-trace result or an SVG design.
+      handTrace.showWarnings(next);
     },
   };
 }

@@ -1,7 +1,7 @@
-import { distanceToSegment, insidePolygon, signedArea, type Design } from "../core";
+import { distanceToSegment, insidePolygon, signedArea, type BBox, type Design, type TemplateWarning } from "../core";
 import type { DragGesture, Gesture, ScreenPoint } from "./gestures";
 import type { HandTraceRecord, Page, Point, Shape } from "./model";
-import { pathData } from "./pathData";
+import { loopsPathData, pathData } from "./pathData";
 import { fitScale, fitView, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
 
 /** What the editor needs from outside. */
@@ -58,6 +58,20 @@ export type Pill =
   | { kind: "shape" }
   | { kind: "hint"; text: string };
 
+/**
+ * The shape warnings marked where they are, so the carver can find and fix them. Display only: never hit. They're
+ * placed from the positions the core's warnings carry for the Design, so whatever the Design holds is marked:
+ * reflections too, once mirrored shapes reach it through the path data.
+ */
+export interface WarningMarks {
+  /** Each crossing, for a small ring round it. */
+  crossings: ScreenPoint[];
+  /** Each floating piece as path data, its loops filled even-odd, for a faint tint over it. */
+  floating: string[];
+  /** Each tiny carve area as the circle through its box's corners (radius `r` px), for a ring round it. */
+  tiny: { at: ScreenPoint; r: number }[];
+}
+
 /** Everything the canvas shows, in screen coordinates. */
 export interface Drawn {
   /** The blank page, faintly gridded. */
@@ -77,6 +91,8 @@ export interface Drawn {
   can: { undo: boolean; redo: boolean; clear: boolean };
   /** The tools (buttons, pill, note) show and the canvas takes input: false once Done. */
   tools: boolean;
+  /** The shape warnings last shown for the Design. */
+  warnings: WarningMarks;
 }
 
 /** The hand-trace editor: commands and gestures in; what's drawn, the `Design` and the shapes out. */
@@ -122,6 +138,8 @@ export interface HandTrace {
   page(): Page;
   /** How many points there are in all, and how many shapes are open. */
   counts(): { points: number; open: number };
+  /** The core's warnings for the Design: its shape warnings are marked where they are. */
+  showWarnings(warnings: readonly TemplateWarning[]): void;
 }
 
 /** Screen radius (px) within which a tap hits a point or an outline, whatever the zoom. */
@@ -185,6 +203,8 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
   let drag: Drag | null = null;
   /** The shapes `design` was last worked out from, and the result. */
   let designOf: { shapes: readonly Shape[]; design: Design | null } | null = null;
+  /** The warnings last shown, and the Design they were for: once that changes, they're out of date. */
+  let warnings: { design: Design | null; warnings: readonly TemplateWarning[] } | null = null;
 
   // SVG space is y down: flip on the way out, as the loader flips back.
   const closedPathData = () =>
@@ -192,6 +212,14 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       state.shapes.filter((s) => s.closed),
       ({ x, y }) => ({ x, y: -y }),
     );
+  const design = (): Design | null => {
+    if (designOf?.shapes !== state.shapes) {
+      const d = closedPathData();
+      designOf = { shapes: state.shapes, design: d ? options.toDesign(d) : null };
+    }
+    return designOf.design;
+  };
+
   const drawingShape = () => state.shapes.find((s) => s.id === state.drawing) ?? null;
 
   /** Make a change to the shapes, as one undo step. A move under way is dropped: it was built on the old shapes. */
@@ -443,6 +471,13 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
 
   const drawn = (): Drawn => {
     const screen = (p: { x: number; y: number }) => toScreen(view, p);
+    /** The circle through a box's corners, on screen. */
+    const ring = (box: BBox) => ({
+      at: screen({ x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 }),
+      r: (Math.hypot(box.maxX - box.minX, box.maxY - box.minY) / 2) * view.scale,
+    });
+    // Marked only for the Design they were found in; a move under way keeps them where they were.
+    const current = warnings?.design === design() ? warnings.warnings : [];
     const corner = screen({ x: 0, y: page.height });
     // A move under way shows as it would end.
     const shapes = (drag?.kind === "move" && drag.live) || state.shapes;
@@ -475,6 +510,13 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       note: open === 0 ? null : `${open} ${open === 1 ? "shape isn't" : "shapes aren't"} closed and won't be carved`,
       can: { undo: undoStack.length > 0, redo: redoStack.length > 0, clear: state.shapes.length > 0 },
       tools: !finished,
+      warnings: {
+        crossings: current.flatMap((w) => (w.kind === "crossing" ? w.at.map(screen) : [])),
+        floating: current.flatMap((w) =>
+          w.kind === "floating-piece" ? w.pieces.map((piece) => loopsPathData(piece.outline, screen)) : [],
+        ),
+        tiny: current.flatMap((w) => (w.kind === "tiny-carve-area" ? w.areas.map(({ bbox }) => ring(bbox)) : [])),
+      },
     };
   };
 
@@ -525,13 +567,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     },
     isDone: () => finished,
     drawn,
-    design() {
-      if (designOf?.shapes !== state.shapes) {
-        const d = closedPathData();
-        designOf = { shapes: state.shapes, design: d ? options.toDesign(d) : null };
-      }
-      return designOf.design;
-    },
+    design,
     pathData: closedPathData,
     shapes: () => state.shapes,
     record() {
@@ -545,6 +581,9 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       points: state.shapes.reduce((n, s) => n + s.points.length, 0),
       open: state.shapes.filter((s) => !s.closed).length,
     }),
+    showWarnings(next) {
+      warnings = { design: design(), warnings: next };
+    },
   };
 }
 
