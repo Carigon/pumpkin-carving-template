@@ -10,6 +10,7 @@ import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
 import { lengthFields } from "./lengthFields";
 import { mountTracePanel } from "./tracePanel";
+import { TRACING_METHODS } from "./tracingMethods";
 import { designWarningText, renderWarnings } from "./warnings";
 
 /** In mm; centered. */
@@ -142,7 +143,7 @@ export function mountDesignPanel(
       designWarningText(w, { units: lengths.units(), source: warningSource() }),
     );
   const warningSource = () => {
-    if (trace.loaded()) return trace.method() === "auto" ? "auto-trace" : "hand-trace";
+    if (trace.loaded()) return chosenMethod().source;
     return svg ? "svg" : "hand-trace";
   };
   const showStatus = (text: string, failed: boolean) => {
@@ -190,19 +191,21 @@ export function mountDesignPanel(
     });
   };
 
+  /** The loaded photo's chosen tracing method: what the card does by it. */
+  const chosenMethod = () => TRACING_METHODS[trace.method()];
   /** The design is the chosen method's result, even an empty one; a blank page's is its hand-trace's. */
   const pickDesign = () => {
-    if (trace.loaded()) design = trace.method() === "auto" ? autoDesign : (handTrace.editor()?.design() ?? null);
+    if (trace.loaded()) design = chosenMethod().design(autoDesign, handTrace.editor());
     else if (handTrace.editor()) design = handTrace.editor()?.design() ?? null;
   };
   /** The photo's status line: Cleanup's hint, auto-trace's last word while it's chosen, else the file hint. */
   const showPhotoStatus = () => {
-    if (autoStatus.failed || (trace.method() === "auto" && !trace.inCleanup()))
+    if (autoStatus.failed || (chosenMethod().showsAutoStatus && !trace.inCleanup()))
       return showStatus(autoStatus.text, autoStatus.failed);
     showStatus(trace.inCleanup() ? CLEANUP_HINT : FILE_HINT, false);
   };
   /** The photo's Done is the chosen method's: the hand-trace is Done only while it's chosen and accepted. */
-  const syncDone = () => handTrace.setDone(trace.method() === "hand" && trace.accepted());
+  const syncDone = () => handTrace.setDone(chosenMethod().handTraceDone(trace.accepted()));
   /**
    * A released cleanup change carries the hand-trace's points with the photo, as one undo step (whichever method is
    * chosen: the hand-trace is kept beside auto-trace's result). The canvas reports the changed Design. A tone change
@@ -247,7 +250,7 @@ export function mountDesignPanel(
     cleanupHooks: {
       onLive: () => handTrace.changeCleanup(trace.cleanup(), true),
       // Drawn over the photo while hand-trace is chosen: the shapes being traced.
-      shapes: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
+      shapes: (toPhoto) => chosenHandTrace()?.shapePaths(toPhoto) ?? null,
       // Cleanup changes are steps in the hand-trace's history, whichever method is chosen: Cleanup steps through it.
       history: {
         can: () => handTrace.editor()?.drawn().can ?? { undo: false, redo: false },
@@ -478,7 +481,8 @@ export function mountDesignPanel(
     const restored = new File([kept.photo.bytes], kept.photo.name, { type: kept.photo.type });
     const { cleanup, tone, inCleanup, autoTrace: settings, method, done: accepted } = kept;
     await trace.load(restored, { cleanup, tone, inCleanup, settings, method, accepted });
-    if (trace.loaded()) startPhotoHandTrace({ ...kept.handTrace, done: method === "hand" && accepted });
+    const done = TRACING_METHODS[method].handTraceDone(accepted);
+    if (trace.loaded()) startPhotoHandTrace({ ...kept.handTrace, done });
     pickDesign();
     showPhotoStatus();
   }
@@ -501,7 +505,7 @@ export function mountDesignPanel(
     onChange();
   }
   function handTraceView(): "photo" | "page" | null {
-    if (trace.loaded()) return trace.method() === "hand" ? "photo" : null;
+    if (trace.loaded()) return chosenMethod().handTraceView;
     return pageEditor() ? "page" : null;
   }
   // A phone may discard the tab once it's hidden: keep the work as it is then.
