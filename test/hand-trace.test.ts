@@ -243,7 +243,7 @@ describe("hand-trace editor: selecting", () => {
     drawClosed(editor, SQUARE);
     tapPage(editor, SQUARE[2]);
     expect(selection(editor)).toEqual({ points: [2], shapes: [0] });
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false, smooth: false });
   });
 
   it("a tap on empty space while something is selected only clears the selection", () => {
@@ -685,11 +685,11 @@ describe("hand-trace editor: carrying on and clearing the selection", () => {
     for (const p of TRIANGLE) tapPage(editor, p);
     endOn(editor, TRIANGLE[2]);
     tapPage(editor, TRIANGLE[0]);
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true, smooth: false });
     tapPage(editor, TRIANGLE[2]);
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true, smooth: false });
     tapPage(editor, TRIANGLE[1]);
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false, smooth: false });
   });
 
   it("Carry on from the last point continues drawing that shape from there", () => {

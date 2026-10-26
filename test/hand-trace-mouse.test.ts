@@ -312,7 +312,7 @@ describe("hand-trace editor keys: Enter", () => {
     for (const p of SQUARE.slice(0, 3)) clickPage(editor, p);
     clickPage(editor, SQUARE[2]);
     clickPage(editor, SQUARE[2]);
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true, smooth: false });
     expect(press(editor, "Enter")).toBe(true);
     expect(editor.drawn().pill).toEqual({ kind: "drawing", points: 3, canClose: true });
   });
@@ -323,7 +323,7 @@ describe("hand-trace editor keys: Enter", () => {
     drawClosed(editor, SQUARE);
     clickPage(editor, SQUARE[1]);
     expect(press(editor, "Enter")).toBe(false);
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false, smooth: false });
   });
 });
 
@@ -507,7 +507,7 @@ describe("hand-trace editor keys: arrow nudges", () => {
     for (let i = 0; i < 5; i++) press(editor, "ArrowRight");
     editor.undo();
     expectNear(editor.drawn().points[1].at, corner);
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: false, smooth: false });
     editor.undo();
     expect(editor.shapes()[0].closed).toBe(false);
   });
@@ -545,7 +545,7 @@ describe("hand-trace editor keys: arrow nudges", () => {
     clickPage(editor, { x: 0.5, y: 0.5 });
     clickPage(editor, { x: 0.5, y: 0.5 });
     clickPage(editor, { x: 1.01, y: 0.5 });
-    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true });
+    expect(editor.drawn().pill).toEqual({ kind: "point", canCarryOn: true, smooth: false });
     press(editor, "ArrowRight");
     expect(stored(editor)[0].x).toBe(1);
     editor.undo();

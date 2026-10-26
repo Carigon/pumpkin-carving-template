@@ -1680,6 +1680,46 @@ body {
   stroke-width: 1.5;
 }
 
+/* Handles: the selected point's solid on a stronger line; its neighbours' faint and hollow; stubs dashed. */
+.ht-handle-line {
+  stroke: #1f7fc4;
+  stroke-width: 1.5;
+}
+
+.ht-handle {
+  fill: #1f7fc4;
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.ht-handle.selected {
+  stroke: #1f7fc4;
+  stroke-width: 3;
+}
+
+.ht-handle-line.neighbour {
+  stroke-width: 1;
+  stroke-opacity: 0.45;
+}
+
+.ht-handle.neighbour {
+  fill: #fff;
+  stroke: #1f7fc4;
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.ht-handle-line.stub {
+  stroke-dasharray: 4 3;
+  stroke-opacity: 0.8;
+}
+
+.ht-handle.stub {
+  fill: #fff;
+  stroke: #1f7fc4;
+  stroke-width: 1.5;
+}
+
 .ht-close-ring {
   fill: rgb(226 106 18 / 0.15);
   stroke: #e26a12;
@@ -1746,7 +1786,8 @@ body {
 .ht-point,
 .ht-marker,
 .ht-end,
-.ht-close-ring {
+.ht-close-ring,
+.ht-handle {
   opacity: var(--ht-mark-opacity, 1);
 }
 

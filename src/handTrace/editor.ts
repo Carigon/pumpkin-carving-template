@@ -1,5 +1,19 @@
 import { distanceToSegment, insidePolygon, signedArea, type BBox, type Design, type TemplateWarning } from "../core";
 import type { DragGesture, Gesture, HoldGesture, PanGesture, PointerKind, ScreenPoint } from "./gestures";
+import {
+  edgeAt,
+  edgePolyline,
+  edgesOf,
+  handlesOf,
+  neighbour,
+  split,
+  toggleKind,
+  withHandle,
+  withoutPoint,
+  type Edge,
+  type Side,
+  type XY,
+} from "./curves";
 import type { HandTraceRecord, Page, Point, Shape } from "./model";
 import { loopsPathData, pathData } from "./pathData";
 import { fitScale, fitView, pinchZoom, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
@@ -55,13 +69,25 @@ export interface DrawnPoint {
 }
 
 /**
- * What the floating pill offers: the point count with Close and End while drawing; Delete point, Carry on (on an
- * open end) and clearing the selection with a point selected; Delete shape and clearing with a shape selected;
- * otherwise a hint.
+ * One handle as drawn, from its point to its tip: the selected point's `own` (solid, on top), its neighbours' on its
+ * two edges (`neighbour`: faint, hollow and smaller), or a `stub` (dashed) on a selected corner's side without a
+ * handle, which a drag pulls a handle out of. `selected` for the handle arrow keys nudge.
+ */
+export interface DrawnHandle {
+  from: ScreenPoint;
+  to: ScreenPoint;
+  kind: "own" | "neighbour" | "stub";
+  selected: boolean;
+}
+
+/**
+ * What the floating pill offers: the point count with Close and End while drawing; Delete point, Smooth / Corner
+ * (`smooth` says which the point is), Carry on (on an open end) and clearing the selection with a point selected;
+ * Delete shape and clearing with a shape selected; otherwise a hint.
  */
 export type Pill =
   | { kind: "drawing"; points: number; canClose: boolean }
-  | { kind: "point"; canCarryOn: boolean }
+  | { kind: "point"; canCarryOn: boolean; smooth: boolean }
   | { kind: "shape" }
   | { kind: "hint"; text: string };
 
@@ -89,6 +115,8 @@ export interface Drawn {
   fill: string;
   shapes: DrawnShape[];
   points: DrawnPoint[];
+  /** The selected point's handles and stubs, and its neighbours' handles on its edges; none otherwise. */
+  handles: DrawnHandle[];
   pill: Pill;
   /** The selected shape's insert markers, while no shape is being drawn. */
   markers: ScreenPoint[];
@@ -110,8 +138,8 @@ export interface Drawn {
   rubberBand: { from: ScreenPoint; to: ScreenPoint } | null;
 }
 
-/** What a hovering click would act on: a point or insert marker where it's drawn, or a shape by its id. */
-export type HoverMark = { kind: "point" | "marker"; at: ScreenPoint } | { kind: "shape"; id: number };
+/** What a hovering click would act on: a point, handle or insert marker where it's drawn, or a shape by its id. */
+export type HoverMark = { kind: "point" | "handle" | "marker"; at: ScreenPoint } | { kind: "shape"; id: number };
 
 /**
  * The cursor: a crosshair where a click places a point, a pointer where it selects, closes or ends, a move cursor
@@ -144,14 +172,16 @@ export interface HandTrace {
   /** The pill's End: end the shape being drawn open. Not an undo step. */
   end(): void;
   /**
-   * The pill's Delete point or Delete shape, as one undo step. A shape left too small goes too: a closed shape
-   * under 3 points, or an open shape with none.
+   * The pill's Delete point or Delete shape, as one undo step. A point between curves leaves one curve fitted to
+   * both. A shape left too small goes too: a closed shape under 3 points, or an open shape with none.
    */
   delete(): void;
   /** The pill's Carry on: with an open shape's end point selected, carry on drawing that shape from it. */
   carryOn(): void;
   /** The pill's ✕: select nothing. */
   clearSelection(): void;
+  /** The pill's Smooth / Corner: switch the selected point's kind, as one undo step. */
+  toggleKind(): void;
   /** Remove every shape, as one undo step. */
   clear(): void;
   undo(): void;
@@ -183,8 +213,14 @@ export interface HandTrace {
 
 /** Screen radius (px) within which a tap hits a point or an outline, whatever the zoom. */
 const HIT_RADIUS_PX = 22;
-/** Edges shorter than this on screen (px) show no insert marker. */
+/** Edges shorter than this on screen (px), measured along the curve, show no insert marker. */
 const MARKER_MIN_EDGE_PX = 48;
+/** How far out (screen px) a corner's stub reaches along its edge. */
+const STUB_PX = 40;
+/** A handle dragged this close (screen px) to its point is removed. */
+const RETRACT_PX = 10;
+/** Straight pieces a curved edge is taken as for hits, markers and the inside test. */
+const CURVE_PIECES = 16;
 /** Undo steps kept; older ones are dropped. */
 const UNDO_LIMIT = 200;
 /** The loupe's width across (px), and how many times it magnifies the canvas as drawn (so over the current zoom). */
@@ -215,11 +251,28 @@ interface State {
   drawing: number | null;
 }
 
-/** What's under a tap or the start of a drag: a point (its shape and index), or a shape by its outline or inside. */
+/**
+ * What's under a tap or the start of a drag: a point (its shape and index), a handle or stub, an insert marker, or a
+ * shape by its outline or inside.
+ */
 type Hit =
   | { kind: "point"; shape: Shape; index: number }
+  | { kind: "handle"; knob: Knob }
   | { kind: "marker"; marker: Marker }
   | { kind: "shape"; shape: Shape };
+
+/**
+ * A handle or stub showing for the selected point: point `index`'s on `side`, its tip in design space. `role` is
+ * the selected point's own, or a neighbour's on one of its edges.
+ */
+interface Knob {
+  shape: Shape;
+  index: number;
+  side: Side;
+  tip: XY;
+  stub: boolean;
+  role: "own" | "neighbour";
+}
 
 /** An insert marker: in the middle of `shape`'s edge from point `after` to the next, in design space. */
 interface Marker {
@@ -228,8 +281,11 @@ interface Marker {
   at: { x: number; y: number };
 }
 
-/** What's selected: one point (by its shape and index) or one shape. Selecting isn't an undo step. */
-type Selection = { kind: "point"; shape: number; index: number } | { kind: "shape"; shape: number };
+/**
+ * What's selected: one point (by its shape and index), with one of its handles (`handle`, for the arrow keys) or not,
+ * or one shape. Selecting isn't an undo step.
+ */
+type Selection = { kind: "point"; shape: number; index: number; handle?: Side } | { kind: "shape"; shape: number };
 
 /**
  * What a tap or click at a spot would do, and what it would act on: place a point; close or end the shape being
@@ -246,9 +302,10 @@ type TapAction =
 
 /**
  * A drag or hold under way: a pan from the view it started at; a move of one point (`index`) or of a whole shape
- * (`index` null); aiming the loupe at where a point will be placed, the finger `at`; or a hold that's waiting to
- * be a tap or a drag. A move is shown as `live` and kept out of the shapes until it ends, as one undo step;
- * `selection` is what was selected before, put back if the drag is cancelled; `loupe` says it's by touch.
+ * (`index` null); a handle or stub dragged (`alone` with Alt held); aiming the loupe at where a point will be
+ * placed, the finger `at`; or a hold that's waiting to be a tap or a drag. A move or handle drag is shown as `live`
+ * and kept out of the shapes until it ends, as one undo step; `selection` is what was selected before, put back if
+ * the drag is cancelled; `loupe` says it's by touch.
  */
 type Drag =
   | { kind: "pan"; from: ViewTransform }
@@ -261,8 +318,28 @@ type Drag =
       at: ScreenPoint;
       loupe: boolean;
     }
+  | {
+      kind: "handle";
+      knob: Knob;
+      /** From the finger to the handle's tip, on screen: the tip keeps its place under the finger. */
+      grab: ScreenPoint;
+      alone: boolean;
+      live: readonly Shape[] | null;
+      selection: Selection | null;
+      at: ScreenPoint;
+      loupe: boolean;
+    }
   | { kind: "aim"; at: ScreenPoint }
   | { kind: "held" };
+
+/** Everything a tap may change, kept so a double-tap can take the tap back. */
+interface Before {
+  state: State;
+  undo: State[];
+  redo: State[];
+  selection: Selection | null;
+  nextId: number;
+}
 
 /** A blank page: square, with points relative to its size. */
 const BLANK_PAGE: Page = { width: 1, height: 1 };
@@ -294,6 +371,17 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
    * selected since), the next nudge joins its undo step: a run of presses is one step.
    */
   let nudged: { state: State; selection: Selection } | null = null;
+  /**
+   * The last tap: where it was, what was there before it, the point it hit, and the shapes and selection it left.
+   * While those are still current, a double-tap there can take it back.
+   */
+  let tapped: {
+    at: ScreenPoint;
+    before: Before;
+    point: { shape: number; index: number } | null;
+    state: State;
+    selection: Selection | null;
+  } | null = null;
 
   // SVG space is y down: flip on the way out, as the loader flips back.
   const closedPathData = () =>
@@ -373,9 +461,9 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     const picked = selection;
     const shape = picked && state.shapes.find((s) => s.id === picked.shape);
     if (!picked || !shape) return;
-    const points = picked.kind === "point" ? shape.points.filter((_, i) => i !== picked.index) : [];
-    const gone = points.length === 0 || (shape.closed && points.length < 3);
-    const shapes = gone ? state.shapes.filter((s) => s !== shape) : replace({ ...shape, points });
+    const left = picked.kind === "point" ? withoutPoint(shape, picked.index) : { ...shape, points: [] };
+    const gone = left.points.length === 0 || (shape.closed && left.points.length < 3);
+    const shapes = gone ? state.shapes.filter((s) => s !== shape) : replace(left);
     change({ ...state, shapes });
     selection = null;
   };
@@ -390,27 +478,71 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     if (!was || !now || was.points.length !== now.points.length || state.drawing !== null) selection = null;
   };
 
-  /** The insert markers on `shapes`' selected shape: one at the middle of each edge long enough on screen. */
+  /**
+   * The insert markers on `shapes`' selected shape: one at the middle (t = 0.5) of each edge long enough on screen,
+   * measured along the curve.
+   */
   const markers = (shapes: readonly Shape[]): Marker[] => {
     const shape = state.drawing === null && selection && shapes.find((s) => s.id === selection?.shape);
     if (!shape) return [];
-    const pts = shape.points;
-    const edges = shape.closed ? pts.length : pts.length - 1;
-    const out: Marker[] = [];
-    for (let i = 0; i < edges; i++) {
-      const [u, v] = [pts[i], pts[(i + 1) % pts.length]];
-      if (Math.hypot(v.x - u.x, v.y - u.y) * view.scale < MARKER_MIN_EDGE_PX) continue;
-      out.push({ shape, after: i, at: { x: (u.x + v.x) / 2, y: (u.y + v.y) / 2 } });
+    return edgesOf(shape)
+      .filter((e) => polylineLength(edgePolyline(e, CURVE_PIECES)) * view.scale >= MARKER_MIN_EDGE_PX)
+      .map((e) => ({ shape, after: e.after, at: edgeAt(e, 0.5) }));
+  };
+
+  /**
+   * The handles showing on `shapes` for the selected point: its own, a stub on each side of a corner without one
+   * (pointing along that edge), and its neighbours' on its two edges. None while drawing or with a shape selected.
+   */
+  const knobs = (shapes: readonly Shape[]): Knob[] => {
+    const picked = state.drawing === null && selection?.kind === "point" ? selection : null;
+    const shape = picked && shapes.find((s) => s.id === picked.shape);
+    if (!picked || !shape || !shape.points[picked.index]) return [];
+    const i = picked.index;
+    const p = shape.points[i];
+    const acting = handlesOf(shape);
+    const out: Knob[] = [];
+    const tipOf = (at: XY, h: XY) => ({ x: at.x + h.x, y: at.y + h.y });
+    for (const side of ["in", "out"] as const) {
+      const j = neighbour(shape, i, side);
+      if (j === null) continue;
+      const facing = side === "in" ? "out" : "in";
+      const own = acting[i][side];
+      const q = shape.points[j];
+      if (own) out.push({ shape, index: i, side, tip: tipOf(p, own), stub: false, role: "own" });
+      else if (p.kind === "corner") {
+        // Along the edge as it leaves the point: towards the neighbour's handle on it, or the neighbour.
+        const toward = acting[j][facing] ? tipOf(q, acting[j][facing]) : q;
+        const d = Math.hypot(toward.x - p.x, toward.y - p.y);
+        if (d > 0) {
+          const reach = STUB_PX / view.scale / d;
+          const tip = { x: p.x + (toward.x - p.x) * reach, y: p.y + (toward.y - p.y) * reach };
+          out.push({ shape, index: i, side, tip, stub: true, role: "own" });
+        }
+      }
+      const theirs = acting[j][facing];
+      if (theirs) out.push({ shape, index: j, side: facing, tip: tipOf(q, theirs), stub: false, role: "neighbour" });
     }
     return out;
   };
 
   /**
-   * What's under screen point `at`: the nearest point within the hit radius (the shape being drawn winning ties),
-   * else the nearest insert marker within it, else the nearest outline within it, else the smallest closed shape
-   * it's inside.
+   * What's under screen point `at`: the nearest point or handle within the hit radius (the shape being drawn
+   * winning ties among points), else the nearest insert marker within it, else the nearest outline within it, else
+   * the smallest closed shape it's inside.
    */
-  const hitTest = (at: ScreenPoint): Hit | null => pointAt(at) ?? markerAt(at) ?? outlineAt(at) ?? insideAt(at);
+  const hitTest = (at: ScreenPoint): Hit | null => pointOrHandleAt(at) ?? markerAt(at) ?? outlineAt(at) ?? insideAt(at);
+  const pointOrHandleAt = (at: ScreenPoint): Hit | null => {
+    const point = pointAt(at);
+    let best: Hit | null = null;
+    let bestDistance = point ? point.distance : HIT_RADIUS_PX;
+    for (const knob of knobs(state.shapes)) {
+      const s = toScreen(view, knob.tip);
+      const d = Math.hypot(s.x - at.x, s.y - at.y);
+      if (d < bestDistance) [best, bestDistance] = [{ kind: "handle", knob }, d];
+    }
+    return best ?? point?.hit ?? null;
+  };
   const markerAt = (at: ScreenPoint): Hit | null => {
     let best: Hit | null = null;
     let bestDistance = HIT_RADIUS_PX;
@@ -421,39 +553,42 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     }
     return best;
   };
-  const pointAt = (at: ScreenPoint): Hit | null => {
-    let best: Hit | null = null;
-    let bestDistance = HIT_RADIUS_PX;
+  const pointAt = (at: ScreenPoint): { hit: Hit; distance: number } | null => {
+    let best: { hit: Hit; distance: number } | null = null;
     const order = [...state.shapes].sort((a, b) => Number(b.id === state.drawing) - Number(a.id === state.drawing));
     for (const shape of order) {
       shape.points.forEach((p, index) => {
         const s = toScreen(view, p);
         const d = Math.hypot(s.x - at.x, s.y - at.y);
-        if (d < bestDistance) [best, bestDistance] = [{ kind: "point", shape, index }, d];
+        if (d < (best?.distance ?? HIT_RADIUS_PX)) best = { hit: { kind: "point", shape, index }, distance: d };
       });
     }
     return best;
   };
-  /** Edges are taken as straight. */
+  /** Along the curves, as drawn. */
   const outlineAt = (at: ScreenPoint): Hit | null => {
     let best: Hit | null = null;
     let bestDistance = HIT_RADIUS_PX;
     for (const shape of state.shapes) {
-      const pts = shape.points.map((p) => toScreen(view, p));
-      const edges = shape.closed ? pts.length : pts.length - 1;
-      for (let i = 0; i < edges; i++) {
-        const d = distanceToSegment(at, pts[i], pts[(i + 1) % pts.length]);
-        if (d < bestDistance) [best, bestDistance] = [{ kind: "shape", shape }, d];
+      for (const e of edgesOf(shape)) {
+        const pts = edgePolyline(e, CURVE_PIECES).map((p) => toScreen(view, p));
+        for (let k = 1; k < pts.length; k++) {
+          const d = distanceToSegment(at, pts[k - 1], pts[k]);
+          if (d < bestDistance) [best, bestDistance] = [{ kind: "shape", shape }, d];
+        }
       }
     }
     return best;
   };
   const insideAt = (at: ScreenPoint): Hit | null => {
     const p = toDesignSpace(view, at);
-    const around = state.shapes.filter((s) => s.closed && insidePolygon(p, s.points));
-    const area = (s: Shape) => Math.abs(signedArea(s.points));
-    const smallest = around.sort((a, b) => area(a) - area(b))[0];
-    return smallest ? { kind: "shape", shape: smallest } : null;
+    const outline = (s: Shape) => edgesOf(s).flatMap((e: Edge) => edgePolyline(e, CURVE_PIECES).slice(1));
+    const around = state.shapes
+      .filter((s) => s.closed)
+      .map((s) => ({ s, poly: outline(s) }))
+      .filter(({ poly }) => insidePolygon(p, poly));
+    const smallest = around.sort((a, b) => Math.abs(signedArea(a.poly)) - Math.abs(signedArea(b.poly)))[0];
+    return smallest ? { kind: "shape", shape: smallest.s } : null;
   };
 
   /** What a tap at `at` would do, by what's under it and whether a shape is being drawn. */
@@ -468,6 +603,11 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       return { do: "place" };
     }
     if (shape) return { do: "place" };
+    if (hit?.kind === "handle") {
+      const { knob } = hit;
+      const handle = knob.stub ? {} : { handle: knob.side };
+      return { do: "select", hit, selection: { kind: "point", shape: knob.shape.id, index: knob.index, ...handle } };
+    }
     if (hit?.kind === "marker") return { do: "insert", hit };
     if (hit) return { do: "select", hit, selection: { kind: "shape", shape: hit.shape.id } };
     return selection ? { do: "deselect" } : { do: "place" };
@@ -503,25 +643,71 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       const picked = selection?.kind === "shape" && selection.shape === hit.shape.id;
       return { hover: { kind: "shape", id: hit.shape.id }, cursor: picked ? "move" : "pointer", rubberBand: null };
     }
+    if (hit.kind === "handle") {
+      return { hover: { kind: "handle", at: toScreen(view, hit.knob.tip) }, cursor: "move", rubberBand: null };
+    }
     const at = hit.kind === "point" ? hit.shape.points[hit.index] : hit.marker.at;
     const rubberBand = action.do === "close" ? band(at) : null;
     return { hover: { kind: hit.kind, at: toScreen(view, at) }, cursor: "pointer", rubberBand };
   };
 
-  /** `marker`'s shape with a corner point added at the marker, and the new point's index. */
-  const insert = ({ shape, after, at }: Marker): { shape: Shape; index: number } => {
-    const points = [...shape.points];
-    points.splice(after + 1, 0, { ...at, kind: "corner" });
-    return { shape: { ...shape, points }, index: after + 1 };
+  /** `marker`'s shape with a corner point added at the marker (keeping the outline), and the new point's index. */
+  const insert = ({ shape, after }: Marker): { shape: Shape; index: number } => split(shape, after);
+
+  /** A tap, kept so that a double-tap straight after it can take it back. */
+  const firstTap = (at: ScreenPoint) => {
+    const before: Before = { state, undo: [...undoStack], redo: [...redoStack], selection, nextId };
+    const hit = pointOrHandleAt(at);
+    const point = hit?.kind === "point" ? { shape: hit.shape.id, index: hit.index } : null;
+    tap(at);
+    tapped = { at, before, point, state, selection };
+  };
+
+  /**
+   * The second tap of a double-tap: on the point the first tap hit, take the first tap back and switch the point
+   * between smooth and corner instead, selecting it (or carrying on drawing, on the shape being drawn). Anywhere
+   * else, or once something has changed since, it's a plain tap.
+   */
+  const doubleTap = (at: ScreenPoint) => {
+    const first = tapped;
+    tapped = null;
+    if (!first?.point || first.state !== state || first.selection !== selection) return tap(at);
+    const { before } = first;
+    [state, selection, nextId, redoStack] = [before.state, before.selection, before.nextId, [...before.redo]];
+    undoStack.splice(0, undoStack.length, ...before.undo);
+    const hit = pointAt(at)?.hit;
+    if (hit?.kind !== "point" || hit.shape.id !== first.point.shape || hit.index !== first.point.index) {
+      tap(first.at);
+      return tap(at);
+    }
+    if (hit.shape.id !== state.drawing) {
+      end();
+      selection = { kind: "point", shape: hit.shape.id, index: hit.index };
+    }
+    change({ ...state, shapes: replace(toggleKind(hit.shape, hit.index)) });
+  };
+
+  /** Smooth / Corner on the selected point. */
+  const toggleSelected = () => {
+    const picked = selection?.kind === "point" ? selection : null;
+    const shape = picked && state.shapes.find((s) => s.id === picked.shape);
+    if (!picked || !shape) return;
+    change({ ...state, shapes: replace(toggleKind(shape, picked.index)) });
   };
 
   /**
    * What a drag starting at `from` does: move the point under it, add a point at the insert marker under it and
    * move that, move the selected shape, or pan.
    */
-  const startDrag = (from: ScreenPoint, pointerType: PointerKind): Drag => {
+  const startDrag = (from: ScreenPoint, pointerType: PointerKind, alone = false): Drag => {
     const hit = hitTest(from);
     const moving = { live: null, selection, at: from, loupe: pointerType === "touch" };
+    if (hit?.kind === "handle") {
+      const { knob } = hit;
+      selection = { kind: "point", shape: knob.shape.id, index: knob.index, handle: knob.side };
+      const tip = toScreen(view, knob.tip);
+      return { kind: "handle", knob, grab: { x: tip.x - from.x, y: tip.y - from.y }, alone, ...moving };
+    }
     if (hit?.kind === "point") {
       if (hit.shape.id !== state.drawing) {
         end();
@@ -548,10 +734,37 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     if (g.phase === "end" || g.phase === "cancel") drag = null;
   };
 
+  /**
+   * A handle or stub dragged: its tip follows the finger, kept on the page; within `RETRACT_PX` of its point it's
+   * removed. Shown live, and one undo step when it ends.
+   */
+  const handleDrag = (g: DragGesture, d: Drag & { kind: "handle" }) => {
+    d.at = g.at;
+    if (g.phase === "cancel") {
+      selection = d.selection;
+      drag = null;
+      return;
+    }
+    const { shape, index, side } = d.knob;
+    const p = shape.points[index];
+    const tip = toDesignSpace(view, { x: g.at.x + d.grab.x, y: g.at.y + d.grab.y });
+    const clamped = { x: Math.min(page.width, Math.max(0, tip.x)), y: Math.min(page.height, Math.max(0, tip.y)) };
+    const offset = { x: clamped.x - p.x, y: clamped.y - p.y };
+    const retracted = Math.hypot(offset.x, offset.y) * view.scale < RETRACT_PX;
+    const next = withHandle(shape, index, side, retracted ? null : offset, d.alone);
+    d.live = replace(next);
+    if (g.phase !== "end") return;
+    const kept = handlesOf(next)[index][side] ? { handle: side } : {};
+    selection = { kind: "point", shape: shape.id, index, ...kept };
+    if (JSON.stringify(next) !== JSON.stringify(shape)) change({ ...state, shapes: d.live });
+    drag = null;
+  };
+
   const dragGesture = (g: DragGesture) => {
-    if (g.phase === "start") drag = startDrag(g.from, g.pointerType);
+    if (g.phase === "start") drag = startDrag(g.from, g.pointerType, g.alt);
     if (!drag) return;
     if (drag.kind === "pan") return panGesture(g);
+    if (drag.kind === "handle") return handleDrag(g, drag);
     if (drag.kind !== "move") return;
     drag.at = g.at;
     if (g.phase === "cancel") {
@@ -599,7 +812,9 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
   const holdGesture = (g: HoldGesture) => {
     if (g.phase === "start") {
       const hit = hitTest(g.from);
-      if (hit?.kind === "point" || hit?.kind === "marker") return dragGesture({ ...g, type: "drag" });
+      if (hit?.kind === "point" || hit?.kind === "handle" || hit?.kind === "marker") {
+        return dragGesture({ ...g, type: "drag" });
+      }
       const places = state.drawing !== null || (!hit && !selection);
       drag = places ? { kind: "aim", at: g.at } : { kind: "held" };
       return;
@@ -615,14 +830,19 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     } else dragGesture({ ...g, type: "drag" });
   };
 
-  /** Nudge the selected point or shape `by` screen px; a run of nudges is one undo step. */
+  /** Nudge the selected handle, point or shape `by` screen px; a run of nudges is one undo step. */
   const nudge = (by: { x: number; y: number }): boolean => {
     const picked = selection;
     const shape = picked && state.shapes.find((s) => s.id === picked.shape);
     if (!picked || !shape) return false;
     const index = picked.kind === "point" ? picked.index : null;
-    const next = moveBy(shape, index, { x: by.x / view.scale, y: -by.y / view.scale }, page);
-    const same = next.points.every((p, i) => p.x === shape.points[i].x && p.y === shape.points[i].y);
+    const delta = { x: by.x / view.scale, y: -by.y / view.scale };
+    const handle = picked.kind === "point" && picked.handle && handlesOf(shape)[picked.index][picked.handle];
+    const next =
+      picked.kind === "point" && picked.handle && handle
+        ? withHandle(shape, picked.index, picked.handle, { x: handle.x + delta.x, y: handle.y + delta.y })
+        : moveBy(shape, index, delta, page);
+    const same = JSON.stringify(next) === JSON.stringify(shape);
     if (same) return true;
     const after = { ...state, shapes: replace(next) };
     if (nudged?.state === state && nudged.selection === picked) state = after;
@@ -633,7 +853,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
 
   /** Escape: cancel the drag under way, putting back what it moved (or the view a pan moved). */
   const cancelDrag = () => {
-    if (drag?.kind === "move") selection = drag.selection;
+    if (drag?.kind === "move" || drag?.kind === "handle") selection = drag.selection;
     if (drag?.kind === "pan") view = drag.from;
     drag = null;
   };
@@ -680,6 +900,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       if (selection) return can(true, remove);
       return can(k === "Backspace" && drawing, removeLast);
     }
+    if (lower === "s") return can(selection?.kind === "point" && !drawing, toggleSelected);
     if (k === "+" || k === "=") return can(true, () => zoomBy(KEY_ZOOM_STEP));
     if (k === "-") return can(true, () => zoomBy(1 / KEY_ZOOM_STEP));
     if (k === "0") {
@@ -707,7 +928,8 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       view = next;
       moved = true;
     };
-    if (g.type === "tap") tap(g.at);
+    if (g.type === "tap") firstTap(g.at);
+    else if (g.type === "doubleTap") doubleTap(g.at);
     else if (g.type === "drag") dragGesture(g);
     else if (g.type === "hold") holdGesture(g);
     else if (g.type === "pan") panGesture(g);
@@ -719,6 +941,13 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
   /** The loupe for the drag or hold under way, if it's by touch and aims at a point: clear of the finger. */
   const loupe = (shapes: readonly Shape[]): Loupe | null => {
     if (drag?.kind === "aim") return loupeAt(drag.at, toScreen(view, placeAt(drag.at)));
+    if (drag?.kind === "handle" && drag.loupe) {
+      // Centred on the handle's tip, or on its point once it's dragged back onto it.
+      const { shape, index, side } = drag.knob;
+      const now = shapes.find((s) => s.id === shape.id) ?? shape;
+      const [p, h] = [now.points[index], handlesOf(now)[index][side]];
+      return loupeAt(drag.at, toScreen(view, h ? { x: p.x + h.x, y: p.y + h.y } : p));
+    }
     if (drag?.kind !== "move" || !drag.loupe || drag.index === null) return null;
     const { shape, index } = drag;
     const point = (shapes.find((s) => s.id === shape.id) ?? shape).points[index];
@@ -740,7 +969,11 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
   const pill = (): Pill => {
     const shape = drawingShape();
     if (shape) return { kind: "drawing", points: shape.points.length, canClose: shape.points.length >= 3 };
-    if (selection?.kind === "point") return { kind: "point", canCarryOn: openEnd() !== null };
+    if (selection?.kind === "point") {
+      const { shape: id, index } = selection;
+      const smooth = state.shapes.find((s) => s.id === id)?.points[index]?.kind === "smooth";
+      return { kind: "point", canCarryOn: openEnd() !== null, smooth };
+    }
     if (selection?.kind === "shape") return { kind: "shape" };
     return { kind: "hint", text: HINT };
   };
@@ -756,7 +989,14 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     const current = warnings?.design === design() ? warnings.warnings : [];
     const corner = screen({ x: 0, y: page.height });
     // A move under way shows as it would end.
-    const shapes = (drag?.kind === "move" && drag.live) || state.shapes;
+    const shapes = ((drag?.kind === "move" || drag?.kind === "handle") && drag.live) || state.shapes;
+    const picked = selection?.kind === "point" ? selection : null;
+    const handles = knobs(shapes).map(({ shape, index, side, tip, stub, role }) => ({
+      from: screen(shapes.find((s) => s.id === shape.id)!.points[index]),
+      to: screen(tip),
+      kind: stub ? ("stub" as const) : role,
+      selected: !stub && role === "own" && picked?.handle === side,
+    }));
     const open = shapes.filter((s) => !s.closed).length;
     return {
       page: { ...corner, width: page.width * view.scale, height: page.height * view.scale },
@@ -781,6 +1021,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
           selected: selection?.kind === "point" && selection.shape === s.id && selection.index === i,
         })),
       ),
+      handles,
       pill: pill(),
       markers: markers(shapes).map((m) => screen(m.at)),
       note: open === 0 ? null : `${open} ${open === 1 ? "shape isn't" : "shapes aren't"} closed and won't be carved`,
@@ -812,6 +1053,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     clearSelection() {
       selection = null;
     },
+    toggleKind: () => !finished && toggleSelected(),
     clear() {
       if (finished || state.shapes.length === 0) return;
       change({ shapes: [], drawing: null });
@@ -848,6 +1090,11 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       warnings = { design: design(), warnings: next };
     },
   };
+}
+
+/** How long a polyline is, end to end. */
+function polylineLength(pts: readonly XY[]): number {
+  return pts.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y)), 0);
 }
 
 /** `shape` with its point `index` (or, with `index` null, every point) moved by `delta`, kept on `page`. */
