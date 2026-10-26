@@ -6,6 +6,9 @@ import type { Shape } from "./model";
 /** Undo steps kept; older ones are dropped. */
 const UNDO_LIMIT = 200;
 
+/** The hand-trace's undo history: what each change, undo and redo does to it, and runs of live cleanup changes. */
+export type History<C = unknown> = ReturnType<typeof createHistory<C>>;
+
 /** The undo and redo steps as they stand, kept so a double-tap can put them back. */
 export interface Steps {
   undo: State[];

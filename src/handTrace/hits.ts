@@ -71,6 +71,9 @@ export type TapAction =
   | { do: "deselect" }
   | { do: "nothing" };
 
+/** What's under a screen point, and what a tap there would do. */
+export type Hits = ReturnType<typeof createHits>;
+
 /** Hit tests on `ed`'s shapes as drawn, in screen coordinates at its zoom and pan. */
 export function createHits(ed: Editor) {
   /**
