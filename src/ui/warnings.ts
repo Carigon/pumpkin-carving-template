@@ -1,5 +1,6 @@
 import type { TemplateWarning, Units } from "../core";
 import { formatLength } from "../displayUnits";
+import { counted } from "./counted";
 
 /** Which panel shows each kind of warning (measurement warnings sit next to their own field instead). */
 const WARNING_PANEL: Record<TemplateWarning["kind"], "measurements" | "design" | "slits"> = {
@@ -48,7 +49,7 @@ function shapeWarningText(w: ShapeWarning, units: Units, autoTrace: boolean): st
   switch (w.kind) {
     case "crossing": {
       const n = w.at.length;
-      return `${n} place${n === 1 ? "" : "s"} where edges cross. The overlap isn't carved and may break away.`;
+      return `${counted(n, "place")} where edges cross. The overlap isn't carved and may break away.`;
     }
     case "floating-piece": {
       const n = w.pieces.length;
@@ -59,7 +60,7 @@ function shapeWarningText(w: ShapeWarning, units: Units, autoTrace: boolean): st
     case "tiny-carve-area": {
       const n = w.areas.length;
       const size = formatLength(w.minSizeMm, units);
-      const line = `${n} carve area${n === 1 ? " is" : "s are"} smaller than ${size} across and will be hard to cut.`;
+      const line = `${counted(n, "carve area is", "carve areas are")} smaller than ${size} across and will be hard to cut.`;
       return autoTrace ? `${line} Raise Speckle removal.` : line;
     }
   }

@@ -4,6 +4,7 @@ import type { HandTraceRecord } from "../handTrace";
 import { editOnStalePhoto, handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
 import { filePhoto } from "../input/shrinkPhoto";
 import { autoTraceShapes, readSvgHandTrace, type SvgHandTrace } from "../input/svgHandTrace";
+import { counted } from "./counted";
 import { downloadBlob } from "./download";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
@@ -397,7 +398,7 @@ export function mountDesignPanel(
     const read = opened.design;
     design = read;
     svg = read && { name, text };
-    const count = read ? `${read.paths.length} shape${read.paths.length === 1 ? "" : "s"} loaded.` : "";
+    const count = read ? `${counted(read.paths.length, "shape")} loaded.` : "";
     showStatus([count, ...opened.notes].filter(Boolean).join(" "), read === null);
     showEditSvg();
   };
