@@ -11,13 +11,23 @@ const SIZE = 400;
 /** Outlines smaller than this (in page area) are left out of the comparison: a sliver may or may not enclose area. */
 const TINY_AREA = 1e-4;
 
-/** One random step: a gesture somewhere on (or just off) the canvas, a tap on an existing point, or a command. */
+/** The commands a step can press. */
+const COMMANDS = ["close", "end", "undo", "redo", "clear", "delete", "carryOn", "clearSelection"] as const;
+
+/**
+ * One random step: a gesture somewhere on (or just off) the canvas; a tap on, or drag from, an existing point, insert
+ * marker or shape's edge; or a command.
+ */
 type Step =
   | { kind: "tap"; at: Point2 }
-  | { kind: "tapPoint"; index: number }
-  | { kind: "pan"; from: Point2; to: Point2 }
+  | { kind: "tapOn"; target: Target; index: number }
+  | { kind: "drag"; from: Point2; to: Point2; cancel: boolean }
+  | { kind: "dragFrom"; target: Target; index: number; to: Point2; cancel: boolean }
   | { kind: "wheel"; at: Point2; deltaY: number }
-  | { kind: "close" | "end" | "undo" | "redo" | "clear" | "done" | "edit" };
+  | { kind: (typeof COMMANDS)[number] | "done" | "edit" };
+
+/** What a step aims at: a point, an insert marker, or a spot on a shape's outline (a quarter along its first edge). */
+type Target = "point" | "marker" | "outline";
 
 /**
  * A screen pixel anywhere on the canvas or just off it, spread evenly: fast-check's doubles cluster near zero, and
@@ -25,32 +35,71 @@ type Step =
  */
 const coordinate = fc.noBias(fc.integer({ min: -20, max: SIZE + 20 }));
 const screen = fc.record({ x: coordinate, y: coordinate });
+const target = fc.constantFrom<Target>("point", "marker", "outline");
 const step: fc.Arbitrary<Step> = fc.oneof(
   { weight: 6, arbitrary: fc.record({ kind: fc.constant("tap" as const), at: screen }) },
-  { weight: 3, arbitrary: fc.record({ kind: fc.constant("tapPoint" as const), index: fc.nat() }) },
-  { weight: 1, arbitrary: fc.record({ kind: fc.constant("pan" as const), from: screen, to: screen }) },
+  { weight: 4, arbitrary: fc.record({ kind: fc.constant("tapOn" as const), target, index: fc.nat() }) },
+  {
+    weight: 1,
+    arbitrary: fc.record({ kind: fc.constant("drag" as const), from: screen, to: screen, cancel: fc.boolean() }),
+  },
+  {
+    weight: 3,
+    arbitrary: fc.record({
+      kind: fc.constant("dragFrom" as const),
+      target,
+      index: fc.nat(),
+      to: screen,
+      cancel: fc.boolean(),
+    }),
+  },
   {
     weight: 1,
     arbitrary: fc.record({ kind: fc.constant("wheel" as const), at: screen, deltaY: fc.integer({ min: -400, max: 400 }) }),
   },
-  { weight: 3, arbitrary: fc.record({ kind: fc.constantFrom("close", "end", "undo", "redo", "clear" as const) }) },
+  { weight: 4, arbitrary: fc.record({ kind: fc.constantFrom(...COMMANDS) }) },
   { weight: 1, arbitrary: fc.record({ kind: fc.constantFrom("done", "edit" as const) }) },
 );
+
+/** Where `target` number `index` (wrapping round) is on screen now, if there's any. */
+function spot(editor: HandTrace, target: Target, index: number): Point2 | null {
+  const drawn = editor.drawn();
+  if (target === "point" || target === "marker") {
+    const all = target === "point" ? drawn.points.map((p) => p.at) : drawn.markers;
+    return all.length > 0 ? all[index % all.length] : null;
+  }
+  const shapes = editor.shapes().filter((s) => s.points.length >= 2);
+  if (shapes.length === 0) return null;
+  const [a, b] = shapes[index % shapes.length].points;
+  const { page } = drawn;
+  const p = { x: (3 * a.x + b.x) / 4, y: (3 * a.y + b.y) / 4 };
+  return { x: page.x + p.x * page.width, y: page.y + (1 - p.y) * page.height };
+}
+
+function dragOf(editor: HandTrace, from: Point2, to: Point2, cancel: boolean): void {
+  const touch = "touch" as const;
+  editor.gesture({ type: "drag", phase: "start", from, at: from, pointerType: touch });
+  editor.gesture({ type: "drag", phase: "move", from, at: to, pointerType: touch });
+  editor.gesture({ type: "drag", phase: cancel ? "cancel" : "end", from, at: to, pointerType: touch });
+}
 
 function run(editor: HandTrace, s: Step): void {
   const touch = "touch" as const;
   switch (s.kind) {
     case "tap":
       return editor.gesture({ type: "tap", at: s.at, pointerType: touch });
-    case "tapPoint": {
-      const points = editor.drawn().points;
-      if (points.length > 0) editor.gesture({ type: "tap", at: points[s.index % points.length].at, pointerType: touch });
+    case "tapOn": {
+      const at = spot(editor, s.target, s.index);
+      if (at) editor.gesture({ type: "tap", at, pointerType: touch });
       return;
     }
-    case "pan":
-      for (const phase of ["start", "move", "end"] as const)
-        editor.gesture({ type: "drag", phase, from: s.from, at: phase === "start" ? s.from : s.to, pointerType: touch });
+    case "drag":
+      return dragOf(editor, s.from, s.to, s.cancel);
+    case "dragFrom": {
+      const from = spot(editor, s.target, s.index);
+      if (from) dragOf(editor, from, s.to, s.cancel);
       return;
+    }
     case "wheel":
       return editor.gesture({ type: "wheel", at: s.at, deltaY: s.deltaY });
     default:
@@ -64,7 +113,14 @@ function area(path: readonly Point2[]): number {
 
 /** The invariants after every step. */
 function check(editor: HandTrace): void {
+  const drawn = editor.drawn();
+  const selected = drawn.points.filter((p) => p.selected).length;
+  expect(selected).toBeLessThanOrEqual(1);
+  expect(drawn.shapes.filter((s) => s.selected).length).toBeLessThanOrEqual(1);
+  expect(drawn.pill.kind === "point").toBe(selected === 1);
+  if (drawn.pill.kind === "drawing") expect(drawn.markers).toEqual([]);
   const shapes = editor.shapes();
+  expect(shapes.every((s) => s.points.length > 0 && (!s.closed || s.points.length >= 3))).toBe(true);
   for (const p of shapes.flatMap((s) => s.points)) {
     expect(p.x).toBeGreaterThanOrEqual(0);
     expect(p.x).toBeLessThanOrEqual(1);
@@ -76,8 +132,11 @@ function check(editor: HandTrace): void {
   expect(carved.length).toBeLessThanOrEqual(closed.length);
   const big = (paths: readonly Point2[][]) => paths.filter((p) => area(p) > TINY_AREA);
   expectSameOutlines(big(carved), big(closed), 1e-3);
-  expect(drawnState(reloaded(editor))).toEqual(drawnState(editor));
-  expect(reloaded(editor).design()).toEqual(editor.design());
+  const again = reloaded(editor);
+  expect(again.shapes()).toEqual(editor.shapes());
+  expect(again.design()).toEqual(editor.design());
+  // The selection isn't kept, like the view: what's drawn matches whenever nothing is selected.
+  if (drawn.pill.kind !== "point" && drawn.pill.kind !== "shape") expect(drawnState(again)).toEqual(drawnState(editor));
 }
 
 /**
@@ -95,7 +154,7 @@ function reloaded(editor: HandTrace): HandTrace {
 
 /**
  * What's drawn, as a fraction of the drawn page so the view (zoom and pan, not kept) drops out. Undo and redo are
- * left out too: history isn't kept either.
+ * left out too: history isn't kept either (nor the selection, so callers compare this only with nothing selected).
  */
 function drawnState(editor: HandTrace) {
   const { page, points, shapes, pill, note, can, tools } = editor.drawn();
@@ -113,7 +172,7 @@ function drawnState(editor: HandTrace) {
 }
 
 describe("hand-trace editor: random sequences", () => {
-  it("keeps points on the page, carves exactly the closed shapes, reloads as drawn, and undoes back to the start", () => {
+  it("keeps one thing selected and points on the page, carves the closed shapes, reloads as drawn, undoes to start", () => {
     fc.assert(
       fc.property(fc.array(step, { minLength: 5, maxLength: 40, size: "max" }), (steps) => {
         const editor = createHandTrace({ toDesign: designFromPathData });

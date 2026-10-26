@@ -28,6 +28,8 @@ const GRID_DIVISIONS = 10;
 const POINT_HALF_PX = 5;
 const END_RING_PX = 9;
 const CLOSE_RING_PX = 12;
+/** Half the insert marker's diagonal. */
+const MARKER_HALF_PX = 5;
 /** Decimals kept in screen coordinates. */
 const DECIMALS = 1;
 
@@ -40,7 +42,7 @@ const DECIMALS = 1;
 export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, onKeep: () => void): HandTraceCanvas {
   view.classList.add("hand-trace");
   view.innerHTML = `
-    <svg class="ht-svg" role="img" aria-label="Blank page. Tap or click to place points; drag to pan, scroll to zoom."></svg>
+    <svg class="ht-svg" role="img" aria-label="Blank page. Tap or click to place points or select them; drag a point to move it, or empty space to pan; scroll to zoom."></svg>
     <div class="ht-tools">
       <div class="ht-top-left">
         <button type="button" data-act="undo">Undo</button>
@@ -92,24 +94,29 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
 
   const renderPill = ({ pill: state }: Drawn) => {
     if (state.kind === "hint") return void (pill.textContent = state.text);
-    const count = document.createElement("span");
-    count.textContent = `${state.points} point${state.points === 1 ? "" : "s"}`;
-    const close = document.createElement("button");
-    close.type = "button";
-    close.dataset.act = "close";
-    close.textContent = "Close";
-    close.disabled = !state.canClose;
-    const end = document.createElement("button");
-    end.type = "button";
-    end.dataset.act = "end";
-    end.textContent = "End";
-    pill.replaceChildren(count, close, end);
+    if (state.kind === "drawing") {
+      const count = document.createElement("span");
+      count.textContent = `${state.points} point${state.points === 1 ? "" : "s"}`;
+      const close = pillButton("close", "Close");
+      close.disabled = !state.canClose;
+      return pill.replaceChildren(count, close, pillButton("end", "End"));
+    }
+    // Never "Done": that belongs to the loaded design.
+    const deselect = pillButton("clearSelection", "✕");
+    deselect.title = "Clear selection";
+    deselect.setAttribute("aria-label", "Clear selection");
+    if (state.kind === "shape") return pill.replaceChildren(pillButton("delete", "Delete shape"), deselect);
+    const carry = state.canCarryOn ? [pillButton("carryOn", "Carry on")] : [];
+    pill.replaceChildren(pillButton("delete", "Delete point"), ...carry, deselect);
   };
 
+  /** The editor commands the overlay's buttons press, by their `data-act`. */
+  const ACTS = ["undo", "redo", "clear", "close", "end", "delete", "carryOn", "clearSelection"] as const;
   tools.addEventListener("click", (e) => {
     const act = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-act]")?.dataset.act;
-    if (!editor || !act) return;
-    if (act === "undo" || act === "redo" || act === "clear" || act === "close" || act === "end") editor[act]();
+    const command = ACTS.find((a) => a === act);
+    if (!editor || !command) return;
+    editor[command]();
     render();
   });
 
@@ -169,6 +176,15 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   };
 }
 
+/** A pill button that presses editor command `act`. */
+function pillButton(act: string, text: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.dataset.act = act;
+  b.textContent = text;
+  return b;
+}
+
 /** Draw the page, the shapes and their points. */
 function draw(svg: SVGSVGElement, drawn: Drawn): void {
   const { page, axis } = drawn;
@@ -181,7 +197,9 @@ function draw(svg: SVGSVGElement, drawn: Drawn): void {
   parts.push(el("line", { class: "ht-axis", x1: axis.from.x, y1: axis.from.y, x2: axis.to.x, y2: axis.to.y }, DECIMALS));
   if (drawn.fill) parts.push(el("path", { class: "ht-fill", d: drawn.fill }));
   for (const shape of drawn.shapes) {
-    const cls = `ht-line${shape.closed ? "" : " open"}${shape.drawing ? " drawing" : ""}`;
+    const cls = ["ht-line", !shape.closed && "open", shape.drawing && "drawing", shape.selected && "selected"]
+      .filter(Boolean)
+      .join(" ");
     parts.push(el("path", { class: cls, d: shape.d }));
   }
   for (const p of drawn.points) {
@@ -189,11 +207,18 @@ function draw(svg: SVGSVGElement, drawn: Drawn): void {
     if (p.closable) parts.push(el("circle", { class: "ht-close-ring", cx: x, cy: y, r: CLOSE_RING_PX }, DECIMALS));
     if (p.end) parts.push(el("circle", { class: "ht-end", cx: x, cy: y, r: END_RING_PX }, DECIMALS));
     const half = POINT_HALF_PX;
+    const cls = p.selected ? "ht-point selected" : "ht-point";
     parts.push(
       p.kind === "smooth"
-        ? el("circle", { class: "ht-point", cx: x, cy: y, r: half }, DECIMALS)
-        : el("rect", { class: "ht-point", x: x - half, y: y - half, width: 2 * half, height: 2 * half }, DECIMALS),
+        ? el("circle", { class: cls, cx: x, cy: y, r: half }, DECIMALS)
+        : el("rect", { class: cls, x: x - half, y: y - half, width: 2 * half, height: 2 * half }, DECIMALS),
     );
+  }
+  for (const { x, y } of drawn.markers) {
+    const h = MARKER_HALF_PX / Math.SQRT2;
+    const transform = `rotate(45 ${x.toFixed(DECIMALS)} ${y.toFixed(DECIMALS)})`;
+    const square = { x: x - h, y: y - h, width: 2 * h, height: 2 * h };
+    parts.push(el("rect", { class: "ht-marker", ...square, transform }, DECIMALS));
   }
   svg.replaceChildren(...parts);
 }
