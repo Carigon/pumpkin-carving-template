@@ -17,8 +17,8 @@
  *   gives a corner handles along its edges, to drag from there.
  * ⚙ also sets hit priority between handles and points, the loupe on handle drags, and the double-tap window.
  * B was chosen. Placed points are always corners (a "Curves" setting placing smooth points was tried and dropped: the
- * shape isn't known until it's closed). ⚙ "New point on a curve" swaps inserting a smooth point that splits the curve
- * exactly for a corner with no handles. "Demo" in the bar loads curved shapes as if imported (a round
+ * shape isn't known until it's closed). A point inserted on a curve is a corner with no handles (chosen); ⚙ "New
+ * point on a curve" swaps back to a smooth point that splits the curve exactly. "Demo" in the bar loads curved shapes as if imported (a round
  * eye, a crescent with corner tips, a symmetric smile) to try the handles on straight away. Shapes are drawn with
  * corner points as squares and smooth points as circles.
  *
@@ -90,12 +90,14 @@ interface Knob {
   side: Side;
   mirror: boolean;
   stub: boolean;
+  /** The selected point's own handle (or any, with a whole shape selected), not a neighbour's. */
+  own: boolean;
 }
 type Hit =
   | { kind: "point"; d: ONode }
   | { kind: "knob"; k: Knob }
   | { kind: "marker"; e: Edge }
-  | { kind: "shape"; id: number }
+  | { kind: "shape"; id: number; reflected: boolean }
   | { kind: "empty" };
 
 interface Action {
@@ -225,7 +227,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     show: pick("show", SHOWS, VARIANTS[variant].show),
     pull: pick("pull", PULLS, VARIANTS[variant].pull),
     priority: pick("priority", PRIORITIES, DEFAULTS.priority),
-    split: pick("split", SPLITS, "smooth"),
+    split: pick("split", SPLITS, "corner"),
     hloupe: params.get("hloupe") !== "0",
     dbl: params.has("dbl") ? Number(params.get("dbl")) : DEFAULTS.dbl,
     showHits: params.get("showHits") === "1",
@@ -669,7 +671,8 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       const o = nd[side];
       if (!stubTip && (!o || len(o) < 1e-6)) return;
       const m = nd.map[side];
-      list.push({ base: nd.p, tip: stubTip ?? add(nd.p, o!), id: s.id, index: nd.index, side: m.side, mirror: m.mirror, stub: !!stubTip });
+      const own = selIdx < 0 || nd.index === selIdx;
+      list.push({ base: nd.p, tip: stubTip ?? add(nd.p, o!), id: s.id, index: nd.index, side: m.side, mirror: m.mirror, stub: !!stubTip, own });
     };
     for (const o of geometry(s).outlines)
       o.nodes.forEach((nd, k) => {
@@ -715,18 +718,19 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     const sel = selection && byId(selection.id);
     if (editing && sel) for (const e of visibleMarkers(sel)) if (dist(toScreen(bez(e, 0.5)), p) < r) return { kind: "marker", e };
     const d = toDesign(p);
-    for (const s of order) {
-      const g = geometry(s);
-      const nearEdge = g.edges.some((e) => {
-        const pts = flat(e, toScreen);
-        return pts.some((q, i) => i > 0 && segDist(p, pts[i - 1], q) < r * 0.6);
-      });
-      if (nearEdge || g.outlines.some((o) => o.closed && inside(d, outlinePoly(o)))) return { kind: "shape", id: s.id };
-    }
+    for (const s of order)
+      for (const o of geometry(s).outlines) {
+        const nearEdge = segments(o).some((sg) => {
+          const pts = flat(segEdge(sg), toScreen);
+          return pts.some((q, i) => i > 0 && segDist(p, pts[i - 1], q) < r * 0.6);
+        });
+        // Which copy was touched, so dragging a twin's reflection moves it the way the finger goes.
+        if (nearEdge || (o.closed && inside(d, outlinePoly(o)))) return { kind: "shape", id: s.id, reflected: !!o.nodes[0]?.reflected };
+      }
     return { kind: "empty" };
   }
-  const outlinePoly = (o: Outline): Pt[] =>
-    segments(o).flatMap(([u, v]) => flat({ a: u.p, c1: add(u.p, u.out ?? ZERO), c2: add(v.p, v.in ?? ZERO), b: v.p, id: 0, insertAt: 0 }).slice(1));
+  const segEdge = ([u, v]: [ONode, ONode]): Edge => ({ a: u.p, c1: add(u.p, u.out ?? ZERO), c2: add(v.p, v.in ?? ZERO), b: v.p, id: 0, insertAt: 0 });
+  const outlinePoly = (o: Outline): Pt[] => segments(o).flatMap((sg) => flat(segEdge(sg)).slice(1));
   /** Insert markers: hidden on edges shorter than about 48 px along the curve on screen. */
   const visibleMarkers = (s: Shape) =>
     geometry(s).edges.filter((e) => {
@@ -834,7 +838,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       cancel: () => restore(before),
     };
   }
-  function dragShapeAction(g: OneGesture, id: number): Action {
+  function dragShapeAction(g: OneGesture, id: number, reflected: boolean): Action {
     const before = snapshot();
     const orig = byId(id)!.points.map((p) => ({ ...p }));
     const start = toDesign(g.start);
@@ -844,7 +848,8 @@ export function mountHandTracePrototype(root: HTMLElement): void {
       move(screen) {
         const s = byId(id)!;
         const d = toDesign(screen);
-        let dx = d.x - start.x;
+        // The points are the carver's side; dragging the reflection moves them the other way.
+        let dx = (d.x - start.x) * (reflected ? -1 : 1);
         let dy = d.y - start.y;
         const xs = orig.map((p) => p.x);
         const ys = orig.map((p) => p.y);
@@ -957,7 +962,7 @@ export function mountHandTracePrototype(root: HTMLElement): void {
     if (hit.kind === "point") return dragPointAction(g, hit.d);
     if (hit.kind === "knob") return dragKnobAction(g, hit.k);
     if (hit.kind === "marker") return insertDragAction(g, hit.e);
-    if (hit.kind === "shape" && selection?.kind === "shape" && selection.id === hit.id) return dragShapeAction(g, hit.id);
+    if (hit.kind === "shape" && selection?.kind === "shape" && selection.id === hit.id) return dragShapeAction(g, hit.id, hit.reflected);
     return panAction(g);
   }
 
@@ -1239,10 +1244,12 @@ export function mountHandTracePrototype(root: HTMLElement): void {
           if (hits) out.push(`<circle class="ht-hitarea" cx="${f(m.x)}" cy="${f(m.y)}" r="${tuning.hit}"/>`);
         }
     // Handles, on top.
-    for (const k of knobs()) {
+    // Neighbours' handles faint and hollow, under the selected point's own.
+    for (const k of knobs().sort((a, b) => Number(a.own) - Number(b.own))) {
       const [a, b] = [map(k.base), map(k.tip)];
-      out.push(`<line class="ht-hline${k.stub ? " stub" : ""}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`);
-      out.push(`<circle class="${k.stub ? "ht-stub" : "ht-knob"}" cx="${f(b.x)}" cy="${f(b.y)}" r="${(k.stub ? 5.5 : 4.5) * dot}"/>`);
+      const nb = k.own ? "" : " nb";
+      out.push(`<line class="ht-hline${k.stub ? " stub" : ""}${nb}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`);
+      out.push(`<circle class="${k.stub ? "ht-stub" : "ht-knob"}${nb}" cx="${f(b.x)}" cy="${f(b.y)}" r="${(k.stub ? 5.5 : k.own ? 5 : 3.5) * dot}"/>`);
       if (hits) out.push(`<circle class="ht-hitarea knob" cx="${f(b.x)}" cy="${f(b.y)}" r="${tuning.hit}"/>`);
     }
     return out.join("");
@@ -1631,9 +1638,11 @@ function injectStyle(): void {
   .ht-pt.closable { fill: #5be37d; }
   .ht-close-ring { fill: none; stroke: #5be37d; stroke-width: 2; stroke-dasharray: 3 2; }
   .ht-marker { fill: #1b1b1b; fill-opacity: 0.6; stroke: #39c6ff; stroke-width: 1.5; }
-  .ht-hline { stroke: #39c6ff; stroke-width: 1.5; }
+  .ht-hline { stroke: #39c6ff; stroke-width: 2; }
   .ht-hline.stub { stroke-dasharray: 3 3; }
+  .ht-hline.nb { stroke: #b9c4cc; stroke-width: 1; stroke-opacity: 0.8; }
   .ht-knob { fill: #39c6ff; stroke: #fff; stroke-width: 1.5; }
+  .ht-knob.nb { fill: #2a2622; fill-opacity: 0.6; stroke: #b9c4cc; stroke-width: 1.5; }
   .ht-stub { fill: rgb(0 0 0 / 0.45); stroke: #39c6ff; stroke-width: 2; }
   .ht-hitarea { fill: #39c6ff; fill-opacity: 0.08; stroke: #39c6ff; stroke-opacity: 0.35; }
   .ht-hitarea.knob { fill: #ff3b6b; stroke: #ff3b6b; }
