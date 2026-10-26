@@ -13,6 +13,9 @@ const TINY_AREA = 1e-4;
 
 /** The commands a step can press. */
 const COMMANDS = ["close", "end", "undo", "redo", "clear", "delete", "carryOn", "clearSelection"] as const;
+/** The keys a step can press (with or without Ctrl and Shift), the editor's and a few that aren't. */
+const KEYS = ["z", "y", "Enter", "Escape", "Delete", "Backspace", "+", "-", "0", "c", "Tab"] as const;
+const ARROW_KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"] as const;
 
 /**
  * One random step: a gesture somewhere on (or just off) the canvas; a tap on, or drag from, an existing point, insert
@@ -28,6 +31,10 @@ type Step =
   | { kind: "holdOn"; target: Target; index: number; to: Point2; cancel: boolean }
   | { kind: "pinch"; from: Point2; at: Point2; scale: number }
   | { kind: "multiTap"; fingers: 2 | 3 }
+  | { kind: "key"; key: string; ctrl: boolean; shift: boolean }
+  | { kind: "pan"; from: Point2; to: Point2 }
+  | { kind: "hover"; at: Point2 | null; pans: boolean }
+  | { kind: "dragEscaped"; target: Target; index: number; to: Point2 }
   | { kind: (typeof COMMANDS)[number] | "done" | "edit" };
 
 /** What a step aims at: a point, an insert marker, or a spot on a shape's outline (a quarter along its first edge). */
@@ -86,6 +93,24 @@ const step: fc.Arbitrary<Step> = fc.oneof(
   },
   { weight: 1, arbitrary: fc.record({ kind: fc.constant("multiTap" as const), fingers: fc.constantFrom(2 as const, 3 as const) }) },
   { weight: 4, arbitrary: fc.record({ kind: fc.constantFrom(...COMMANDS) }) },
+  {
+    weight: 3,
+    arbitrary: fc.record({
+      kind: fc.constant("key" as const),
+      key: fc.constantFrom<string>(...KEYS, ...ARROW_KEYS, ...ARROW_KEYS),
+      ctrl: fc.boolean(),
+      shift: fc.boolean(),
+    }),
+  },
+  { weight: 1, arbitrary: fc.record({ kind: fc.constant("pan" as const), from: screen, to: screen }) },
+  {
+    weight: 1,
+    arbitrary: fc.record({ kind: fc.constant("hover" as const), at: fc.option(screen), pans: fc.boolean() }),
+  },
+  {
+    weight: 1,
+    arbitrary: fc.record({ kind: fc.constant("dragEscaped" as const), target, index: fc.nat(), to: screen }),
+  },
   { weight: 1, arbitrary: fc.record({ kind: fc.constantFrom("done", "edit" as const) }) },
 );
 
@@ -121,6 +146,7 @@ function holdOf(editor: HandTrace, from: Point2, to: Point2, cancel: boolean): v
 
 function run(editor: HandTrace, s: Step): void {
   const touch = "touch" as const;
+  const mouse = "mouse" as const;
   switch (s.kind) {
     case "tap":
       return editor.gesture({ type: "tap", at: s.at, pointerType: touch });
@@ -149,6 +175,25 @@ function run(editor: HandTrace, s: Step): void {
       return editor.gesture({ type: "pinch", from: s.from, at: s.at, scale: s.scale, pointerType: touch });
     case "multiTap":
       return editor.gesture({ type: "multiTap", fingers: s.fingers, pointerType: touch });
+    case "key":
+      return void editor.key({ key: s.key, ctrl: s.ctrl, shift: s.shift });
+    case "pan": {
+      const pan = (phase: "start" | "end", at: Point2) => ({ type: "pan" as const, phase, from: s.from, at, pointerType: mouse });
+      editor.gesture(pan("start", s.to));
+      return editor.gesture(pan("end", s.to));
+    }
+    case "hover":
+      return editor.gesture({ type: "hover", at: s.at, pointerType: mouse, pans: s.pans });
+    case "dragEscaped": {
+      const from = spot(editor, s.target, s.index);
+      if (!from) return;
+      const drag = (phase: "start" | "move" | "end", at: Point2) => ({ type: "drag" as const, phase, from, at, pointerType: mouse });
+      editor.gesture(drag("start", from));
+      editor.gesture(drag("move", s.to));
+      editor.key({ key: "Escape", ctrl: false, shift: false });
+      editor.gesture(drag("move", s.to));
+      return editor.gesture(drag("end", s.to));
+    }
     default:
       return editor[s.kind]();
   }
@@ -168,6 +213,7 @@ function check(editor: HandTrace): void {
   // Every step's gesture has lifted: nothing is aiming.
   expect(drawn.loupe).toBeNull();
   if (drawn.pill.kind === "drawing") expect(drawn.markers).toEqual([]);
+  if (drawn.rubberBand) expect(drawn.pill.kind).toBe("drawing");
   const shapes = editor.shapes();
   expect(shapes.every((s) => s.points.length > 0 && (!s.closed || s.points.length >= 3))).toBe(true);
   for (const p of shapes.flatMap((s) => s.points)) {
