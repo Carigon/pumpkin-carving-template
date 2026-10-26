@@ -4,11 +4,12 @@
  * holes. Reading needs the DOM (`readSvgDesign`); writing is plain text.
  */
 import { distanceToSegment, type BBox, type Design, type Point2 } from "../core";
-import { readRecord, RECORD_VERSION, writeRecord, type DesignRecord, type PhotoFile } from "../designRecord";
+import { readRecord, RECORD_VERSION, writeRecord, type DesignRecord, type PhotoFile, type PhotoRecord } from "../designRecord";
 import type { Page } from "../handTrace";
 import { flattenPathData, roughExtent } from "./flattenPath";
 import { RELATIVE_TOLERANCE } from "./pathDesign";
 import { readSvgDesign, RECORD_ELEMENT, RECORD_NAMESPACE } from "./svgDesign";
+import { svgShapes } from "./svgHandTrace";
 
 /**
  * The record a hand-trace file carries: a blank page's, or a photo's with the photo as the file should carry it (a
@@ -78,15 +79,38 @@ export function handTraceFileName(date: Date, name?: string): string {
  * that's stale, from an unknown version or invalid.
  */
 export function readHandTraceFile(text: string): OpenedSvg {
+  return readFile(text).opened;
+}
+
+/**
+ * Edit as hand-trace on a hand-trace file changed in another program: the shapes its visible path draws now, all
+ * closed with `mirror: "none"` (a former symmetric shape whole, twins as two), back over the stale record's photo
+ * with its cleanup, tone, auto-trace side and method, on the canvas and not Done. The file is drawn in that photo's
+ * design space, so nothing moves; the record's own shapes, open ones included, aren't taken. Null when the file
+ * isn't a changed photo hand-trace with a readable record: it then converts onto a page as any SVG design does.
+ */
+export function editOnStalePhoto(text: string): PhotoRecord | null {
+  const { stale } = readFile(text);
+  if (stale?.source !== "photo") return null;
+  // The file's user space is design space with y down.
+  const shapes = svgShapes(text, ({ x, y }) => ({ x, y: -y }));
+  return { ...stale, inCleanup: false, done: false, handTrace: { shapes, drawing: null, done: false } };
+}
+
+/** What `readHandTraceFile` opens `text` as, and the record it carries when that's stale (its drawing changed). */
+function readFile(text: string): { opened: OpenedSvg; stale?: FileRecord } {
   const svg = readSvgDesign(text);
   const plain = (note?: string): OpenedSvg => ({ kind: "svg", design: svg.design, notes: note ? [...svg.notes, note] : svg.notes });
-  if (svg.record === null) return plain();
+  if (svg.record === null) return { opened: plain() };
   const raw = parseJson(svg.record);
-  if (!isObject(raw)) return plain(INVALID);
-  if (raw.version !== RECORD_VERSION) return plain(UNKNOWN_VERSION);
+  if (!isObject(raw)) return { opened: plain(INVALID) };
+  if (raw.version !== RECORD_VERSION) return { opened: plain(UNKNOWN_VERSION) };
   const record = readRecord({ ...raw, photo: readPhoto(raw.photo) });
-  if (!record || record.source === "svg" || typeof raw.fingerprint !== "string" || emptied(raw, record)) return plain(INVALID);
-  return draws(svg.design, raw.fingerprint) ? { kind: "hand-trace", record } : plain(CHANGED);
+  if (!record || record.source === "svg" || typeof raw.fingerprint !== "string" || emptied(raw, record)) {
+    return { opened: plain(INVALID) };
+  }
+  if (draws(svg.design, raw.fingerprint)) return { opened: { kind: "hand-trace", record } };
+  return { opened: plain(CHANGED), stale: record };
 }
 
 /** How many bytes go to `String.fromCharCode` at a time: one call with a whole photo's would overflow the stack. */

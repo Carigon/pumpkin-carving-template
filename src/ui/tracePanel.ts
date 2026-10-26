@@ -44,8 +44,17 @@ export interface TraceHooks {
   onCleanup(): void;
   /** A new cleaned-up photo is ready, at `href`, for a hand-trace to be placed over. */
   onCleaned(href: string): void;
-  /** The tracing method switch was flipped (which clears Done). */
+  /** The tracing method switch was flipped (which clears Done), or `chooseMethod` called. */
   onMethod(): void;
+  /** Edit as hand-trace was pressed under the switch: copy `autoTraced()` into the hand-trace. */
+  onEditAuto(): void;
+}
+
+/** Auto-trace's result: Potrace's SVG, and the size in px of the cleaned-up photo it traced. */
+export interface AutoTraced {
+  svg: string;
+  width: number;
+  height: number;
 }
 
 export interface TracePanel {
@@ -70,6 +79,10 @@ export interface TracePanel {
   inCleanup(): boolean;
   /** The chosen tracing method. */
   method(): TracingMethod;
+  /** Flip the switch to `method`, as the carver would (which clears Done). */
+  chooseMethod(method: TracingMethod): void;
+  /** Auto-trace's last result, while it has at least one shape; null otherwise. */
+  autoTraced(): AutoTraced | null;
   /** The design space a hand-trace over the cleaned-up photo is placed in, as the cleanup now makes it. */
   page(): Page;
   /** Where the hand-trace canvas goes in the Photo view: shown past Cleanup while hand-trace is chosen. */
@@ -114,6 +127,9 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
         <label><input type="radio" name="t-method" value="hand" />Hand-trace</label>
       </div>
     </fieldset>
+    <div class="trace-accept-row trace-edit-auto" hidden>
+      <button type="button">Edit as hand-trace</button>
+    </div>
     <div class="trace-settings">
     <div class="field">
       <label for="t-threshold">Threshold</label>
@@ -154,6 +170,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
   const tracingEl = $<HTMLElement>(".trace-tracing");
   const straighten = $<HTMLButtonElement>(".trace-straighten");
   const methods = [...root.querySelectorAll<HTMLInputElement>('input[name="t-method"]')];
+  const editAuto = $<HTMLElement>(".trace-edit-auto");
   const settingsEl = $<HTMLElement>(".trace-settings");
   const acceptButton = $<HTMLButtonElement>(".trace-accept");
   const acceptedNote = $<HTMLElement>(".trace-accepted-note");
@@ -173,6 +190,8 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
   let cleaned: ImageData | null = null;
   /** The cleaned-up photo auto-trace last ran on: when it's still `cleaned`, its result is up to date. */
   let tracedFrom: ImageData | null = null;
+  /** Auto-trace's last result while it has a shape: what Edit as hand-trace copies. */
+  let traced: AutoTraced | null = null;
   /** The cleaned-up photo as an image URL, for the hand-trace canvas; revoked once replaced. */
   let cleanedHref: string | null = null;
   let traceId = 0;
@@ -190,6 +209,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     // Tone is shown on the cleaned-up photo while it's being set; past Cleanup only the hand-trace's photo has it.
     cleanedCanvas.style.filter = cleaning ? toneFilter(cleanupPanel.tone()) : "";
     for (const m of methods) m.checked = m.value === method;
+    editAuto.hidden = !auto || traced === null;
     settingsEl.hidden = !auto || accepted;
     straighten.hidden = accepted;
     acceptButton.textContent = accepted ? "Edit" : "Done";
@@ -228,15 +248,18 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     show();
     hooks.onAccepted();
   });
+  const chooseMethod = (next: TracingMethod) => {
+    method = next;
+    accepted = false;
+    show();
+    traceIfShown();
+    hooks.onMethod();
+  };
   for (const m of methods)
     m.addEventListener("change", () => {
-      if (!m.checked) return;
-      method = m.value as TracingMethod;
-      accepted = false;
-      show();
-      traceIfShown();
-      hooks.onMethod();
+      if (m.checked) chooseMethod(m.value as TracingMethod);
     });
+  editAuto.querySelector("button")!.addEventListener("click", () => hooks.onEditAuto());
   straighten.addEventListener("click", () => {
     cleaning = true;
     show();
@@ -292,6 +315,8 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
       const result = await traceImage(from, autoTrace());
       if (id !== traceId) return;
       tracedFrom = from;
+      traced = result.design ? { svg: result.svg, width: from.width, height: from.height } : null;
+      show();
       resultEl.innerHTML = result.svg;
       fitAspect(resultEl.querySelector("svg"));
       const count = result.design
@@ -300,6 +325,8 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
       hooks.onTraced(result.design, [count, ...result.notes].filter(Boolean).join(" "), result.design === null);
     } catch (err) {
       if (id !== traceId) return;
+      traced = null;
+      show();
       resultEl.replaceChildren();
       hooks.onTraced(null, `Auto-trace failed: ${err instanceof Error ? err.message : String(err)}`, true);
     }
@@ -327,7 +354,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
   const forget = () => {
     clearTimeout(timer);
     traceId++;
-    [photoPixels, cleaned, tracedFrom] = [null, null, null];
+    [photoPixels, cleaned, tracedFrom, traced] = [null, null, null, null];
     if (cleanedHref) URL.revokeObjectURL(cleanedHref);
     cleanedHref = null;
     resultEl.replaceChildren();
@@ -369,6 +396,8 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     tone: () => cleanupPanel.tone(),
     inCleanup: () => cleaning,
     method: () => method,
+    chooseMethod,
+    autoTraced: () => traced,
     page: () => photoPage(cleanupPanel.cleanedUp()),
     handSlot,
   };

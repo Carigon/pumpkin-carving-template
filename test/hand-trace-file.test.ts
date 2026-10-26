@@ -3,7 +3,7 @@ import svgpath from "svgpath";
 import { describe, expect, it } from "vitest";
 import type { PhotoFile, PhotoRecord } from "../src/designRecord";
 import { createHandTrace, type HandTrace, type HandTraceRecord } from "../src/handTrace";
-import { handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../src/input/handTraceFile";
+import { editOnStalePhoto, handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../src/input/handTraceFile";
 import { designFromPathData } from "../src/input/pathDesign";
 import { readSvgDesign } from "../src/input/svgDesign";
 import { expectSameOutlines, outlinesOf } from "./outlines";
@@ -194,6 +194,49 @@ describe("hand-trace file: changed in another program", () => {
     if (read.kind !== "svg") throw new Error("expected an SVG design");
     const all = editorOf(WORK).design()!.bbox;
     expect(read.design!.bbox).toEqual({ minX: all.minX, minY: 0.1, maxX: 1.1, maxY: all.maxY });
+  });
+});
+
+describe("hand-trace file: Edit as hand-trace on a changed one", () => {
+  /** PHOTO_WORK with the square's third point moved right, drawn as another program saved it over the photo's file. */
+  const changed = () => {
+    const shapes = PHOTO_WORK.shapes.map((s) =>
+      s.id === 1 ? { ...s, points: s.points.map((p, i) => (i === 2 ? { ...p, x: p.x + 0.05 } : p)) } : s,
+    );
+    const editor = overPhoto({ ...PHOTO_WORK, shapes });
+    return { editor, text: withPath(photoFileOf(photoRecord()), () => editor.pathData()) };
+  };
+
+  it("a moved point loads as an SVG design, and editing it reuses the stale record's photo, cleanup and auto-trace side", () => {
+    const { text } = changed();
+    expect(readHandTraceFile(text)).toMatchObject({ kind: "svg", notes: [expect.stringContaining("changed in another program")] });
+    const edited = editOnStalePhoto(text)!;
+    const { photo, cleanup, tone, autoTrace, method } = photoRecord();
+    expect(edited).toMatchObject({ source: "photo", photo: { name: photo.name, type: photo.type }, cleanup, tone, autoTrace, method });
+    expect(new Uint8Array(edited.photo.bytes)).toEqual(new Uint8Array(photo.bytes));
+  });
+
+  it("takes the shapes from the visible path, where they are on the photo, without the record's open shapes", () => {
+    const { editor, text } = changed();
+    const { handTrace } = editOnStalePhoto(text)!;
+    expect(handTrace).toMatchObject({ drawing: null, done: false });
+    expect(handTrace.shapes.map((s) => [s.closed, s.mirror])).toEqual([[true, "none"]]);
+    expectSameOutlines(overPhoto(handTrace).design()!.paths, editor.design()!.paths, TOL);
+  });
+
+  it("lands on the canvas, not in Cleanup, and not Done", () => {
+    const { text } = changed();
+    expect(editOnStalePhoto(withRecord(text, (r) => ({ ...r, inCleanup: true })))).toMatchObject({ inCleanup: false, done: false });
+  });
+
+  it("a blank page's changed file has no photo to reuse: it converts as any SVG design", () => {
+    const text = withPath(fileOf(editorOf(WORK)), (d) => `${d}M0.05 -0.05L0.1 -0.05L0.1 -0.1Z`);
+    expect(editOnStalePhoto(text)).toBeNull();
+  });
+
+  it("a record whose photo can't be read has none to reuse", () => {
+    const text = withRecord(changed().text, (r) => ({ ...r, photo: { name: "face.jpg", type: "image/jpeg", base64: "%%" } }));
+    expect(editOnStalePhoto(text)).toBeNull();
   });
 });
 

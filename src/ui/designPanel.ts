@@ -1,9 +1,9 @@
 import type { Design, Placement, TemplateWarning, Units } from "../core";
 import type { DesignRecord, PageRecord, PhotoFile, PhotoRecord, RecordKeeper } from "../designRecord";
 import type { HandTraceRecord } from "../handTrace";
-import { handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
+import { editOnStalePhoto, handTraceFileName, readHandTraceFile, writeHandTraceFile } from "../input/handTraceFile";
 import { filePhoto } from "../input/shrinkPhoto";
-import { readSvgHandTrace, type SvgHandTrace } from "../input/svgHandTrace";
+import { autoTraceShapes, readSvgHandTrace, type SvgHandTrace } from "../input/svgHandTrace";
 import { downloadBlob } from "./download";
 import { toneFilter } from "./cleanupPanel";
 import { mountHandTraceCanvas } from "./handTraceCanvas";
@@ -248,6 +248,13 @@ export function mountDesignPanel(
       onChange();
       keep();
     },
+    onEditAuto() {
+      const traced = trace.autoTraced();
+      if (!traced || !handTrace.editor() || !mayReplace("Replace your hand-trace?")) return;
+      trace.chooseMethod("hand");
+      // Already in the cleaned-up photo's space: nothing moves. One undo step, which the canvas reports and keeps.
+      handTrace.replace(autoTraceShapes(traced.svg, traced));
+    },
   });
   // A slider released, Invert ticked or a speckle size typed: a finished change to auto-trace's settings.
   traceEl.addEventListener("change", keep);
@@ -331,9 +338,12 @@ export function mountDesignPanel(
     showHandTrace();
     onChange();
   });
-  /** Loading another design replaces the hand-trace: ask first, only when it has points. */
-  const mayReplaceHandTrace = () =>
-    (handTrace.editor()?.counts().points ?? 0) === 0 || window.confirm("Discard your hand-trace?");
+  /** Replacing the hand-trace asks `question` first, only when the hand-trace has points. */
+  function mayReplace(question: string): boolean {
+    return (handTrace.editor()?.counts().points ?? 0) === 0 || window.confirm(question);
+  }
+  /** Loading another design replaces the hand-trace. */
+  const mayReplaceHandTrace = () => mayReplace("Discard your hand-trace?");
   const dropHandTrace = () => {
     handTrace.clear();
     showHandTrace();
@@ -391,21 +401,29 @@ export function mountDesignPanel(
     manyPoints.hidden = shapes.reduce((n, s) => n + s.points.length, 0) <= MANY_POINTS;
   };
   /**
-   * Edit as hand-trace: the SVG design becomes a hand-trace for good, looking as it did, on a page shaped to it, in
-   * the Page view; the file isn't kept. It asks nothing, and the loader's notes stay on the status line.
+   * Edit as hand-trace: the SVG design becomes a hand-trace for good, looking as it did; the file isn't kept. A
+   * hand-trace file changed in another program goes back over its stale record's photo, as that photo's hand-trace,
+   * when the photo still reads; any other lands on a page shaped to it, in the Page view, the loader's notes staying
+   * on the status line. It asks nothing.
    */
-  editSvg.querySelector("button")!.addEventListener("click", () => {
+  editSvg.querySelector("button")!.addEventListener("click", () => void editSvgDesign());
+  async function editSvgDesign() {
     const edited = editedSvg();
     if (!svg || !edited) return;
-    const { name } = svg;
+    const { name, text } = svg;
     svg = null;
-    startBlankPage({ source: "page", ...edited, name });
     showEditSvg();
-    design = handTrace.editor()?.design() ?? null;
+    const onPhoto = editOnStalePhoto(text);
+    if (onPhoto) await openPhoto(onPhoto);
+    if (!trace.loaded()) {
+      photo = null; // none, or it wouldn't read: a page instead
+      startBlankPage({ source: "page", ...edited, name });
+      design = handTrace.editor()?.design() ?? null;
+    }
     showHandTrace();
     onChange();
     keep();
-  });
+  }
 
   async function load() {
     const f = file.files?.[0];
