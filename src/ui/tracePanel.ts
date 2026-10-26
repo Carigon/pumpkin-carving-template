@@ -8,8 +8,8 @@ import {
   type Tone,
   type TracingMethod,
 } from "../designRecord";
-import type { Page } from "../handTrace";
-import { exifFocal35Mm, photoPage, START_FRAME, type Cleanup } from "../input/cleanupFrame";
+import type { HandTraceCleanup } from "../handTrace";
+import { carryPoints, exifFocal35Mm, photoPage, START_FRAME, type Cleanup } from "../input/cleanupFrame";
 import { fitWithin } from "../input/rasterPrep";
 import { startCleanupWarp } from "../worker/cleanupWarp";
 import { mountCleanupPanel, toneFilter } from "./cleanupPanel";
@@ -42,6 +42,12 @@ export interface TraceHooks {
   onAccepted(): void;
   /** A released change to the cleanup or its tone, or Cleanup was entered or left. */
   onCleanup(): void;
+  /** The frame moved and hasn't been released yet (a corner dragged or nudged, Turn moving): `cleanup()` is live. */
+  onCleanupLive(): void;
+  /**
+   * The hand-trace's shapes to draw over the photo in Cleanup, each position through `toPhoto`; null for none.
+   */
+  shapesOver(toPhoto: (p: { x: number; y: number }) => { x: number; y: number }): { closed: string; open: string } | null;
   /** A new cleaned-up photo is ready, at `href`, for a hand-trace to be placed over. */
   onCleaned(href: string): void;
   /** The tracing method switch was flipped (which clears Done), or `chooseMethod` called. */
@@ -73,6 +79,8 @@ export interface TracePanel {
   autoTrace(): AutoTraceSettings;
   /** The photo's cleanup as it is now. */
   cleanup(): Cleanup;
+  /** Put `cleanup` back, as an undo or redo of a cleanup change does: the photo is cleaned up again by it. */
+  setCleanup(cleanup: Cleanup): void;
   /** Cleanup's tone as it is now. */
   tone(): Tone;
   /** The photo is in Cleanup. */
@@ -83,8 +91,11 @@ export interface TracePanel {
   chooseMethod(method: TracingMethod): void;
   /** Auto-trace's last result, while it has at least one shape; null otherwise. */
   autoTraced(): AutoTraced | null;
-  /** The design space a hand-trace over the cleaned-up photo is placed in, as the cleanup now makes it. */
-  page(): Page;
+  /**
+   * The cleanup as a hand-trace over the cleaned-up photo holds it: starting from the cleanup as it is now, each
+   * cleanup's design space, and how points are carried from one to another.
+   */
+  cleanups(): HandTraceCleanup<Cleanup>;
   /** Where the hand-trace canvas goes in the Photo view: shown past Cleanup while hand-trace is chosen. */
   handSlot: HTMLElement;
 }
@@ -241,6 +252,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
       show();
       if (!live) hooks.onCleanup();
     },
+    { shapes: (toPhoto) => hooks.shapesOver(toPhoto), onLive: () => hooks.onCleanupLive() },
   );
 
   acceptButton.addEventListener("click", () => {
@@ -263,6 +275,7 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
   straighten.addEventListener("click", () => {
     cleaning = true;
     show();
+    cleanupPanel.redraw(); // the shapes over the photo as they are now
     hooks.onCleanup();
   });
 
@@ -393,12 +406,20 @@ export function mountTracePanel(root: HTMLElement, view: HTMLElement, hooks: Tra
     accepted: () => accepted,
     autoTrace,
     cleanup: () => cleanupPanel.cleanup(),
+    setCleanup(cleanup) {
+      cleanupPanel.setCleanup(cleanup);
+      void rewarp();
+    },
     tone: () => cleanupPanel.tone(),
     inCleanup: () => cleaning,
     method: () => method,
     chooseMethod,
     autoTraced: () => traced,
-    page: () => photoPage(cleanupPanel.cleanedUp()),
+    cleanups: () => ({
+      start: cleanupPanel.cleanup(),
+      page: (c) => photoPage(cleanupPanel.cleanedUp(c)),
+      carry: (from, to) => carryPoints(cleanupPanel.cleanedUp(from), cleanupPanel.cleanedUp(to)),
+    }),
     handSlot,
   };
 }

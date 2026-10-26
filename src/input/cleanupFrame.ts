@@ -82,6 +82,39 @@ export function photoPage(cleaned: PhotoSize): Page {
   return { width: 1, height: cleaned.height / cleaned.width };
 }
 
+/** A position in a hand-trace's design space (ADR 0003), or a spot on the photo in px. */
+interface XY {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where design-space position `p` over `cleaned` (y up, one unit across: see `photoPage`) is on the photo, in px:
+ * the spot the cleaned-up photo shows there.
+ */
+export function designToPhoto(cleaned: CleanedUp, p: XY): XY {
+  return applyHomography(cleaned.homography, p.x * cleaned.width, cleaned.height - p.y * cleaned.width);
+}
+
+/**
+ * How a hand-trace's positions are carried through a cleanup change from `from` to `to` (ADR 0003): the old cleanup
+ * undone and the new one applied, so each position stays on the same spot of the photo.
+ */
+export function carryPoints(from: CleanedUp, to: CleanedUp): (p: XY) => XY {
+  const back = invert(to.homography);
+  return (p) => {
+    const spot = designToPhoto(from, p);
+    const q = applyHomography(back, spot.x, spot.y);
+    return { x: q.x / to.width, y: (to.height - q.y) / to.width };
+  };
+}
+
+/** `h` inverted (its adjugate; the scale drops out): the map from the photo back to the cleaned-up photo. */
+function invert(h: Homography): Homography {
+  const [a, b, c, d, e, f, g, k, m] = h;
+  return [e * m - f * k, c * k - b * m, b * f - c * e, f * g - d * m, a * m - c * g, c * d - a * f, d * k - e * g, b * g - a * k, a * e - b * d];
+}
+
 /** JPEG markers: start of image, the APP1 segment EXIF lives in, and start of scan (the pixels; no EXIF after it). */
 const [SOI, APP1, SOS] = [0xffd8, 0xffe1, 0xffda];
 /** EXIF tags: the pointer to the EXIF sub-IFD, and the 35 mm-equivalent focal length (a SHORT, in mm; 0: unknown). */

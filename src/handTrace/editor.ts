@@ -14,6 +14,7 @@ import {
   type Side,
   type XY,
 } from "./curves";
+import { carried } from "./carry";
 import type { HandTraceRecord, Page, Point, Shape } from "./model";
 import { loopsPathData, pathData } from "./pathData";
 import {
@@ -30,15 +31,33 @@ import {
 } from "./symmetry";
 import { fitScale, fitView, pinchZoom, toDesignSpace, toScreen, wheelZoom, type ViewTransform } from "./view";
 
+/**
+ * The cleanup under a photo's hand-trace (ADR 0003), which the editor holds as one of the things an undo step puts
+ * back. `C` is the cleanup as the app keeps it; the editor only hands it back.
+ */
+export interface HandTraceCleanup<C> {
+  /** The cleanup the points are placed over to begin with (as the stored record restores it). */
+  start: C;
+  /** The design space cleanup `c` makes: the cleaned-up photo's page. */
+  page(c: C): Page;
+  /**
+   * Where a design-space position under cleanup `from` lands under `to`: the old cleanup undone and the new one
+   * applied, so it stays on the same spot of the photo.
+   */
+  carry(from: C, to: C): (p: XY) => XY;
+}
+
 /** What the editor needs from outside. */
-export interface HandTraceOptions {
+export interface HandTraceOptions<C = unknown> {
   /**
    * The one route from path data (SVG space, y down) to the core's `Design`: `designFromPathData` in `src/input`,
    * which flattens at the loader's tolerance. Passed in because the editor can't import outside the core.
    */
   toDesign: (pathData: string) => Design | null;
-  /** The page the points are placed on; a blank page (1 × 1) when left out. */
+  /** The page the points are placed on; a blank page (1 × 1) when left out, or the cleanup's page with one. */
   page?: Page;
+  /** The cleanup under a photo, which `changeCleanup` changes; none for a blank page or an edited SVG design. */
+  cleanup?: HandTraceCleanup<C>;
   /** The stored record to reopen (validated by the record module), as after a reload; nothing drawn when left out. */
   record?: HandTraceRecord;
   /**
@@ -183,7 +202,7 @@ export interface Loupe {
 }
 
 /** The hand-trace editor: commands and gestures in; what's drawn, the `Design` and the shapes out. */
-export interface HandTrace {
+export interface HandTrace<C = unknown> {
   /** The canvas is now `width` × `height` px; the page refits unless the carver has panned or zoomed. */
   resize(width: number, height: number): void;
   gesture(g: Gesture): void;
@@ -219,6 +238,17 @@ export interface HandTrace {
    * selected. Each gets an id of its own.
    */
   replace(shapes: readonly Shape[]): void;
+  /**
+   * A cleanup change: the photo under the points is now cleaned up by `cleanup`, so every point and handle is
+   * carried to stay on its spot of the photo, and the page becomes the new cleaned-up photo's. `live` while a frame
+   * corner is dragged (or nudged, or Turn moves): shown as it would end, always carried from the cleanup before the
+   * drag, and kept out of the `Design` and the record. Each released change (`live` false) is one undo step, which
+   * puts the old cleanup back too; a release with the cleanup from before the drag is none. Only with the `cleanup`
+   * option.
+   */
+  changeCleanup(cleanup: C, live: boolean): void;
+  /** The cleanup the points are over now, as the last change, undo or redo left it; null without the option. */
+  cleanup(): C | null;
   undo(): void;
   redo(): void;
   /** Done: end the shape being drawn open, hide the tools and stop taking input. */
@@ -234,6 +264,12 @@ export interface HandTrace {
    * hand-trace file draws.
    */
   pathData(): string;
+  /**
+   * Every shape and reflection as path data with each position (points and handle tips) mapped through `map`, the
+   * closed ones apart from the open ones: what Cleanup draws over the photo, where they can't be edited. Live
+   * through a cleanup change, as `drawn` is.
+   */
+  shapePaths(map: (p: XY) => XY): { closed: string; open: string };
   /** The shapes, in the order drawn, as the stored record holds them. */
   shapes(): readonly Shape[];
   /** What the stored record keeps of the hand-trace. A new object only on a finished change or Done/Edit. */
@@ -284,10 +320,13 @@ const ARROWS = new Map([
 /** The pill's hint when nothing is being drawn. */
 const HINT = "Tap to place a point.";
 
-/** The shapes and which one is being drawn: what an undo step puts back. */
+/** The shapes, which one is being drawn, and the page and cleanup they're over: what an undo step puts back. */
 interface State {
   shapes: readonly Shape[];
   drawing: number | null;
+  page: Page;
+  /** The cleanup under a photo, as the app keeps it; null without one. */
+  cleanup: unknown;
 }
 
 /**
@@ -399,12 +438,24 @@ interface Before {
 /** A blank page: square, with points relative to its size. */
 const BLANK_PAGE: Page = { width: 1, height: 1 };
 
-export function createHandTrace(options: HandTraceOptions): HandTrace {
-  const page = options.page ?? BLANK_PAGE;
-  /** The symmetry axis: a vertical line down the page's middle, as its x. */
-  const axis = page.width / 2;
+export function createHandTrace<C = unknown>(options: HandTraceOptions<C>): HandTrace<C> {
+  const cleanups = options.cleanup;
   const reopened = options.record;
-  let state: State = { shapes: reopened?.shapes ?? [], drawing: reopened?.drawing ?? null };
+  let state: State = {
+    shapes: reopened?.shapes ?? [],
+    drawing: reopened?.drawing ?? null,
+    page: cleanups ? cleanups.page(cleanups.start) : (options.page ?? BLANK_PAGE),
+    cleanup: cleanups ? cleanups.start : null,
+  };
+  /** The page the points are placed on now: the state's. */
+  let page = state.page;
+  /** The symmetry axis: a vertical line down the page's middle, as its x. */
+  let axis = page.width / 2;
+  /**
+   * A run of live cleanup changes under way: the state before it, which every change in the run is carried from and
+   * which the `Design` and the record still show; null with none.
+   */
+  let reframing: { from: State } | null = null;
   const undoStack: State[] = [];
   let redoStack: State[] = [];
   let nextId = Math.max(0, ...state.shapes.map((s) => s.id)) + 1;
@@ -442,35 +493,78 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     selection: Selection | null;
   } | null = null;
 
+  /** The state the `Design` and the record show: the one before a run of live cleanup changes, while there's one. */
+  const committed = () => reframing?.from ?? state;
   // SVG space is y down: flip on the way out, as the loader flips back.
-  const closedPathData = () =>
-    pathData(
-      state.shapes.filter((s) => s.closed),
+  const closedPathData = () => {
+    const { shapes, page: under } = committed();
+    return pathData(
+      shapes.filter((s) => s.closed),
       ({ x, y }) => ({ x, y: -y }),
-      axis,
+      under.width / 2,
     );
+  };
   /**
    * The Design from the closed shapes' path data. With a mirrored shape among them its box is widened evenly about
    * the axis, so placement centres the axis on the pumpkin's front (ADR 0004).
    */
   const design = (): Design | null => {
-    if (designOf?.shapes !== state.shapes) {
+    const { shapes, page: under } = committed();
+    if (designOf?.shapes !== shapes) {
       const d = closedPathData();
       const made = d ? options.toDesign(d) : null;
-      const mirrored = state.shapes.some((s) => s.closed && s.mirror !== "none");
-      designOf = { shapes: state.shapes, design: made && mirrored ? aboutAxis(made, axis) : made };
+      const mirrored = shapes.some((s) => s.closed && s.mirror !== "none");
+      designOf = { shapes, design: made && mirrored ? aboutAxis(made, under.width / 2) : made };
     }
     return designOf.design;
   };
 
-  /** Each shape's outlines as drawn, worked out once per shape: shapes are never changed in place. */
-  const outlineCache = new WeakMap<Shape, Outline[]>();
+  /** Each shape's outlines as drawn, worked out once per shape and axis: shapes are never changed in place. */
+  const outlineCache = new WeakMap<Shape, { axis: number; outlines: Outline[] }>();
   const outlines = (shape: Shape): Outline[] => {
     const known = outlineCache.get(shape);
-    if (known) return known;
+    if (known?.axis === axis) return known.outlines;
     const made = outlinesOf(shape, axis);
-    outlineCache.set(shape, made);
+    outlineCache.set(shape, { axis, outlines: made });
     return made;
+  };
+
+  /** Put `next` in place: a new page brings its own axis, and refits the view unless the carver has moved it. */
+  const setState = (next: State) => {
+    state = next;
+    if (next.page === page) return;
+    page = next.page;
+    axis = page.width / 2;
+    if (!moved && size.width > 0 && size.height > 0) view = fitView(page, size.width, size.height);
+  };
+
+  /**
+   * A cleanup change: the shapes carried from the state before any live run under way, onto `cleanup`'s page.
+   * Live, it's shown; released, it's one undo step from that state, unless it's that state's own cleanup.
+   */
+  const changeCleanup = (cleanup: C, live: boolean) => {
+    if (!cleanups) return;
+    const from = committed();
+    const map = cleanups.carry(from.cleanup as C, cleanup);
+    const to = cleanups.page(cleanup);
+    const shapes = from.shapes.map((s) => carried(s, map, to.width / 2));
+    const next = { ...from, shapes, page: to, cleanup };
+    drag = null;
+    if (live) {
+      reframing = { from };
+      return setState(next);
+    }
+    reframing = null;
+    setState(from);
+    if (cleanup !== from.cleanup) change(next);
+  };
+  /** A live cleanup run something else interrupts: it stands as it got, as one undo step. */
+  const endReframing = () => {
+    if (!reframing) return;
+    undoStack.push(reframing.from);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack = [];
+    reframing = null;
   };
   /**
    * Where `shape`'s point `index` is drawn, as placed or `reflected`: its outline (`o`), node and place there (`k`)
@@ -488,11 +582,12 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
 
   /** Make a change to the shapes, as one undo step. A move under way is dropped: it was built on the old shapes. */
   const change = (next: State) => {
+    endReframing();
     drag = null;
     undoStack.push(state);
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     redoStack = [];
-    state = next;
+    setState(next);
   };
   const replace = (shape: Shape): readonly Shape[] => state.shapes.map((s) => (s.id === shape.id ? shape : s));
 
@@ -539,19 +634,19 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       const grown = { ...shape, points: [...shape.points, point] };
       const on = (p: XY) => onAxis(p, axis);
       const lands = shape.mirror !== "none" && on(point) && on(shape.points[0]) && grown.points.length >= 3;
-      if (lands && !grown.points.every(on)) change({ shapes: replace(closed(grown, axis)), drawing: null });
+      if (lands && !grown.points.every(on)) change({ ...state, shapes: replace(closed(grown, axis)), drawing: null });
       else change({ ...state, shapes: replace(grown) });
     } else {
       const id = nextId++;
       const mirror = symmetry ? "twin" : "none";
-      change({ shapes: [...state.shapes, { id, closed: false, mirror, points: [point] }], drawing: id });
+      change({ ...state, shapes: [...state.shapes, { id, closed: false, mirror, points: [point] }], drawing: id });
     }
   };
 
   const close = () => {
     const shape = drawingShape();
     if (!shape || shape.points.length < 3) return;
-    change({ shapes: replace(closed(shape, axis)), drawing: null });
+    change({ ...state, shapes: replace(closed(shape, axis)), drawing: null });
   };
   const end = () => {
     if (state.drawing !== null) state = { ...state, drawing: null };
@@ -570,7 +665,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     // Drawing always adds at the last point, so carrying on from the first turns the shape round.
     const turned = selection?.kind === "point" && selection.index === 0 && shape.points.length > 1;
     const shapes = turned ? replace({ ...shape, points: [...shape.points].reverse() }) : state.shapes;
-    state = { shapes, drawing: shape.id };
+    state = { ...state, shapes, drawing: shape.id };
     selection = null;
     drag = null;
   };
@@ -852,7 +947,8 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     tapped = null;
     if (!first?.point || first.state !== state || first.selection !== selection) return tap(at);
     const { before } = first;
-    [state, selection, nextId, redoStack] = [before.state, before.selection, before.nextId, [...before.redo]];
+    setState(before.state);
+    [selection, nextId, redoStack] = [before.selection, before.nextId, [...before.redo]];
     undoStack.splice(0, undoStack.length, ...before.undo);
     const hit = pointAt(at)?.hit;
     if (hit?.kind !== "point" || hit.shape.id !== first.point.shape || hit.index !== first.point.index) {
@@ -1010,21 +1106,23 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
 
 
   const undo = () => {
+    endReframing();
     const prev = finished ? undefined : undoStack.pop();
     if (!prev) return;
     drag = null;
     const from = state;
     redoStack.push(state);
-    state = prev;
+    setState(prev);
     settle(from);
   };
   const redo = () => {
+    endReframing();
     const next = finished ? undefined : redoStack.pop();
     if (!next) return;
     drag = null;
     const from = state;
     undoStack.push(state);
-    state = next;
+    setState(next);
     settle(from);
   };
 
@@ -1099,7 +1197,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     const shape = drawingShape()!;
     const points = shape.points.slice(0, -1);
     if (points.length > 0) change({ ...state, shapes: replace({ ...shape, points }) });
-    else change({ shapes: state.shapes.filter((s) => s !== shape), drawing: null });
+    else change({ ...state, shapes: state.shapes.filter((s) => s !== shape), drawing: null });
   };
 
   /** Zoom by `factor` about the canvas's middle. */
@@ -1111,6 +1209,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
 
   const key = ({ key: k, ctrl, shift }: KeyInput): boolean => {
     if (finished || size.width === 0) return false;
+    endReframing();
     const lower = k.toLowerCase();
     const drawing = state.drawing !== null;
     const can = (ok: boolean, act: () => void) => {
@@ -1157,6 +1256,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       return;
     }
     if (finished || size.width === 0) return;
+    endReframing();
     // A mouse or pen still hovers where its drag ended.
     const ends = (g.type === "drag" || g.type === "pan") && (g.phase === "end" || g.phase === "cancel");
     if (ends && g.pointerType !== "touch") pointer = { at: g.at, pans: pointer?.pans ?? false };
@@ -1200,18 +1300,7 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     const found = nodeOf(shapes.find((s) => s.id === shape.id) ?? shape, index, reflected);
     return found && loupeAt(drag.at, toScreen(view, found.at));
   };
-  const loupeAt = (finger: ScreenPoint, focus: ScreenPoint): Loupe => {
-    // Above the finger; beside it, on whichever side there's room, when there's no room above.
-    let x = finger.x - LOUPE_PX / 2;
-    let y = finger.y - LOUPE_GAP_PX - LOUPE_PX;
-    if (y < LOUPE_MARGIN_PX) {
-      y = Math.max(LOUPE_MARGIN_PX, finger.y - LOUPE_PX / 2);
-      const right = finger.x + LOUPE_GAP_PX;
-      x = right + LOUPE_PX <= size.width - LOUPE_MARGIN_PX ? right : finger.x - LOUPE_GAP_PX - LOUPE_PX;
-    }
-    x = Math.min(size.width - LOUPE_MARGIN_PX - LOUPE_PX, Math.max(LOUPE_MARGIN_PX, x));
-    return { box: { x, y, width: LOUPE_PX, height: LOUPE_PX }, focus, magnification: LOUPE_MAGNIFICATION };
-  };
+  const loupeAt = (finger: ScreenPoint, focus: ScreenPoint): Loupe => placeLoupe(finger, focus, size.width);
 
   const pill = (): Pill => {
     const shape = drawingShape();
@@ -1317,12 +1406,12 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     toggleSymmetry: () => !finished && toggleSymmetry(),
     clear() {
       if (finished || state.shapes.length === 0) return;
-      change({ shapes: [], drawing: null });
+      change({ ...state, shapes: [], drawing: null });
       selection = null;
     },
     replace(shapes) {
       if (finished) return;
-      change({ shapes: shapes.map((s) => ({ ...s, id: nextId++ })), drawing: null });
+      change({ ...state, shapes: shapes.map((s) => ({ ...s, id: nextId++ })), drawing: null });
       selection = null;
     },
     undo,
@@ -1340,15 +1429,30 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
     drawn,
     design,
     pathData: closedPathData,
+    shapePaths: (map) => ({
+      closed: pathData(
+        state.shapes.filter((s) => s.closed),
+        map,
+        axis,
+      ),
+      open: pathData(
+        state.shapes.filter((s) => !s.closed),
+        map,
+        axis,
+      ),
+    }),
     shapes: () => state.shapes,
     record() {
-      if (recordOf?.state !== state || recordOf.finished !== finished || recordOf.symmetry !== symmetry) {
-        const record = { shapes: [...state.shapes], drawing: state.drawing, done: finished, ...(symmetry && { symmetry }) };
-        recordOf = { state, finished, symmetry, record };
+      const shown = committed();
+      if (recordOf?.state !== shown || recordOf.finished !== finished || recordOf.symmetry !== symmetry) {
+        const record = { shapes: [...shown.shapes], drawing: shown.drawing, done: finished, ...(symmetry && { symmetry }) };
+        recordOf = { state: shown, finished, symmetry, record };
       }
       return recordOf.record;
     },
     page: () => page,
+    changeCleanup,
+    cleanup: () => state.cleanup as C | null,
     counts: () => ({
       points: state.shapes.reduce((n, s) => n + s.points.length, 0),
       open: state.shapes.filter((s) => !s.closed).length,
@@ -1357,6 +1461,23 @@ export function createHandTrace(options: HandTraceOptions): HandTrace {
       warnings = { design: design(), warnings: next };
     },
   };
+}
+
+/**
+ * The loupe for a finger at `finger` aiming at `focus`, on a canvas `width` px across: above the finger, or beside
+ * it (on whichever side there's room) when there's no room above, and kept inside the canvas. The canvas's and
+ * Cleanup's frame corners' alike.
+ */
+export function placeLoupe(finger: ScreenPoint, focus: ScreenPoint, width: number): Loupe {
+  let x = finger.x - LOUPE_PX / 2;
+  let y = finger.y - LOUPE_GAP_PX - LOUPE_PX;
+  if (y < LOUPE_MARGIN_PX) {
+    y = Math.max(LOUPE_MARGIN_PX, finger.y - LOUPE_PX / 2);
+    const right = finger.x + LOUPE_GAP_PX;
+    x = right + LOUPE_PX <= width - LOUPE_MARGIN_PX ? right : finger.x - LOUPE_GAP_PX - LOUPE_PX;
+  }
+  x = Math.min(width - LOUPE_MARGIN_PX - LOUPE_PX, Math.max(LOUPE_MARGIN_PX, x));
+  return { box: { x, y, width: LOUPE_PX, height: LOUPE_PX }, focus, magnification: LOUPE_MAGNIFICATION };
 }
 
 /** `design` with its box widened evenly about the axis at x = `axis`, so the axis is its middle. */

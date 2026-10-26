@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applyHomography,
+  carryPoints,
   cleanUp,
   cornerAt,
+  designToPhoto,
   exifFocal35Mm,
   isFrame,
   moveCorner,
@@ -11,6 +13,7 @@ import {
   START_FRAME,
   turnFrame,
   warpPhoto,
+  WHOLE_PHOTO,
   type FrameCorners,
 } from "../src/input/cleanupFrame";
 
@@ -289,5 +292,53 @@ describe("the cleanup frame: the warp", () => {
     const at = applyHomography(homography, 0.5, 0.5);
     expect(at.x).toBeCloseTo(47.5, 9);
     expect(at.y).toBeCloseTo(0.5, 9);
+  });
+});
+
+describe("the cleanup frame: carrying a hand-trace's points through a cleanup change", () => {
+  /** A small photo, so no cleaned-up photo is shrunk (or rounded) on the way. */
+  const small = { width: 400, height: 300 };
+  const whole = cleanUp({ corners: WHOLE_PHOTO, aspect: "estimated" }, small);
+  /** The photo's right half, cropped: 200 × 300 px. */
+  const rightHalf = cleanUp(
+    {
+      corners: [
+        { x: 0.5, y: 0 },
+        { x: 1, y: 0 },
+        { x: 1, y: 1 },
+        { x: 0.5, y: 1 },
+      ],
+      aspect: "estimated",
+    },
+    small,
+  );
+
+  it("a design-space position is on the photo where the cleaned-up photo shows it: its top-left at the frame's", () => {
+    const tl = designToPhoto(rightHalf, { x: 0, y: photoPage(rightHalf).height });
+    expect(tl.x).toBeCloseTo(200, 9);
+    expect(tl.y).toBeCloseTo(0, 9);
+    const middle = designToPhoto(whole, { x: 0.5, y: 0.375 });
+    expect(middle.x).toBeCloseTo(200, 9);
+    expect(middle.y).toBeCloseTo(150, 9);
+  });
+
+  it("a crop carries a point to where the same spot of the photo is in the new design space", () => {
+    // Photo px (300, 75): a quarter of the way down the whole photo's right half.
+    const carried = carryPoints(whole, rightHalf)({ x: 0.75, y: 0.5625 });
+    expect(carried.x).toBeCloseTo(0.5, 9);
+    expect(carried.y).toBeCloseTo(1.125, 9);
+  });
+
+  it("under a four-corner change a point stays on its spot of the photo, and comes back where it started", () => {
+    const tilted = cleanUp({ corners: cornersAt([900, 400], [3100, 650], [2900, 2700], [700, 2500]), aspect: null }, PHOTO);
+    const straight = cleanUp({ corners: START_FRAME, aspect: null }, PHOTO);
+    const p = { x: 0.3, y: 0.4 };
+    const there = carryPoints(tilted, straight)(p);
+    const spot = [designToPhoto(tilted, p), designToPhoto(straight, there)];
+    expect(spot[1].x).toBeCloseTo(spot[0].x, 6);
+    expect(spot[1].y).toBeCloseTo(spot[0].y, 6);
+    const back = carryPoints(straight, tilted)(there);
+    expect(back.x).toBeCloseTo(p.x, 9);
+    expect(back.y).toBeCloseTo(p.y, 9);
   });
 });

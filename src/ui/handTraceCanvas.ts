@@ -5,6 +5,7 @@ import {
   type Drawn,
   type Gesture,
   type HandTrace,
+  type HandTraceCleanup,
   type HandTraceOptions,
   type HandTraceRecord,
   HOLD_MS,
@@ -13,6 +14,7 @@ import {
   type PointerInput,
   type Shape,
 } from "../handTrace";
+import type { Cleanup } from "../input/cleanupFrame";
 import { designFromPathData } from "../input/pathDesign";
 import { el } from "./svg";
 
@@ -20,10 +22,12 @@ export interface HandTraceCanvas {
   /** Start a new hand-trace on a blank page, replacing any other; or reopen a `kept` one, as after a reload. */
   startBlankPage(kept?: { page: Page; handTrace: HandTraceRecord }): void;
   /**
-   * Start a new hand-trace over a cleaned-up photo whose design space is `page`, replacing any other; or reopen a
-   * `kept` one. The photo itself comes through `setPhoto`.
+   * Start a new hand-trace over a photo cleaned up as `cleanups` starts it, replacing any other; or reopen a `kept`
+   * one. The cleaned-up photo itself comes through `setPhoto`.
    */
-  startPhoto(page: Page, kept?: HandTraceRecord): void;
+  startPhoto(cleanups: HandTraceCleanup<Cleanup>, kept?: HandTraceRecord): void;
+  /** A cleanup change under the photo: the points follow, live or (released) as one undo step. */
+  changeCleanup(cleanup: Cleanup, live: boolean): void;
   /** The cleaned-up photo to place points over (an image URL), shown at the page; null shows none. */
   setPhoto(href: string | null): void;
   /** Cleanup's tone, as a CSS filter on the photo: display only. */
@@ -33,7 +37,7 @@ export interface HandTraceCanvas {
   /** Edit as hand-trace's copy: `shapes` in place of the hand-trace's, as one undo step. */
   replace(shapes: readonly Shape[]): void;
   /** The hand-trace being shown, or null when there's none. */
-  editor(): HandTrace | null;
+  editor(): HandTrace<Cleanup> | null;
   /** Done (true) or Edit (false): hide the tools and stop taking input, or bring them back. */
   setDone(done: boolean): void;
   /** The core's warnings for the hand-trace's Design: its shape warnings are marked where they are. */
@@ -98,7 +102,7 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
   const note = view.querySelector<HTMLElement>(".ht-note")!;
   const pill = view.querySelector<HTMLElement>(".ht-pill")!;
   const button = (act: string) => tools.querySelector<HTMLButtonElement>(`[data-act="${act}"]`)!;
-  let editor: HandTrace | null = null;
+  let editor: HandTrace<Cleanup> | null = null;
   let recognizer = createGestureRecognizer();
   /** The drawing's id, for the loupe to show it by reference; one per canvas. */
   const drawingId = `ht-drawing-${++canvases}`;
@@ -238,9 +242,9 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
     render();
   }).observe(svg);
 
-  const start = (options: Omit<HandTraceOptions, "toDesign">) => {
+  const start = (options: Omit<HandTraceOptions<Cleanup>, "toDesign">) => {
     svg.setAttribute("aria-label", `${options.photo ? "The cleaned-up photo" : "Blank page"}. ${GESTURES_LABEL}`);
-    editor = createHandTrace({ toDesign: designFromPathData, ...options });
+    editor = createHandTrace<Cleanup>({ toDesign: designFromPathData, ...options });
     recognizer = createGestureRecognizer();
     reported = editor.design();
     kept = editor.record();
@@ -254,8 +258,12 @@ export function mountHandTraceCanvas(view: HTMLElement, onChange: () => void, on
       photo.removeAttribute("href");
       start({ page: restored?.page, record: restored?.handTrace });
     },
-    startPhoto(page, restored) {
-      start({ page, record: restored, photo: true });
+    startPhoto(cleanups, restored) {
+      start({ cleanup: cleanups, record: restored, photo: true });
+    },
+    changeCleanup(cleanup, live) {
+      editor?.changeCleanup(cleanup, live);
+      render();
     },
     setPhoto(href) {
       if (href) photo.setAttribute("href", href);

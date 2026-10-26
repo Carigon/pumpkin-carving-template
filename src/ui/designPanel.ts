@@ -201,16 +201,15 @@ export function mountDesignPanel(
   /** The photo's Done is the chosen method's: the hand-trace is Done only while it's chosen and accepted. */
   const syncDone = () => handTrace.setDone(trace.method() === "hand" && trace.accepted());
   /**
-   * A cleanup change that reshapes the cleaned-up photo reshapes the hand-trace's design space: the hand-trace is put
-   * on the new one as it is (its points aren't carried with the frame yet; undo history starts again).
+   * A released cleanup change carries the hand-trace's points with the photo, as one undo step (whichever method is
+   * chosen: the hand-trace is kept beside auto-trace's result). The canvas reports the changed Design. A tone change
+   * or a change of stage hands over the cleanup the editor has: no step.
    */
-  const followCleanup = () => {
-    const editor = handTrace.editor();
-    const page = trace.page();
-    if (!editor || editor.page().height === page.height) return;
-    handTrace.startPhoto(page, editor.record());
-    pickDesign();
-    onChange();
+  const followCleanup = () => handTrace.changeCleanup(trace.cleanup(), false);
+  /** An undo or redo of a cleanup change put the hand-trace's old cleanup back: the photo is cleaned up by it again. */
+  const followUndo = () => {
+    const cleanup = trace.loaded() ? handTrace.editor()?.cleanup() : null;
+    if (cleanup && cleanup !== trace.cleanup()) trace.setCleanup(cleanup);
   };
 
   const traceEl = $<HTMLElement>("d-trace");
@@ -238,6 +237,9 @@ export function mountDesignPanel(
       showPhotoStatus();
       keep();
     },
+    onCleanupLive: () => handTrace.changeCleanup(trace.cleanup(), true),
+    // Drawn over the photo while hand-trace is chosen: the shapes being traced.
+    shapesOver: (toPhoto) => (trace.method() === "hand" ? (handTrace.editor()?.shapePaths(toPhoto) ?? null) : null),
     onCleaned: (href) => handTrace.setPhoto(href),
     onMethod() {
       syncDone();
@@ -265,10 +267,12 @@ export function mountDesignPanel(
   const handTrace = mountHandTraceCanvas(
     canvasHost,
     () => {
+      followUndo();
       pickDesign();
       onChange();
     },
     () => {
+      followUndo(); // before the record is kept: it holds the cleanup
       showHandTrace(); // a point placed or deleted: Download SVG may have changed
       keep();
     },
@@ -276,7 +280,7 @@ export function mountDesignPanel(
   /** Start the photo's hand-trace over the cleaned-up photo, or reopen `kept`. */
   const startPhotoHandTrace = (kept?: HandTraceRecord) => {
     trace.handSlot.append(canvasHost);
-    handTrace.startPhoto(trace.page(), kept);
+    handTrace.startPhoto(trace.cleanups(), kept);
     handTrace.setTone(toneFilter(trace.tone()));
     showHandTrace();
   };
